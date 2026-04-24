@@ -70,15 +70,15 @@ self._activation = (
 
 tp=2 推理，4 prompts，max_tokens=128：
 - 延迟在 baseline ±10% 内
-- "1+2+3=?" prompt 在 SwigluStep 下给出完整正确答案（baseline 因 `\x1a` 字符乱码）
+- "1+2+3=?" prompt 在 SwigluStep 下给出完整正确答案；baseline（A1）同一 prompt 出现 `\x1a` 字符，但 `\x1a` 是独立的 tokenization 问题（与 SwigluStep 无关），在该测试配置下凑巧未被 SwigluStep 触发
 
 ### Phase G：层级验证（真实权重）
 
-对 layer 43（scale=0.5, 2.0, 5.0），M∈{16, 64, 256, 1024}：
+对 layer 44（G1，M=16，scale=0.5）及 layer 43/44（G2，M∈{16, 64, 256, 1024}，scale∈{0.5, 2.0, 5.0}）：
 ```
 cos_sim = 0.999989 ~ 0.999990  # 全部 PASS，包括 scale=5.0 深度 clamp 场景
 ```
-CK kernel 与 HF reference bit 级对齐。
+CK kernel 与 HF reference 高精度对齐（cos_sim=0.999989 为 bf16 精度上限，非 bit-exact）。
 
 ### Phase H：BOS-spam 调查（max_tokens=512+）
 
@@ -151,7 +151,7 @@ self.experts = FusedMoE(
 | 教训 | 说明 |
 |------|------|
 | stale .so 必须同时清 | 只删 build/ 或只删 .so 都不够，两者必须同时清 |
-| op_test preshuffle ≠ 生产 | op_test 走 preshuffle_on，生产走 preshuffle_off；两者用不同 codegen 路径 |
+| stale .so 根因 | BF16 下 preshuffle_on 和 preshuffle_off 实际 codegen 相同 kernel（均假设 shuffled layout）；首次运行 cos_sim=0.0 是因为加载了旧 .so，不是 preshuffle 路径差异 |
 | baseline 优先 | 任何改动前先建立 baseline（命令+输出+延迟），改动后对比 |
 | 层级验证 vs 端到端 | 层级 cos_sim 高可证明 kernel 正确，端到端异常可能是其他原因（如 BOS-spam 是噪声累积） |
 | shared expert 不进 fused kernel | shared expert limit 与 routed 不同，强行 fuse 会触发硬编码 clamp 值冲突 |

@@ -79,26 +79,30 @@ per_1x128 路径应传 `block_shape=[128, 128]`，影响 EP（Expert Parallel）
 
 ## 3. 根因
 
+**修复前**（无 q_type guard）：
 ```mermaid
 graph TD
-    A["fused_moe_() 被调用"] --> B{"inter_dim > 192<br/>AND gfx950?"}
-    B -->|No| C["block_m 保持 L895 初始值"]
-    B -->|Yes| D{"修复后：q_type in<br/>per_1x128 / per_1x32?"}
-    B -->|"Yes（修复前：无此判断）"| X["block_m = 128（无条件）"]
-
-    D -->|"Yes — FP8 blockscale"| E["block_m = 64 保持不变"]
-    D -->|"No — BF16 a16w16"| F["block_m = 128<br/>强制走 V3 kernel"]
-
+    A["fused_moe_() inter_dim=640 gfx950"] --> B{"inter_dim > 192?"}
+    B -->|Yes| X["block_m = 128（无条件）"]
     X --> I["a8w8blkscale dispatch<br/>block_m=128 不支持 ❌<br/>TORCH_CHECK failed"]
-    E --> G["a8w8blkscale dispatch<br/>block_m=64 ✅"]
-    F --> H["a16w16 dispatch<br/>block_m=128 ✅"]
+    style X fill:#F44336,color:#fff
+    style I fill:#F44336,color:#fff
+```
 
+**修复后**（加 q_type guard）：
+```mermaid
+graph TD
+    A["fused_moe_() inter_dim=640 gfx950"] --> B{"inter_dim > 192?"}
+    B -->|No| C["block_m 保持 L895 初始值"]
+    B -->|Yes| D{"q_type in per_1x128 / per_1x32?"}
+    D -->|"Yes — FP8 blockscale"| E["block_m = 64 保持不变"]
+    D -->|"No — BF16 a16w16"| F["block_m = 128"]
+    E --> G["a8w8blkscale dispatch block_m=64 ✅"]
+    F --> H["a16w16 dispatch block_m=128 ✅"]
     style E fill:#4CAF50,color:#fff
     style G fill:#4CAF50,color:#fff
     style F fill:#2196F3,color:#fff
     style H fill:#2196F3,color:#fff
-    style X fill:#F44336,color:#fff
-    style I fill:#F44336,color:#fff
 ```
 
 ### Bug 1（关键）：L904 block_m=128 与 blockscale dispatch 不兼容
@@ -183,7 +187,7 @@ rm -rf /root/.cache/atom/* && cd /tmp && CUDA_VISIBLE_DEVICES=0,1 \
 | 1+2+3=? | 60 | EOS | ✅ 正确回答 6 |
 | 如何在一个月内增肌10公斤 | 1000 | max_tokens | ✅ 科学分析，中文流畅，在合理处截断 |
 
-FP8 量化对输出质量无明显损失。
+在 4 个测试 prompt 上，FP8 量化输出与预期一致，未观察到明显质量损失（未做系统性 benchmark 评测）。
 
 **JIT 模块**（已编译）：
 ```

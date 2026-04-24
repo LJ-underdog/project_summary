@@ -74,7 +74,7 @@ static assertion failed: ck::Sequence<4, 32, 8> vs ck::Sequence<4, 0, 8>
 bf16 stage2 要求 K0_A≥8，对应 KPerBlock≥64，框架内无法支持 KPerBlock=32。
 
 **方案 B（inter_dim padding，最终选择）**：在加载时将 inter_dim pad 到对齐值，kernel 看到的是 padded 维度。
-padding 发生在 `shuffle_weights()` 前，pad 部分填零，stage2 输出时 slice 回原始 inter_dim。
+padding 发生在 `shuffle_weights()` 前，pad 部分填零。w2（down projection）同步 pad，padded 行权重为零，对 stage2 输出贡献为零，无需显式 slice。
 
 对齐约束推导：
 - inter≤192：align=64（160→192，192%64=0 ✓）
@@ -185,8 +185,8 @@ if ca_comm is None:
 | tp=4 BF16 | 4 prompts，max_tokens=128 | ✅ 正常完成 |
 | tp=4 BF16 | inter_dim padding 精度验证 | cos_sim 与 tp=2 一致 |
 | tp=2 回归 | baseline 4 prompts | ✅ 不退化 |
-| tp=8 BF16 | kernel 层面 | ✅ 无 crash |
-| tp=8 BF16 | 端到端推理 | ⚠️ GPU5 硬件阻塞 |
+| tp=8 BF16 | kernel 对齐验证（160→192 padding，192%64=0） | ✅ 对齐约束满足（未实测，GPU5 阻塞） |
+| tp=8 BF16 | 端到端推理 | ⚠️ GPU5 硬件阻塞，无法完成 |
 
 ---
 
