@@ -35,17 +35,19 @@
 
 ```python
 # 最小复现：单层 MoE vs PyTorch reference
-import torch
+import torch, torch.nn.functional as F
 from aiter import fused_moe
 
 # aiter MoE 输出
 out_aiter = fused_moe(hidden, w1, w2, ...)
 
 # PyTorch reference（逐步计算）
-gate, up = hidden @ w1.T.chunk(2, dim=-1)
-out_ref  = F.silu(gate) * up @ w2.T
+gate_up = hidden @ w1.T                  # [M, 2*inter_dim]
+gate, up = gate_up.chunk(2, dim=-1)      # each [M, inter_dim]
+out_ref  = (F.silu(gate) * up) @ w2.T   # [M, hidden]  注意括号优先级
 
-cos_sim = F.cosine_similarity(out_aiter.flatten(), out_ref.flatten(), dim=0)
+cos_sim = (out_aiter.flatten() @ out_ref.flatten()) / \
+          (out_aiter.norm() * out_ref.norm())
 print(f"cos_sim = {cos_sim:.6f}")  # 期望 > 0.9999
 ```
 
@@ -66,14 +68,14 @@ print(f"cos_sim = {cos_sim:.6f}")  # 期望 > 0.9999
 
 ```python
 # Canary 实验模板
-CANARY = 0xDEADBEEF
-a2 = torch.zeros(T * K + K + 1)  # 额外分配一个元素
-a2[T * K + K] = CANARY           # 写入 canary
+CANARY = 1.23456789e10           # 选一个极不可能自然出现的浮点数作为哨兵
+a2 = torch.zeros(T * K + K + 1) # 额外分配一个元素
+a2[T * K + K] = CANARY          # 写入 canary（注意：float tensor 不能用整数 0xDEADBEEF）
 
-run_kernel(a2, ...)               # 运行 kernel
+run_kernel(a2, ...)              # 运行 kernel
 
 # 验证
-assert a2[T * K + K].item() == CANARY, "OOB 写入！"
+assert abs(a2[T * K + K].item() - CANARY) < 1e3, "OOB 写入！"
 print("canary pristine — OOB 假说排除")
 ```
 
@@ -145,10 +147,10 @@ ctx=513: 0.999016 FAIL
 **阈值参考（bf16 精度）**：
 | cos_sim 范围 | 含义 |
 |-------------|------|
-| > 0.9999 | 正常（bf16 精度上限） |
-| 0.998 ~ 0.999 | 轻微偏差（可接受 or 小 bug） |
+| > 0.9999 | 正常（bf16 精度上限约 0.999989） |
+| 0.998 ~ 0.999 | 明显偏差，通常是 bug（如 sliding window off-by-one 产生 0.998982，确认为 bug） |
 | < 0.1 | 严重错误（kernel 计算完全错误） |
-| 负值 | 极严重（输出方向反转） |
+| 负值 | 极严重（输出方向反转，如 preshuffle_off bug 产生 -0.006） |
 
 **案例（SwigluStep Wiring）**：
 
@@ -156,7 +158,7 @@ ctx=513: 0.999016 FAIL
 # 单层精度验证（真实权重，不同激活规模）
 for M in [16, 64, 256, 1024]:
     for scale in [0.5, 2.0, 5.0]:
-        cos = test_layer(layer_idx=43, M=M, scale=scale)
+        cos = test_layer(layer_idx=44, M=M, scale=scale)  # G1 用 layer 44
         print(f"M={M}, scale={scale}: cos_sim={cos:.6f}")
 ```
 
@@ -190,8 +192,12 @@ graph LR
     D["修复 Bug 0 (preshuffle_on)"] --> E["V1 kernel 单独暴露<br/>cos_sim=0.004"]
 ```
 
-preshuffle_off 时，V1 kernel 的错误（cos_sim=-0.007）与 Bug 0 的错误（cos_sim=-0.006）
-几乎相同，无法区分。修复 Bug 0 后，V1 的 0.004 才单独出现。
+在同一对照实验（H=2048, I=640）中：
+- preshuffle_off + V3: cos_sim = -0.007117
+- preshuffle_off + V1: cos_sim = -0.007120
+
+两者差距仅 0.000003，无法区分。修复 Bug 0（切换 preshuffle_on）后：
+- preshuffle_on + V1: cos_sim = 0.004（Bug 1 单独暴露）
 
 **关键问题**：看到 FAIL 时，问"这个 FAIL 是否会掩盖其他 FAIL？"
 
@@ -314,12 +320,14 @@ rm -rf aiter/jit/build/module_moe_ck2stages_{variant}*
 
 **关键差异（aiter MoE kernel）**：
 
-| 维度 | op_test 默认 | 生产路径（gfx950） |
-|------|-------------|------------------|
-| preshuffle | `preshuffle=True`（on） | `preshuffle=False`（off） |
-| is_shuffled | True | True（ATOM 在加载时 shuffle） |
-| block_m | 128（大 batch） | 64 或 128（依 token 数） |
-| quant_type | no-quant（bf16） | per_1x128（FP8）或 no-quant |
+| 维度 | op_test 默认 | 生产路径（gfx950，MoE fix 后） |
+|------|-------------|-------------------------------|
+| preshuffle / is_shuffled | `preshuffle=True`，权重由测试脚本手动 shuffle | `is_shuffled=True`（ATOM 在加载时 shuffle），同走 preshuffle_on 路径；**此项在 MoE fix 后已与 op_test 一致，不再是差异点** |
+| 权重来源 | 随机或指定权重，直接传入 | 真实模型权重，经 process_weights_after_loading 处理（含 padding、scale 等） |
+| block_m | 由 M 决定，大 batch 通常 ≥128 | 同样由 token 数决定；decode 场景（T=1~8）block_m 小（16~64），与 op_test 大 batch 不同 |
+| quant_type | no-quant（bf16）为主 | per_1x128（FP8）或 no-quant，依模型而定 |
+
+**核心差异**：op_test 通常用大 batch 固定配置，生产的 decode 场景（小 token 数）会选不同的 block_m，从而触发不同 kernel 路径。Bug 1（V1 kernel 在 decode 小 token 场景被选中）正是因为 op_test 用大 batch 未能覆盖 decode 路径才被遗漏。
 
 **原则**：任何修改后，必须在**生产路径配置**下验证，而不只是 op_test。
 
