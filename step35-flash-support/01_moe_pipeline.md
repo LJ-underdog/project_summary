@@ -133,15 +133,32 @@ preshuffle_on ：cos_sim = 0.999989 PASS
 
 **位置**：aiter `aiter/fused_moe.py` `get_2stage_cfgs()`
 
-**根因**：V1 kernel（NPerBlock=64）为 gfx942 设计，inter_dim>192 时在 gfx950 上数值计算错误（精确 C++ 层根因未查，workaround 绕过）。
+**两个条件的关系（重要）**：
 
-边界实验：inter_dim=192（192/64=3 次 tile pass）正确；inter_dim=256（4 次）错误。
+`block_m < 128` 和 `inter_dim > 192` 是两个独立的条件，通过"V1 kernel"联系：
+
+```
+block_m < 128  ──(dispatch 映射)──→  V1 kernel 被选中（NPerBlock=64）
+                                            │
+                                     inter_dim > 192 时
+                                     N-tile pass 次数 = inter_dim / 64 > 3
+                                            │
+                                     V1 在 gfx950 上出错
+```
+
+- **block_m < 128 → V1 被选中**：`gen_instances.py` 的 dispatch 表将小 block_m（16/32/64）映射到 V1 系列（NPerBlock=64），将 block_m=128/256 映射到 V3 系列（NPerBlock=128）。决定 V1/V3 的是 block_m，不是 inter_dim。
+- **V1 + inter_dim > 192 → 出错**：V1 用 NPerBlock=64 去 tile N 维度（N=inter_dim），inter_dim=640 需 640/64=10 次 pass；inter_dim=192 需 192/64=3 次 pass，是边界。V1 在 gfx950 上超过 3 次 N-tile pass 时计算出错（精确 C++ 根因未查）。
+- **L904 用 `inter_dim > 192` 触发 workaround**：因为只有在 inter_dim > 192 时，V1 被选中才有害；inter_dim ≤ 192 时（≤3 次 pass）V1 仍然正确，无需干预。
 
 **验证数据**：
 ```
-preshuffle_on + V1（block_m<128）：cos_sim = 0.004   FAIL
-preshuffle_on + V3（block_m=128）：cos_sim = 0.999989 PASS
-条件：H=2048, I=640, E=288, K=8, T=32
+preshuffle_on + V1（block_m<128，decode 场景）：cos_sim = 0.004   FAIL
+preshuffle_on + V3（block_m=128）：             cos_sim = 0.999989 PASS
+条件：H=2048, I=640（tp=2 inter_dim）, E=288, K=8
+
+边界实验：
+  inter_dim=192 + V1：cos_sim ≈ 0.9999  PASS（192/64=3 次 pass，V1 安全）
+  inter_dim=256 + V1：cos_sim ≈ 0.004   FAIL（256/64=4 次 pass，V1 出错）
 ```
 
 ---
