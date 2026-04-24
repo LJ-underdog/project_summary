@@ -83,21 +83,21 @@ per_1x128 路径应传 `block_shape=[128, 128]`，影响 EP（Expert Parallel）
 graph TD
     A["fused_moe_() 被调用"] --> B{"inter_dim > 192<br/>AND gfx950?"}
     B -->|No| C["block_m 保持 L895 初始值"]
-    B -->|Yes| D{"q_type in<br/>per_1x128 / per_1x32?"}
+    B -->|Yes| D{"修复后：q_type in<br/>per_1x128 / per_1x32?"}
+    B -->|"Yes（修复前：无此判断）"| X["block_m = 128（无条件）"]
 
-    D -->|"Yes — FP8 blockscale<br/>（修复后：跳过 override）"| E["block_m = 64 保持不变"]
-    D -->|"No — BF16 a16w16<br/>（始终执行）"| F["block_m = 128<br/>强制走 V3 kernel"]
+    D -->|"Yes — FP8 blockscale"| E["block_m = 64 保持不变"]
+    D -->|"No — BF16 a16w16"| F["block_m = 128<br/>强制走 V3 kernel"]
 
-    E --> G["a8w8blkscale dispatch<br/>支持 block_m = 16/32/64 ✅"]
-    F --> H["a16w16 dispatch<br/>支持 block_m = 128 ✅"]
-
-    E2["修复前：FP8 也走此分支"] --> I["block_m = 128<br/>传入 blockscale dispatch ❌<br/>TORCH_CHECK failed"]
+    X --> I["a8w8blkscale dispatch<br/>block_m=128 不支持 ❌<br/>TORCH_CHECK failed"]
+    E --> G["a8w8blkscale dispatch<br/>block_m=64 ✅"]
+    F --> H["a16w16 dispatch<br/>block_m=128 ✅"]
 
     style E fill:#4CAF50,color:#fff
     style G fill:#4CAF50,color:#fff
     style F fill:#2196F3,color:#fff
     style H fill:#2196F3,color:#fff
-    style E2 fill:#F44336,color:#fff
+    style X fill:#F44336,color:#fff
     style I fill:#F44336,color:#fff
 ```
 

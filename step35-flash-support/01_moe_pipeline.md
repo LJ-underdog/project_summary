@@ -67,12 +67,14 @@ preshuffle_on （强制 shuffle）：cos_sim = 0.999989 PASS
 
 ### 2.3 切换 preshuffle_on 后发现第二个 bug
 
-修复 Bug 0 后，用更小的 inter_dim 跑发现 cos_sim 仍有问题：
+修复 Bug 0 后，用**相同配置（inter_dim=640，tp=2）** 重跑，发现 cos_sim 仍有问题：
 
 ```
 preshuffle_on + block_m<128（V1 kernel）：cos_sim = 0.004  FAIL
 preshuffle_on + block_m=128（V3 kernel）：cos_sim = 0.999989 PASS
 ```
+
+（后续的边界实验 inter_dim=192/256 是为了定位 Bug 1 的触发条件，不是发现 Bug 1 的实验。）
 
 → **Bug 1 确认**：V1 CK kernel 在 gfx950 + inter_dim>192 时输出错误。
 

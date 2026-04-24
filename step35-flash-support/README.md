@@ -13,10 +13,11 @@
 
 ```mermaid
 graph LR
-    A["① MoE Pipeline Fix<br/>Apr 23<br/>tp=2 bf16 跑通"] --> B["② SwigluStep<br/>Apr 23<br/>layer 43-44 clamp"]
+    A["① MoE Pipeline Fix<br/>Apr 23<br/>tp=2 bf16 跑通<br/>（所有任务的基础）"]
+    A --> B["② SwigluStep<br/>Apr 23<br/>layer 43-44 clamp"]
     A --> C["③ Sliding Window<br/>Apr 23<br/>'ungi' 消除"]
     A --> D["④ TP=4/8<br/>Apr 24<br/>inter_dim padding"]
-    D --> E["⑤ FP8<br/>Apr 24<br/>blockscale dispatch fix"]
+    A --> E["⑤ FP8<br/>Apr 24<br/>blockscale dispatch fix"]
 
     style A fill:#4CAF50,color:#fff
     style B fill:#4CAF50,color:#fff
@@ -25,9 +26,11 @@ graph LR
     style E fill:#4CAF50,color:#fff
 ```
 
-**说明**：① 是所有后续任务的基础（tp=2 bf16 不跑通，其他无从验证）；
-④ 对 inter_dim 的分析直接复用了 ① 对 stage1 dispatch 的理解；
-⑤ 的 L904 fix 建立在 ① 对 V1 kernel workaround 的理解上。
+**说明**：① 是所有后续任务的唯一前置条件（tp=2 bf16 不跑通，其他无从验证）。
+②③④⑤ 之间**相互独立**，均可在 ① 完成后并行推进：
+- ② 和 ③ 均依赖 ① 提供的 tp=2 基线，彼此无关
+- ④ 的 inter_dim padding 与 ⑤ 的 FP8 blockscale 问题完全独立（不同模型、不同 quant path）
+- ⑤ 的 L904 fix 建立在对 ① 引入的 V1 kernel workaround 的理解上，但**不依赖** ④ 的代码修改
 
 ---
 

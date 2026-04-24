@@ -335,8 +335,8 @@ python test_moe_2stage.py \
   -q 0 -t 32 -d bf16 \    # bf16, no-quant
   -dim 4096,640 \          # tp=2 inter_dim=640
   -e 288 -k 8 \
-  --preshuffle False \     # 生产路径：preshuffle_off（注：bf16 preshuffle_off 实为 on）
-  --is_shuffled True       # 权重已在加载时 shuffle
+  --preshuffle False \     # 生产路径（gfx950 走 preshuffle_off 路径）
+  --is_shuffled True       # 权重已在加载时 shuffle（ATOM process_weights_after_loading）
 ```
 
 ---
