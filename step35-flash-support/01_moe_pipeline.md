@@ -20,6 +20,29 @@ Step-3.5-Flash 在 gfx950 上首次运行，MoE 层输出完全错误。
 
 ## 2. 调查过程
 
+```mermaid
+sequenceDiagram
+    participant Dev as 开发者
+    participant B0 as preshuffle_off<br/>(Bug 0)
+    participant B1 as V1 kernel<br/>(Bug 1)
+
+    Dev->>B0: 运行 tp=2 推理
+    B0-->>Dev: cos_sim = -0.017 FAIL
+    Note over B0,B1: Bug 0 完全掩盖 Bug 1<br/>（两者 cos_sim 均约 -0.007，无法区分）
+
+    Dev->>B0: 实验：强制 shuffle_weights()
+    B0-->>Dev: preshuffle_on 路径<br/>cos_sim = 0.999989 PASS
+    Note over Dev: Fix 1 确认 ✅
+
+    Dev->>B1: preshuffle_on + block_m < 128（V1 kernel）
+    B1-->>Dev: cos_sim = 0.004 FAIL
+    Note over B1: Bug 1 暴露（之前被 Bug 0 掩盖）
+
+    Dev->>B1: 强制 block_m = 128（V3 kernel）
+    B1-->>Dev: cos_sim = 0.999989 PASS
+    Note over Dev: Fix 2 确认 ✅
+```
+
 ### 2.1 隔离 MoE 问题
 
 首先写最小复现脚本（`test_moe_vs_hf.py`），对比 aiter MoE 与 PyTorch reference 的单层输出：

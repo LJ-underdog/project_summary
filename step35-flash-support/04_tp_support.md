@@ -108,6 +108,26 @@ GPU5 PCIe/NUMA 配置异常（iommu=pt 缺失），tp=8 时 runner5 初始化需
 
 ## 3. 根因
 
+```mermaid
+graph TD
+    A["moe_intermediate_size = 1280"] --> B["tp=4: inter_dim = 320"]
+    A --> C["tp=8: inter_dim = 160"]
+
+    B --> D{inter_dim > 192?}
+    C --> D
+
+    D -->|"Yes (320)"| E["NPerBlock = 128<br/>320 % 128 = 64 ≠ 0 ❌ CRASH"]
+    D -->|"No (160)"| F["NPerBlock = 64<br/>160 % 64 = 32 ≠ 0 ❌ CRASH"]
+
+    E --> G["Fix: align = 128<br/>320 → 384<br/>384 % 128 = 0 ✅"]
+    F --> H["Fix: align = 64<br/>160 → 192<br/>192 % 64 = 0 ✅"]
+
+    style E fill:#F44336,color:#fff
+    style F fill:#F44336,color:#fff
+    style G fill:#4CAF50,color:#fff
+    style H fill:#4CAF50,color:#fff
+```
+
 ### 主要根因：stage1 GEMM N=inter_dim 对齐失败
 
 **误区**：最初以为 `w1.size(1)` 就是 `2*inter_dim`（gate+up），所以 N 应为 `2*inter_dim`。

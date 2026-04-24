@@ -23,6 +23,25 @@
 
 ---
 
+## 调试方法论
+
+[DEBUGGING_METHODOLOGY.md](./DEBUGGING_METHODOLOGY.md) 汇总了所有任务中使用的调试手段，包含：
+
+| 手段 | 用途 |
+|------|------|
+| 最小复现 + 组件隔离 | 将问题定位到单个 kernel/函数 |
+| Canary 实验 | 验证"内存是否被越界写入"等假说 |
+| 参数 Sweep | 找到触发 bug 的边界值（inter_dim/ctx_len 等） |
+| Cos-sim 层级验证 | 验证 kernel 正确性，与端到端解耦 |
+| Bug 掩盖检测 | 识别多 bug 场景下的互相掩盖 |
+| Monkey-patch 隔离 | 快速替换单个组件定位问题 |
+| 对比法 | 正确/错误分支的代码差异定位 |
+| Bisection | 逐步开关组件找最小复现集合 |
+| Stale JIT Cache | 排除旧编译缓存干扰 |
+| op_test vs 生产路径 | 避免测试路径与生产路径不一致 |
+
+---
+
 ## 文档规范
 
 每个任务文档包含以下固定结构：

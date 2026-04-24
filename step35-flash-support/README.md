@@ -9,17 +9,25 @@
 
 ---
 
-## 时间线
+## 时间线与任务依赖
 
+```mermaid
+graph LR
+    A["① MoE Pipeline Fix<br/>Apr 23<br/>tp=2 bf16 跑通"] --> B["② SwigluStep<br/>Apr 23<br/>layer 43-44 clamp"]
+    A --> C["③ Sliding Window<br/>Apr 23<br/>'ungi' 消除"]
+    A --> D["④ TP=4/8<br/>Apr 24<br/>inter_dim padding"]
+    D --> E["⑤ FP8<br/>Apr 24<br/>blockscale dispatch fix"]
+
+    style A fill:#4CAF50,color:#fff
+    style B fill:#4CAF50,color:#fff
+    style C fill:#4CAF50,color:#fff
+    style D fill:#4CAF50,color:#fff
+    style E fill:#4CAF50,color:#fff
 ```
-2026-04-23
-  ├── MoE Pipeline 修复    → tp=2 bf16 第一次正确输出
-  ├── SwigluStep Wiring    → layer 43-44 激活函数对齐 HF 实现
-  └── Sliding Window 修复  → "ungi" 乱码消除
-2026-04-24
-  ├── TP=4/8 支持          → tp=4 正常；tp=8 被 GPU5 硬件异常阻塞
-  └── FP8 推理支持         → tp=2 FP8 量化模型跑通
-```
+
+**说明**：① 是所有后续任务的基础（tp=2 bf16 不跑通，其他无从验证）；
+④ 对 inter_dim 的分析直接复用了 ① 对 stage1 dispatch 的理解；
+⑤ 的 L904 fix 建立在 ① 对 V1 kernel workaround 的理解上。
 
 ---
 
@@ -68,6 +76,22 @@ Attention 分布：
     → FusedMoE.apply()
       → aiter.rocm_aiter_fused_moe() / fused_moe()
         → CK 2-stage GEMM（stage1: gate+up projection，stage2: down projection）
+```
+
+```mermaid
+graph TD
+    A["ATOM<br/>Step3p5MoE.forward()"] --> B["FusedMoE.apply()"]
+    B --> C["aiter.rocm_aiter_fused_moe()"]
+    C --> D["fused_moe_() [fused_moe.py]<br/>block_m 选择 / quant_type 路由"]
+    D --> E["CK Stage1 GEMM<br/>A[M,hidden] × B[hidden,inter_dim]<br/>含 activation（silu / swiglustep）"]
+    D --> F["CK Stage2 GEMM<br/>A[M,inter_dim] × B[inter_dim,hidden]<br/>含 weighted sum"]
+
+    style A fill:#2196F3,color:#fff
+    style B fill:#2196F3,color:#fff
+    style C fill:#FF9800,color:#fff
+    style D fill:#FF9800,color:#fff
+    style E fill:#9C27B0,color:#fff
+    style F fill:#9C27B0,color:#fff
 ```
 
 ---
