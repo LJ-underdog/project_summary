@@ -26,21 +26,21 @@ sequenceDiagram
     participant B0 as preshuffle_off<br/>(Bug 0)
     participant B1 as V1 kernel<br/>(Bug 1)
 
-    Dev->>B0: 运行 tp=2 推理
-    B0-->>Dev: cos_sim = -0.017 FAIL
-    Note over B0,B1: Bug 0 完全掩盖 Bug 1<br/>（两者 cos_sim 均约 -0.007，无法区分）
+    Dev->>B0: 运行推理 / 单层测试（T=32 batch）
+    B0-->>Dev: cos_sim = -0.006 FAIL
+    Note over B0,B1: preshuffle_off 时 V1/V3 均约 -0.007<br/>Bug 0 掩盖 Bug 1，无法区分
 
-    Dev->>B0: 实验：强制 shuffle_weights()
-    B0-->>Dev: preshuffle_on 路径<br/>cos_sim = 0.999989 PASS
-    Note over Dev: Fix 1 确认 ✅
+    Dev->>B0: 实验：强制 shuffle_weights() → preshuffle_on
+    B0-->>Dev: cos_sim = 0.999989 PASS
+    Note over Dev,B0: T=32 batch 下 block_m 自然≥128<br/>走 V3 kernel → PASS<br/>Bug 1 此时仍存在但被掩盖
 
-    Dev->>B1: preshuffle_on + block_m < 128（V1 kernel）
+    Dev->>B1: 测试 decode 场景（T=1~8）<br/>preshuffle_on + block_m < 128 → V1 kernel
     B1-->>Dev: cos_sim = 0.004 FAIL
-    Note over B1: Bug 1 暴露（之前被 Bug 0 掩盖）
+    Note over B1: Bug 1 暴露
 
     Dev->>B1: 强制 block_m = 128（V3 kernel）
-    B1-->>Dev: cos_sim = 0.999989 PASS
-    Note over Dev: Fix 2 确认 ✅
+    B1-->>Dev: cos_sim = 0.999989 PASS（T=1~512 全覆盖）
+    Note over Dev: Fix 1 + Fix 2 均需要，缺一不可 ✅
 ```
 
 ### 2.1 隔离 MoE 问题
@@ -57,29 +57,33 @@ cos_sim = -0.017  # 完全错误，不是小幅偏差
 
 注意到 ATOM `moe.py` 中有一段注释："gfx950 不需要 shuffle"，并有显式的 skip 条件跳过 `shuffle_weights()`。
 
-**实验**：手动强制 shuffle 权重后重跑：
+**实验**：手动强制 shuffle 权重，用 T=32 的 batch 场景重跑：
 ```
 preshuffle_off（未 shuffle）：cos_sim = -0.006  FAIL
 preshuffle_on （强制 shuffle）：cos_sim = 0.999989 PASS
+配置：E=288, K=8, H=4096, I=1280, T=32
 ```
 
-→ **Bug 0 确认**：preshuffle_off CK kernel 在 gfx950 上 GEMM 计算错误，注释是错的。
+→ **Bug 0 确认**：preshuffle_off CK kernel 在 gfx950 上 GEMM 计算错误。
+
+**注意**：这里 preshuffle_on 得到 0.999989 PASS，是因为 **T=32 这个 batch 大小使 `get_block_size_M()` 返回了较大的 block_m（≥128），自然走了 V3 kernel**。这只是特定测试条件下的 PASS，Bug 1（V1 kernel 在 gfx950+inter_dim>192 下的错误）此时被掩盖，尚未暴露。
 
 ### 2.3 切换 preshuffle_on 后发现第二个 bug
 
-修复 Bug 0 后，用**相同配置（inter_dim=640，tp=2）** 重跑，发现 cos_sim 仍有问题：
+在 decode 场景（token 数少，如 T=1~8）下测试：`get_block_size_M()` 返回较小的 block_m（16 或 64），V1 kernel 被选中：
 
 ```
-preshuffle_on + block_m<128（V1 kernel）：cos_sim = 0.004  FAIL
-preshuffle_on + block_m=128（V3 kernel）：cos_sim = 0.999989 PASS
+preshuffle_on + block_m<128（V1 kernel，decode 场景）：cos_sim = 0.004  FAIL
+preshuffle_on + block_m=128（V3 kernel）：            cos_sim = 0.999989 PASS
+条件：H=2048, I=640（tp=2）, E=288, K=8
 ```
-
-（后续的边界实验 inter_dim=192/256 是为了定位 Bug 1 的触发条件，不是发现 Bug 1 的实验。）
 
 → **Bug 1 确认**：V1 CK kernel 在 gfx950 + inter_dim>192 时输出错误。
 
-**关键观察**：Bug 0 掩盖了 Bug 1——preshuffle_off 时 V1/V3 的 cos_sim 均约为 -0.007，
-无法区分。只有修复 Bug 0 后，Bug 1 才单独暴露。
+**关键观察**：
+- preshuffle_off 时，V1 和 V3 的 cos_sim 均约为 -0.007（Bug 0 的错误太大，掩盖了 Bug 1 的差异），无法区分两个 bug。
+- 修复 Bug 0（切换 preshuffle_on）后，大 batch 测试自然走 V3 → PASS，看似问题解决；但 decode 场景走 V1 → Bug 1 单独暴露。
+- **两个 bug 都必须修复才能覆盖全部场景（batch prefill + decode）。**
 
 ### 2.4 弯路：buffer padding 假说（后被证伪）
 
