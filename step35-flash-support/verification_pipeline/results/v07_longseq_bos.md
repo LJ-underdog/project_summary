@@ -188,3 +188,21 @@ TTFT=81ms，TPOT=15ms
 无乱码，无 BOS-spam
 结论：PASS
 
+## Exp2 E2E 10k retry（GPU 冲突已解决）
+
+**运行时间**：2026-04-25 14:29
+**配置**：CUDA_VISIBLE_DEVICES=0,1,2,3，tp=4，bf16 KV，enforce-eager，max-tokens=30，max-num-batched-tokens=16384
+
+执行命令完成，进程 exit 0，无 NCCL crash，无 Gloo timeout（区别于上次 GPU 冲突时的崩溃）。
+
+输出样例（4 个 prompt 全部完成，max_tokens=30）：
+- "introduce yourself" → `"Hmm, the user simply asked me to introduce myself. This is a straightforward request with no complex context or hidden needs. \n\nI should provide a"`
+- "1+2+3=?" → `'We are asked: "1+2+3=?" This is a simple arithmetic sum. 1+2=3, then 3+'`
+- "如何在一个月内增肌10公斤" → `"好的，用户问怎么在一个月内增肌10公斤，这问题挺有挑战性的。首先得确认用户是不是有健身基础，因为"`
+
+First-token 多样性：YES（4 个 prompt 第一个生成 token 分别为 "Hmm" / "We" / "We" / "好的"，无任一开头为 BOS / 0 / 1）。
+
+无 BOS-spam，无任何 token 重复异常。每 request：input 16-21 tokens, output 30 tokens, latency=1.89s, TTFT=458ms, TPOT=49ms（enforce-eager 比 cudagraph 慢属正常）。
+
+**结论：PASS** — GPU 冲突解决后 V07 BOS 修复在 tp=4 下端到端验证通过；与之前 Exp2 的真实 10k input PASS 一致。
+
