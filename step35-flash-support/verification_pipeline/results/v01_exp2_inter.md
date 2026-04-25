@@ -1,5 +1,7 @@
 # V01 Experiment 2 — V1/V3 inter_dim Boundary Matrix
 
+**结论速览**：inter_dim ∈ {192, 256, 384, 640} 全部 PASS；inter_dim=320 需 ATOM padding（320→384）后才能通过 CK tile 约束。
+
 Test config: M=32, model_dim=7168, E=16, topk=4, dtype=bfloat16
 GPU: gfx950, CUDA_VISIBLE_DEVICES=1
 Date: 2026-04-25
@@ -61,34 +63,7 @@ inter_dim > 192 it picks block_m=128 (V3).
 
 ## 补充：inter_dim=384（ATOM tp=4 padding 后实际值）
 
-ATOM padding 逻辑：`/home/hanchang/ATOM/atom/model_ops/moe.py` L489-516
-（BF16 path, `_maybe_pad_weight`）。核心判定（L502-503）：
-
-```python
-align = 64 if inter_dim <= 192 else 128
-inter_pad = (inter_dim + align - 1) // align * align
-```
-
-对 tp=4（inter_dim=320）：align=128，inter_pad=384，触发 zero-pad；
-gate/up 各扩到 384 行，w2 沿最后一维扩到 384。FP8 blockscale 路径
-有等价处理，见 L1713-1740（block_n=128 对齐，padding 等价）。
-
-补测脚本 `/tmp/v01_exp2b.py` 在 GPU 2 上对 inter_dim=320 与 384 跑 fused_moe
-correctness。日志：
-`/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v01_exp2b.log`
-
-| inter_dim | cos_sim | 结论 |
-|-----------|---------|------|
-| 320 (无 padding)   | ERROR (脚本 API 调用错误：fused_moe got multiple values for 'topk_ids') | 未能复现内核错误，但 V01 Exp2 主表已记录 CK tile 限制 |
-| 384 (padding 后)   | ERROR (同上 API 错误) | 测量未完成 |
-
-说明：本次 /tmp/v01_exp2b.py 因调用签名问题（fused_moe 同时收到位置/关键字
-形式的 topk_ids）未能取得 cos_sim 数值。代码侧已确认 ATOM padding 320→384
-逻辑（moe.py L489-516），与 aiter Fix 2 的 V3 内核 N-tile=128 约束一致：
-inter_pad=384 是 128 的 3 倍，满足 stage1/stage2 对齐要求，理论上可正常
-工作。运行时验证留待修复测试脚本后补做。
-
-## 补充：inter_dim=384（ATOM tp=4 padding 后实际值）
+注：首次调用因 API 参数错误（topk_ids 重复传入）失败，修正参数后成功。
 
 ATOM padding 逻辑：moe.py L502-503（padding 320→384）
 

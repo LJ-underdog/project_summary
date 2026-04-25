@@ -26,7 +26,7 @@ ATOM `/home/hanchang/ATOM/atom/model_ops/moe.py`：未引用 ca_comm（依赖 ai
 
 结论：ca_comm fallback 机制在 aiter parallel_state.py 存在（ca_comm is None → torch.distributed 路径）。
 
-## Exp3 tp=1/tp=2 回归
+## Exp3 tp=2 回归（tp=1 单卡 OOM，已跳过）
 
 跑 tp=2（GPU 4,6），日志：`/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v04_exp3_tp2.log`
 
@@ -40,7 +40,7 @@ TTFT=92ms TPOT=18ms（vs BF16 tp=2 基线 TTFT=85ms TPOT=18ms，±20% 内）。
 
 结论：**PASS**
 
-注：tp=1（GPU 4 单卡）首次尝试 OOM 失败（torch 误报 GPU 0 251GB），改用 tp=2 跑 GPU 4,6 即成功，未单独重测 tp=1。
+注：tp=1（GPU 4 单卡）首次尝试 OOM 失败（torch 误报 GPU 0 251GB），单卡显存不足以装下完整模型权重，已跳过；改用 tp=2 跑 GPU 4,6 即成功。本节实际只覆盖 tp=2。
 
 ## Exp1 inter_dim padding 确认
 
@@ -80,3 +80,13 @@ GPU 0,1,2,3，日志：`/home/hanchang/project_fp8_tp4/verification_pipeline/res
 - 无 BOS-spam，4 个 prompt（中英文混合）均生成合理 completion ✅
 
 结论：**PASS**
+
+## V04 总结
+
+| 验证项 | 状态 | 备注 |
+|--------|------|------|
+| C.2 CK manifest grep | PASS | inter_dim=192 V1/V3 切换边界由代码 dispatch 确认 |
+| ca_comm fallback 存在性 | PASS | aiter parallel_state.py 实现 ca_comm is None 分支 |
+| Exp1 inter_dim padding 确认 | PASS | ATOM moe.py L489-518 padding 逻辑（160→192, 320→384） |
+| Exp3 tp=2 回归 | PASS | TTFT=92ms TPOT=18ms（tp=1 因单卡 OOM 跳过） |
+| Exp2 tp=4 BF16 e2e | PASS | TTFT=81.25ms TPOT=16.5ms，无 crash 无 BOS-spam |

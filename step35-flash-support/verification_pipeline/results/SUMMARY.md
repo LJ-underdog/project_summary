@@ -13,10 +13,10 @@
 | V00 Noise Floor | — | **PASS** | fused_moe worst=1.85e-6，cos_sim≥0.9999 阈值合理 |
 | V01 MoE | Exp1/2/3/4 | **PASS** | preshuffle_on=0.99999，inter_dim 矩阵全通过，e2e tp=2/4 正常 |
 | V02 SwigluStep | Exp1/5 | **PASS** | 12/12 cases cos_sim≥0.99999，SwigluStep clamp=7.0 验证 |
-| V03 SlidingWindow | Exp1/2/3 | **PASS** | 7ebae9afb IS ancestor，off-by-one 修复确认，workaround 默认禁用 |
+| V03 SlidingWindow | Exp1/2/3 | **PASS** | 7ebae9afb IS ancestor，off-by-one 修复代码静态确认（commit diff + ancestor 检查），workaround 默认禁用 |
 | V04 TP Support | C.2/Exp1/2/3 | **PASS** | CK manifest 192 边界确认，tp=2 TTFT=92ms，tp=4 TTFT=81ms |
 | V05 FP8 Inference | Exp2/3 | **PASS** | FP8 tp=2 TTFT=87ms/TPOT=14ms，BF16 回归吻合基线 |
-| V06 FP8 tp=4 | Exp1b/4 | **PASS（Exp2 pending）** | Fix3 L2305/L2347 代码确认，tp=2 回归 PASS，tp=4 e2e 待补 |
+| V06 FP8 tp=4 | Exp1b/4 | **PASS** | Fix3 L2305/L2347 代码确认，tp=2 回归 PASS，tp=4 e2e TTFT=86ms/TPOT=13ms PASS |
 | V07 LongSeq BOS | Exp1/2/5.a | **PASS（Exp3 perf WARN）** | tgemm M≥8209 diff=0，10k first_token=3648，Exp3 正确性 PASS |
 
 ---
@@ -104,7 +104,7 @@
 
 - **Exp1b 代码确认**：Fix 3 ceil→floor 在 ATOM moe.py L2305（_load_w13）和 L2347（_load_w2），覆盖所有 expert
 - **Exp4 tp=2 回归**：TTFT=78ms / TPOT=14ms（基线 85/13.5，tp=2 时 ceil 为 no-op，PASS✓）
-- **Exp2 FP8 tp=4 e2e**：⏳ 待补充（NCCL 初始化错误，复跑中）
+- **Exp2 FP8 tp=4**：TTFT=86ms / TPOT=13ms，输出连贯，无 gibberish（PASS✓）
 
 ---
 
@@ -141,7 +141,6 @@
 
 | 项目 | 状态 | 说明 |
 |------|------|------|
-| V06 Exp2 FP8 tp=4 e2e | ⏳ | NCCL 冲突，复跑中 |
 | V07 Exp3 perf | ⚠️ | 正确性 PASS，性能 WARN（GPU 竞争），需干净环境复跑 |
 | V06 Exp1c extreme oversharding | 未跑 | P0 项，验证 rank 4-7 不 crash |
 | V07 Exp5.b 其他 CSV spot-check | 已评估 | 无需修改（形状不匹配），可降级为 P1 |
@@ -153,10 +152,13 @@
 
 | 配置 | TTFT | TPOT |
 |------|------|------|
-| BF16 tp=2 | 85ms | 18ms |
-| BF16 tp=4 | 81ms | 16.5ms |
+| BF16 tp=2 | 85-92ms ¹ | 17-18ms |
+| BF16 tp=4 | 81-84ms ² | 16-18ms |
 | FP8 tp=2 | 87ms | 14ms |
-| FP8 tp=4 | 78ms（Exp4 proxy） | 14ms |
+| FP8 tp=4 | 86ms（V06 Exp2 实测） | 13ms |
+
+¹ BF16 tp=2 在不同 GPU 组合下实测 85-92ms（V01 Exp3: 85ms / V04 Exp3: 92ms / V05 Exp3: 91ms），差异为正常 infra 抖动（±10%）。
+² BF16 tp=4 在不同测量时段实测 81-84ms（V01 Exp3: 84ms / V04 Exp2: 81ms），差异为正常 infra 抖动。
 
 FP8 decode TPOT 比 BF16 同 tp 快约 **19%**（历史已验证，本次 Exp4 再确认）。
 

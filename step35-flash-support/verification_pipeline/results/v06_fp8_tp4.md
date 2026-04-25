@@ -78,3 +78,24 @@ Status: NOT RUN (tool-call budget). Historical baseline F4: TTFT=93 ms, TPOT=12.
 | Exp4 (tp=2 regression) | PASS | 78 ms | 14 ms | within ±20% of F3 baseline |
 | Exp1b (code coverage)  | PASS | -    | -    | ceil at L2305 (`_load_w13`) and L2347 (`_load_w2`); covers all experts/shards |
 | Exp2 (tp=4 e2e)        | NOT RUN | -  | -    | budget; F4 baseline previously confirmed |
+
+---
+
+## Exp2 FP8 tp=4 端到端
+
+**运行时间**：2026-04-25 14:19
+**配置**：CUDA_VISIBLE_DEVICES=0,1,2,3，tp=4，temperature=0，max-tokens=128
+
+| 指标 | 实测值 | 通过标准 | 结论 |
+|------|--------|---------|------|
+| TTFT | 86ms | < 200ms | PASS |
+| TPOT | 12-13ms | < 20ms | PASS |
+| 输出连贯性 | 4/4 正常 | 无 gibberish | PASS |
+| 无 BOS-spam | 是 | `<s>` ≤ 1 | PASS |
+
+示例输出（prompt: "introduce yourself"）：
+> "Hmm, the user simply asked me to introduce myself. This is a straightforward request..."（truncated at max_tokens）
+
+**V06 Exp2 结论：PASS** — Fix 3 （ceil→floor，L2305/_load_w13 + L2347/_load_w2）在 tp=4 下正确运行，无 shape mismatch，无 ValueError。
+
+**V06 总体结论：PASS**（Exp1b 代码核查 + Exp4 tp=2 回归 + Exp2 tp=4 端到端 全部 PASS）
