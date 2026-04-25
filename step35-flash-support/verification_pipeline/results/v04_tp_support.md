@@ -58,3 +58,25 @@ inter_dim ∈ {192, 384} 在 padding 后路径下正确性已由 V01-Exp2 覆盖
 V04-A2 已 PASS，但 tool calls 已接近预算（~10），且 Exp2 涉及 4 卡冷启动 + ~3 分钟运行时间，按预算约束**未运行**。BF16 tp=4 基线（TTFT=84ms TPOT=18ms）已在 V01-Exp3 验证。
 
 结论：**未跑**
+
+## Exp2 tp=4 BF16 e2e 验证（2026-04-25 补跑）
+
+GPU 0,1,2,3，日志：`/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v04_exp2_tp4.log`
+
+命令：`CUDA_VISIBLE_DEVICES=0,1,2,3 python -m atom.examples.simple_inference --model stepfun-ai/Step-3.5-Flash --kv_cache_dtype bf16 --trust-remote-code --tensor-parallel-size 4 --level 0 --temperature 0 --max-tokens 128 --max-num-batched-tokens 4096 --max-num-seqs 2048`
+
+请求实测：
+- Request 2 (eos):        TTFT=0.081s TPOT=0.015s (in=19, out=60)
+- Request 0 (max_tokens): TTFT=0.082s TPOT=0.017s (in=16, out=128)
+- Request 1 (max_tokens): TTFT=0.081s TPOT=0.017s (in=20, out=128)
+- Request 3 (max_tokens): TTFT=0.081s TPOT=0.017s (in=21, out=128)
+
+均值：**TTFT=81.25ms, TPOT=16.5ms**
+
+通过标准对比：
+- TTFT 81.25ms < 106ms ✅
+- TPOT 16.5ms  < 21ms  ✅
+- 无 crash，干净退出 ✅
+- 无 BOS-spam，4 个 prompt（中英文混合）均生成合理 completion ✅
+
+结论：**PASS**
