@@ -43,7 +43,7 @@ graph LR
 | tp=4 BF16 | ✅ | ~76ms | ~15ms |
 | tp=8 BF16 | ⚠️ GPU5 硬件阻塞 | — | — |
 | tp=2 FP8 | ✅ | ~91ms | ~16ms |
-| tp=4 FP8 | ✅ | ~92ms | ~14ms |
+| tp=4 FP8 | ✅ | ~93ms | ~13ms（比 BF16 快 19%） |
 
 ---
 
