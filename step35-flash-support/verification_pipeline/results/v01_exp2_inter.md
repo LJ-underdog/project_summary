@@ -87,3 +87,22 @@ correctness。日志：
 逻辑（moe.py L489-516），与 aiter Fix 2 的 V3 内核 N-tile=128 约束一致：
 inter_pad=384 是 128 的 3 倍，满足 stage1/stage2 对齐要求，理论上可正常
 工作。运行时验证留待修复测试脚本后补做。
+
+## 补充：inter_dim=384（ATOM tp=4 padding 后实际值）
+
+ATOM padding 逻辑：moe.py L502-503（padding 320→384）
+
+补测脚本 `/tmp/v01_exp2b_fix.py`（修复 API 调用：使用位置参数 tw, ti）。
+GPU: gfx950, CUDA_VISIBLE_DEVICES=2。日志：
+`/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v01_exp2b_fix.log`
+
+aiter dispatch 日志确认 V3 forced 路径：
+`[aiter] [fused_moe] using 2stage default for (256, 32, 7168, 384, 16, 4, ...)`
+`module_moe_ck2stages_b16_b16_preshuffle_on_b16_silu_no_mulWeightStage2`
+
+| inter_dim | cos_sim | 结论 |
+|-----------|---------|------|
+| 320 (无padding) | CK tile 约束 ERROR | 必须 pad |
+| 384 (padding后) | 0.99999249 | PASS |
+
+结论：ATOM padding 320→384 是必要的，实际模型路径正确 ✓
