@@ -6,10 +6,10 @@
 
 ## 任务索引
 
-### Step-3.5-Flash 全栈推理支持（2026-04-23 ~ 2026-04-24）
+### Step-3.5-Flash 全栈推理支持（2026-04-23 ~ 2026-04-25）
 
 **背景**：在 AMD MI350X（gfx950）上为 StepFun Step-3.5-Flash 模型建立完整推理能力，
-包括 BF16 多种 TP 配置及 FP8 量化权重版本。从零开始跑通到 tp=2/4 BF16 + tp=2 FP8 全部通过。
+包括 BF16 多种 TP 配置及 FP8 量化权重版本。从零跑通到 tp=2/4 BF16 + tp=2/4 FP8 全部通过。
 
 | 子任务 | 状态 | 关键 commit |
 |--------|------|-------------|
@@ -17,7 +17,8 @@
 | [SwigluStep Wiring](./step35-flash-support/02_swiglu_step.md) | ✅ 完成 | ATOM `4a8495e`，aiter `6d70f7b54` |
 | [Sliding Window 修复](./step35-flash-support/03_sliding_window.md) | ✅ 完成 | aiter `7ebae9afb` |
 | [TP=4/8 支持](./step35-flash-support/04_tp_support.md) | ✅ tp=4 完成；tp=8 硬件阻塞 | ATOM `635e59e`，aiter `7312ea166` |
-| [FP8 推理支持](./step35-flash-support/05_fp8_inference.md) | ✅ tp=2 完成 | aiter `c38d0c9e6`，ATOM `9a67e49` |
+| [FP8 tp=2 推理](./step35-flash-support/05_fp8_inference.md) | ✅ 完成 | aiter `c38d0c9e6`，ATOM `9a67e49` |
+| [FP8 tp=4 推理](./step35-flash-support/06_fp8_tp4.md) | ✅ 完成（三层 bug，scale sharding 为根因） | ATOM `ccb64621` |
 
 **详情**：[step35-flash-support/README.md](./step35-flash-support/README.md)
 

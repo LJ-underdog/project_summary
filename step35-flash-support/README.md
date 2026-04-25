@@ -17,20 +17,21 @@ graph LR
     A --> B["② SwigluStep<br/>Apr 23<br/>layer 43-44 clamp"]
     A --> C["③ Sliding Window<br/>Apr 23<br/>'ungi' 消除"]
     A --> D["④ TP=4/8<br/>Apr 24<br/>inter_dim padding"]
-    A --> E["⑤ FP8<br/>Apr 24<br/>blockscale dispatch fix"]
+    A --> E["⑤ FP8 tp=2<br/>Apr 24<br/>blockscale dispatch fix"]
+    D --> F["⑥ FP8 tp=4<br/>Apr 25<br/>scale sharding ceil fix"]
+    E --> F
 
     style A fill:#4CAF50,color:#fff
     style B fill:#4CAF50,color:#fff
     style C fill:#4CAF50,color:#fff
     style D fill:#4CAF50,color:#fff
     style E fill:#4CAF50,color:#fff
+    style F fill:#4CAF50,color:#fff
 ```
 
-**说明**：① 是所有后续任务的唯一前置条件（tp=2 bf16 不跑通，其他无从验证）。
-②③④⑤ 之间**相互独立**，均可在 ① 完成后并行推进：
-- ② 和 ③ 均依赖 ① 提供的 tp=2 基线，彼此无关
-- ④ 的 inter_dim padding 与 ⑤ 的 FP8 blockscale 问题完全独立（不同模型、不同 quant path）
-- ⑤ 的 L904 fix 建立在对 ① 引入的 V1 kernel workaround 的理解上，但**不依赖** ④ 的代码修改
+**说明**：① 是所有后续任务的唯一前置条件。
+- ②③④⑤ 在 ① 完成后相互独立并行
+- ⑥（FP8 tp=4）依赖 ④（weight padding 方案）和 ⑤（blockscale dispatch 理解）
 
 ---
 
@@ -39,9 +40,10 @@ graph LR
 | 配置 | 状态 | TTFT | TPOT |
 |------|------|------|------|
 | tp=2 BF16 | ✅ | ~91ms | ~16ms |
-| tp=4 BF16 | ✅ | — | — |
+| tp=4 BF16 | ✅ | ~76ms | ~15ms |
 | tp=8 BF16 | ⚠️ GPU5 硬件阻塞 | — | — |
 | tp=2 FP8 | ✅ | ~91ms | ~16ms |
+| tp=4 FP8 | ✅ | ~92ms | ~14ms |
 
 ---
 
@@ -53,7 +55,8 @@ graph LR
 | [02_swiglu_step.md](./02_swiglu_step.md) | Layer 43-44 SwigluStep 激活函数 wiring |
 | [03_sliding_window.md](./03_sliding_window.md) | Sliding window attention mask off-by-one |
 | [04_tp_support.md](./04_tp_support.md) | TP=4/8 MoE kernel alignment 问题与修复 |
-| [05_fp8_inference.md](./05_fp8_inference.md) | FP8 block-quantized 模型推理支持 |
+| [05_fp8_inference.md](./05_fp8_inference.md) | FP8 block-quantized 模型推理支持（tp=2） |
+| [06_fp8_tp4.md](./06_fp8_tp4.md) | FP8 tp=4：三层 bug（check/padding/scale sharding ceil） |
 
 ---
 

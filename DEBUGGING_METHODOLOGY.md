@@ -349,6 +349,33 @@ python test_moe_2stage.py \
 
 ---
 
+## 11. Scale 值完整性检查（FP8 量化模型）
+
+**用途**：对 FP8 量化模型，快速验证 weight scale 是否正确从 checkpoint 加载。
+
+**原理**：ATOM 用 `torch.ones` 初始化 scale tensor。若某些 scale block 未被 loader 写入，它们会保留 1.0 初始值。正常的 per_1x128 scale 通常在 1e-4 ～ 1e-3 范围，与 1.0 差异明显。
+
+```python
+# 在 _process_block_quant 中加 debug print（需修改源码，Monkey-patch 对 spawn 子进程无效）
+sc = layer.w13_weight_scale.float()
+print(f"scale shape={sc.shape}, min={sc.min():.6f}, max={sc.max():.6f}")
+print(f"per-block: {sc[0, :, 0].tolist()}")  # 看各 block 的 scale 值
+```
+
+**案例（FP8 tp=4）**：
+
+```
+sc13[0, 0:6, 0] = [0.000208, 0.000203, 1.0, 0.000210, 0.000197, 1.0]
+                                       ^^^                          ^^^
+scale[2]=scale[5]=1.0 → 未加载！gate/up 最后一个 partial block 被 loader 跳过
+根因：_load_w13 用 floor(10//4=2) 而非 ceil(3) 来确定每 rank 加载的 scale block 数
+影响：fp8_val × 1.0（应 × 0.0002），放大约 5000× → gibberish
+```
+
+**结论**：scale=1.0 是 TP sharding 的 floor vs ceil 问题，不是 weight 问题。
+
+---
+
 ## 速查表
 
 | 场景 | 首选手段 |
@@ -357,6 +384,7 @@ python test_moe_2stage.py \
 | 确认 kernel 是否正确 | Cos-sim 层级验证 |
 | 某个假设的根因是否真实 | Canary 实验 |
 | 找到触发 bug 的参数范围 | 参数 Sweep |
+| FP8 模型输出 gibberish（无 crash） | Scale 值完整性检查（是否有 block=1.0）|
 | 修复后出现新 bug | Bug 掩盖检测 |
 | 两段代码一对一错 | 对比法：分支差异 |
 | 端到端错但 kernel 层级对 | Bisection（逐步开关） |
