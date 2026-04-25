@@ -96,6 +96,6 @@ Status: NOT RUN (tool-call budget). Historical baseline F4: TTFT=93 ms, TPOT=12.
 示例输出（prompt: "introduce yourself"）：
 > "Hmm, the user simply asked me to introduce myself. This is a straightforward request..."（truncated at max_tokens）
 
-**V06 Exp2 结论：PASS** — Fix 3 （ceil→floor，L2305/_load_w13 + L2347/_load_w2）在 tp=4 下正确运行，无 shape mismatch，无 ValueError。
+**V06 Exp2 结论：PASS** — Fix 3 （floor→ceil，L2305/_load_w13 + L2347/_load_w2）在 tp=4 下正确运行，无 shape mismatch，无 ValueError。（注：旧代码用 floor 整除，scale 末端 block 丢失，残留默认值 1.0 导致 gibberish；Fix 3 改为 ceil 整除修复此问题。）
 
 **V06 总体结论：PASS**（Exp1b 代码核查 + Exp4 tp=2 回归 + Exp2 tp=4 端到端 全部 PASS）

@@ -115,7 +115,7 @@ Fix 生效后 FP8 tp=4 decode TPOT 比 BF16 快 **19%**，prefill TTFT 快 **14%
 
 ## V06 FP8 tp=4 验证详情
 
-- **Exp1b 代码确认**：Fix 3 ceil→floor 在 ATOM moe.py L2305（_load_w13）和 L2347（_load_w2），覆盖所有 expert
+- **Exp1b 代码确认**：Fix 3 floor→ceil 在 ATOM moe.py L2305（_load_w13）和 L2347（_load_w2）：ceiling 除法确保最后一个 partial scale block 被正确复制，覆盖所有 expert
 - **Exp4 tp=2 回归**：TTFT=78ms / TPOT=14ms（基线 85/13.5，tp=2 时 ceil 为 no-op，PASS✓）
 - **Exp2 FP8 tp=4**：TTFT=86ms / TPOT=13ms，输出连贯，无 gibberish（PASS✓）
 
@@ -146,7 +146,7 @@ Fix 生效后 FP8 tp=4 decode TPOT 比 BF16 快 **19%**，prefill TTFT 快 **14%
 
 ### 问题 1.3：mis-broadcast 风险（V06）
 
-- **实验结论**：Exp1b 代码验证 Fix 3 ceil→floor 覆盖两个 projection（w13+w2），extreme oversharding 场景待补充（Exp1c 未跑）
+- **实验结论**：Exp1b 代码验证 Fix 3 floor→ceil 覆盖两个 projection（w13+w2），extreme oversharding 场景待补充（Exp1c 未跑）
 
 ---
 
