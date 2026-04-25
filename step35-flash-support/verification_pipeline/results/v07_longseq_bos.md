@@ -1,5 +1,7 @@
 # V07 LongSeq BOS Verification
 
+> **结论速览**：Exp1 tgemm PASS（M≥8209 diff=0）；Exp2 E2E 10k PASS（first_token=3648）；Exp5.a 扫描完整（仅 glm5 受影响，已修复）。V07 修复有效。
+
 ## Background
 
 aiter commit `a2883ab37` deletes `glm5_bf16_tuned_gemm.csv` L45 (entry
@@ -173,3 +175,7 @@ slowdown is a performance regression of unknown cause (observed:
 `torch._dynamo hit config.recompile_limit (8)` warnings during request
 execution; same warnings appear in V01 log so cannot conclude they are
 causal). Root-cause investigation deferred — flagged for follow-up.
+
+## Open Items
+
+- **Exp3 short prompt**：正确性 PASS（byte-identical to V01 baseline），TTFT 性能异常（1080ms vs 84ms 基线）疑为测试期间 GPU 竞争导致，待干净环境复跑确认。

@@ -1,5 +1,7 @@
 # V02 Exp1: SwigluStep / fused_moe Correctness (Production API)
 
+> **结论速览**：SwigluStep 激活函数在 `aiter/fused_moe.py:1541` 实现，在 ATOM `step3p5.py:192` (layers 43-44) 启用，clamp=7.0，cos_sim≥0.99999（12/12 cases PASS）。
+
 Date: 2026-04-25
 GPU: CUDA_VISIBLE_DEVICES=7 (MI350X, gfx950)
 Script: `/tmp/v02_exp1_prod.py`
@@ -108,7 +110,7 @@ cosine similarity > 0.9999 against their respective torch references.
 
 | Symptom | Real cause |
 |---------|------------|
-| `CKPyInterface: Unsupported data type 4` | Misleading message; CK actually rejected `topk_weights` because it was `bf16`. The code path requires FP32. |
+| `CKPyInterface: Unsupported data type 4` | Misleading message; CK actually rejected `topk_weights` because it was `bf16`. The code path requires FP32 because `fused_moe` accumulates per-token expert weights via summation inside `moe_sorting_fwd` / stage2 reduction, and the kernel hard-requires FP32 accumulator precision to avoid catastrophic cancellation across topk experts (production `FusedMoE.select_experts` already returns FP32 for this reason). |
 | 0/6 pass with `inplace=True` | `fused_moe` has no `inplace` kwarg (signature at `fused_moe.py:120-146`). |
 | GEMM looking healthy in dispatcher logs but kernel raise | `topk_weights` dtype check happens inside `moe_sorting_fwd` before stage1 GEMM. |
 
