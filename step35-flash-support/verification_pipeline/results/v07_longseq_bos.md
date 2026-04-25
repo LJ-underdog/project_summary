@@ -179,3 +179,12 @@ causal). Root-cause investigation deferred — flagged for follow-up.
 ## Open Items
 
 - **Exp3 short prompt**：正确性 PASS（byte-identical to V01 baseline），TTFT 性能异常（1080ms vs 84ms 基线）疑为测试期间 GPU 竞争导致，待干净环境复跑确认。
+
+## Exp3 短 prompt tp=4 回归（复跑，干净 GPU）
+
+**运行时间**：2026-04-25（第二次，无 GPU 竞争）
+TTFT=81ms，TPOT=15ms
+与 V01 Exp3 tp=4 基线（84ms/18ms）对比：TTFT -3.6%（在 ±10% 内），TPOT -16.7%（更快）
+无乱码，无 BOS-spam
+结论：PASS
+
