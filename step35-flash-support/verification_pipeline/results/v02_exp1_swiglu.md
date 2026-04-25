@@ -1,114 +1,137 @@
-# V02 Exp1: SwigluStep / fused_moe Correctness (Fixed API)
+# V02 Exp1: SwigluStep / fused_moe Correctness (Production API)
 
 Date: 2026-04-25
 GPU: CUDA_VISIBLE_DEVICES=7 (MI350X, gfx950)
-Script: `/tmp/v02_exp1_fix.py`
-Log: `/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v02_exp1_fix.log`
+Script: `/tmp/v02_exp1_prod.py`
+Log: `/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v02_exp1_prod.log`
 
-This run replaces the prior V02 Exp1 attempt, which failed with
-`fused_moe() got an unexpected keyword argument 'inplace'`. The fixed harness
-drops `inplace` and calls `fused_moe` positionally with the first 5 params.
+This run replaces the prior V02 Exp1 attempts. The earlier
+`Unsupported data type 4` was a misread: the actual CK precondition that
+fired was `topk_weights must be FP32`. Once that and the production-side
+weight `shuffle_weight` step are honoured, both Silu and SwigluStep paths
+produce correct numerics.
 
-## 1. fused_moe Actual Signature (first 10 parameters)
+## 1. Production fused_moe Call (ATOM Step-3.5 Flash)
 
-Source: `/home/hanchang/aiter/aiter/fused_moe.py:120`
+Source: `/home/hanchang/ATOM/atom/model_ops/moe.py`
 
 ```python
-def fused_moe(
-    hidden_states,
-    w1,                                              # [E, inter_dim*2, dim]  N,K
-    w2,                                              # [E, dim, inter_dim]
-    topk_weight,
-    topk_ids,
-    expert_mask: Optional[torch.tensor] = None,      # EP
-    activation = ActivationType.Silu,
-    quant_type = QuantType.No,
-    doweight_stage1 = False,
-    w1_scale: Optional[torch.tensor] = None,         # [E, inter_dim, 1]
-    ...
+# moe.py:525  weight prep (BF16 unquantized routed-MoE)
+shuffle_weights(layer.w13_weight, layer.w2_weight)
+
+# moe.py:581-589  the actual call
+return fused_moe(
+    hidden_states=x,
+    w1=layer.w13_weight,
+    w2=layer.w2_weight,
+    topk_weight=topk_weights,                # FP32 from select_experts
+    topk_ids=topk_ids,                       # int32
+    expert_mask=expert_map,                  # may be None
+    activation=activation,                   # ActivationType
+)
+# defaults: quant_type=QuantType.No, doweight_stage1=False
+```
+
+Activation selection at construction time
+(`/home/hanchang/ATOM/atom/models/step3p5.py:180-192`):
+
+```python
+activation = (
+    ActivationType.SwigluStep            # layers 43-44 (clamp_limit set)
+    if self._uses_swiglustep
+    else ActivationType.Silu              # all other MoE layers
 )
 ```
 
-Note: there is NO `inplace` argument. The fixed test uses positional
-invocation `fused_moe(x, w1, w2, tw, ti)` matching the first 5 params.
-Defaults => `activation=Silu`, `quant_type=No`, `doweight_stage1=False`.
+So the production parameter pair is:
 
-## 2. Exp1 Matrix (BF16, model_dim=7168, E=8, topk=4, inter_dim=384)
+| Parameter | Value (Step-3.5 BF16, layer 43-44) | Source |
+|-----------|------------------------------------|--------|
+| `activation` | `ActivationType.SwigluStep` | `step3p5.py:192` |
+| `quant_type` | `QuantType.No` (default) | `moe.py:577,581` (UnquantizedFusedMoE) |
+| `expert_mask`| `None` (no EP for tp-only) | `moe.py:587` |
+| `doweight_stage1` | `False` (default) | `fused_moe.py:129` |
+| weights | pre-shuffled (`shuffle_weight`, layout=(16,16)) | `moe.py:525`, `utils.py:147` |
+| `topk_weight.dtype` | `float32` | `select_experts` returns FP32 |
+| `topk_ids.dtype` | `int32` | `select_experts` returns int32 |
 
-| M   | inter_dim | seed | cos_sim | Status |
-|-----|-----------|------|---------|--------|
-| 1   | 384       | 0    | -       | ERROR  |
-| 1   | 384       | 42   | -       | ERROR  |
-| 32  | 384       | 0    | -       | ERROR  |
-| 32  | 384       | 42   | -       | ERROR  |
-| 256 | 384       | 0    | -       | ERROR  |
-| 256 | 384       | 42   | -       | ERROR  |
+For non-SwigluStep layers (the majority), `activation=ActivationType.Silu`
+is used with the same other parameters.
 
-All 6 cases failed with the same runtime error:
+## 2. Exp1 Matrix Results (production API)
 
-```
-CKPyInterface: Unsupported data type 4
-[aiter] Error in moe_sorting: CKPyInterface: Unsupported data type 4
-[aiter] Moe_sorting info: max_num_tokens_padded=1024 block_size=128 num_experts=8 topk=4
-```
+Shapes: `model_dim=7168, inter_dim=384, E=8, topk=4, dtype=bf16,
+quant_type=QuantType.No, weights pre-shuffled`.
+Reference: `aiter.fused_moe.torch_moe` for Silu;
+manual `silu(gate).clamp(<=7) * up.clamp(-7,7)` reference for SwigluStep.
 
-The error originates in `moe_sorting` (CK Python interface) BEFORE the GEMM
-kernels execute. This is a pre-kernel dispatcher failure, not a numerical
-divergence. The aiter dispatcher logs confirm it picks `2stage default` for
-`(N=256, M, K=7168, inter=384, E=8, topk=4, Silu, bf16, QuantType.No,
-use_nt=True/False, doweight_stage1=False)`, then crashes inside CK
-`moe_sorting`.
+### Activation = `ActivationType.Silu`
 
-Overall: **FAIL (0/6)** — failure mode is API/dispatch (CK `moe_sorting`
-unsupported data type 4), NOT silent numerical mismatch. The Silu/no-quant
-BF16 path with these shapes is unusable in the current aiter build on gfx950.
+| M   | seed | cos_sim   | Status |
+|-----|------|-----------|--------|
+| 1   | 0    | 0.999993  | PASS   |
+| 1   | 42   | 0.999993  | PASS   |
+| 32  | 0    | 0.999992  | PASS   |
+| 32  | 42   | 0.999993  | PASS   |
+| 256 | 0    | 0.999993  | PASS   |
+| 256 | 42   | 0.999993  | PASS   |
 
-## 3. SwigluStep Code Existence
+Subtotal: 6/6 PASS.
 
-### aiter (`/home/hanchang/aiter/aiter/`)
+### Activation = `ActivationType.SwigluStep`
+
+| M   | seed | cos_sim   | Status |
+|-----|------|-----------|--------|
+| 1   | 0    | 0.999992  | PASS   |
+| 1   | 42   | 0.999992  | PASS   |
+| 32  | 0    | 0.999992  | PASS   |
+| 32  | 42   | 0.999993  | PASS   |
+| 256 | 0    | 0.999993  | PASS   |
+| 256 | 42   | 0.999993  | PASS   |
+
+Subtotal: 6/6 PASS.
+
+Overall: **PASS (12/12)** — both production activation paths reach
+cosine similarity > 0.9999 against their respective torch references.
+
+## 3. SwigluStep Code Existence (re-confirmed)
 
 | File | Line | Content |
 |------|------|---------|
-| `aiter/fused_moe.py` | 974 | `and activation != ActivationType.SwigluStep` |
-| `aiter/fused_moe.py` | 1389 | `if activation == ActivationType.SwigluStep:` |
-| `aiter/fused_moe.py` | 1390 | `return swiglustep(gate, up)` |
-| `aiter/fused_moe.py` | 1541 | `def swiglustep(x_glu, x_linear, limit: float = 7.0):` |
-| `aiter/fused_moe.py` | 1641 | `use_swiglustep = activation == aiter.ActivationType.SwigluStep` |
-| `aiter/fused_moe.py` | 1647-1648 | fallback: `out = swiglustep(gate, up)` |
-| `aiter/utility/dtypes.py` | 151 | `"swiglustep": ActivationType.SwigluStep` |
-| `aiter/jit/utils/moe_recipes.py` | 88, 94 | gfx950 swiglustep+no-quant -> preshuffle_off |
-| `aiter/ops/quant.py` | 463-472 | reference `_swiglustep_single` (clamp limit) |
+| `/home/hanchang/aiter/aiter/fused_moe.py` | 1541 | `def swiglustep(x_glu, x_linear, limit: float = 7.0):` |
+| `/home/hanchang/aiter/aiter/fused_moe.py` | 1389-1390 | `if activation == ActivationType.SwigluStep: return swiglustep(gate, up)` |
+| `/home/hanchang/aiter/aiter/jit/utils/moe_recipes.py` | 88, 94 | gfx950 swiglustep + no-quant honours both preshuffle modes |
+| `/home/hanchang/ATOM/atom/models/step3p5.py` | 192 | `ActivationType.SwigluStep if self._uses_swiglustep else ActivationType.Silu` |
+| `/home/hanchang/ATOM/atom/models/step3p5.py` | 290 | routed-experts at SwigluStep layers 43-44 |
 
-### ATOM (`/home/hanchang/ATOM/atom/`)
+## 4. Why the prior runs failed
 
-| File | Line | Content |
-|------|------|---------|
-| `models/step3p5.py` | 55 | `def _uses_swiglustep_at_layer(config, layer_idx) -> bool:` |
-| `models/step3p5.py` | 78-81 | R5 mitigation comment: kernel clamps experts at 7.0 |
-| `models/step3p5.py` | 89 | gating: skip fusion when layer is swiglustep |
-| `models/step3p5.py` | 180, 190-192 | selects `ActivationType.SwigluStep` if `clamp_limit` set |
-| `models/step3p5.py` | 216 | R5 mitigation: must NOT fuse shared expert at SwigluStep layers |
-| `models/step3p5.py` | 290 | Routed experts at SwigluStep layers 43-44 |
+| Symptom | Real cause |
+|---------|------------|
+| `CKPyInterface: Unsupported data type 4` | Misleading message; CK actually rejected `topk_weights` because it was `bf16`. The code path requires FP32. |
+| 0/6 pass with `inplace=True` | `fused_moe` has no `inplace` kwarg (signature at `fused_moe.py:120-146`). |
+| GEMM looking healthy in dispatcher logs but kernel raise | `topk_weights` dtype check happens inside `moe_sorting_fwd` before stage1 GEMM. |
 
-**Conclusion: SwigluStep code EXISTS** end-to-end — aiter kernel + dispatcher
-+ ATOM Step-3.5 model wiring. Hard-coded clamp limit = 7.0.
+Fix applied in the new harness:
 
-## 4. Overall Conclusion
+1. Cast `topk_weights` to `float32` (production does this implicitly via
+   `FusedMoE.select_experts`).
+2. Apply `aiter.ops.shuffle.shuffle_weight(layout=(16,16))` per expert
+   (mirrors `ATOM/atom/model_ops/utils.py:124-152` `shuffle_weights`).
+3. Pass `activation` and `quant_type` explicitly (matches
+   `ATOM/atom/model_ops/moe.py:581-589`).
 
-- **fused_moe API verified**: signature confirmed at `fused_moe.py:120`. No
-  `inplace` kwarg; the 5-positional invocation works in the dispatcher.
-- **SwigluStep integration verified**: present in aiter
-  (`fused_moe.py:1541`) and consumed by ATOM Step-3.5
-  (`step3p5.py:192`) with the R5 clamp-at-7.0 mitigation at routed-MoE
-  layers 43-44.
-- **Exp1 matrix FAILED 0/6** due to a `moe_sorting` CK Python interface error
-  (`Unsupported data type 4`). Pre-kernel dispatch failure, not a numerical
-  bug. The Silu BF16 / QuantType.No path is currently broken on this gfx950
-  build for these shapes; numerical SwigluStep cosine cannot be measured by
-  this harness as written.
-- Suggested follow-ups (not executed in this run):
-  1. Force the SwigluStep path explicitly (`activation=ActivationType.SwigluStep`).
-  2. Use the `preshuffle_off` recipe (see `moe_recipes.py:88-94`).
-  3. Rebuild aiter so CK `moe_sorting` accepts data type 4.
+## 5. Overall Conclusion
 
-V02 Exp1 status: **FAIL (0/6 cases, dispatch error)**, SwigluStep: **EXISTS**.
+- **Production call signature verified**: `fused_moe(x, w13_shuf, w2_shuf,
+  topk_w_fp32, topk_ids_i32, expert_mask=None, activation=Silu|SwigluStep,
+  quant_type=QuantType.No)`.
+- **fused_moe + SwigluStep numerically correct** on gfx950 for routed-MoE
+  shapes (`E=8, topk=4, model_dim=7168, inter=384`) at M ∈ {1, 32, 256}:
+  cos_sim ≥ 0.99999 in 12/12 cases.
+- **R5 mitigation (clamp=7.0) is enforced inside the kernel** — the
+  manual reference (silu/clamp/up-clamp) and the kernel agree to
+  cos_sim ≈ 0.99999, which is consistent with the kernel using the same
+  clamp limit at the SwigluStep layers (43-44).
+
+V02 Exp1 status: **PASS (12/12)**, SwigluStep: **VERIFIED (numerical)**.
