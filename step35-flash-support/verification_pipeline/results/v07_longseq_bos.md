@@ -1,52 +1,43 @@
-# V07 LongSeq BOS Verification
+# V07 长序列 BOS 验证
 
 > **结论速览**：Exp1 tgemm PASS（M≥8209 diff=0）；Exp2 E2E 10k PASS（first_token=3648）；Exp5.a 扫描完整（仅 glm5 受影响，已修复）。V07 修复有效。
 
-## Background
+## 背景
 
-aiter commit `a2883ab37` deletes `glm5_bf16_tuned_gemm.csv` L45 (entry
-`gfx950,X,4096,2048,...,asm,...,bf16gemm_bf16_tn_256x256`) which dispatches
-the buggy ASM kernel `_ZN5aiter24bf16gemm_bf16_tn_256x256E` for
-M >= 8209 producing wrong outputs (cos_sim severely degraded).
+aiter commit `a2883ab37` 删除 `glm5_bf16_tuned_gemm.csv` L45 的条目
+`gfx950,X,4096,2048,...,asm,...,bf16gemm_bf16_tn_256x256`，该条目会派发到有 bug 的 ASM kernel `_ZN5aiter24bf16gemm_bf16_tn_256x256E`，在 M >= 8209 时输出错误（cos_sim 严重下降）。
 
-## Exp5.a CSV Scan (CPU only)
+## Exp5.a CSV 扫描（仅 CPU）
 
-Scan command (Grep tool):
+扫描命令（Grep 工具）：
 ```
 pattern: "bf16gemm_bf16_tn_256x256"
 path:    /home/hanchang/aiter/aiter/configs/model_configs/
 ```
 
-Per-file occurrences of `bf16gemm_bf16_tn_256x256`:
+各文件中 `bf16gemm_bf16_tn_256x256` 出现次数：
 
-| CSV file | count |
+| CSV 文件 | 数量 |
 |---|---|
 | llama405B_bf16_tuned_gemm.csv | 80 |
 | qwen32B_bf16_tuned_gemm.csv | 51 |
 | llama70B_bf16_tuned_gemm.csv | 69 |
 | glm5_bf16_tuned_gemm.csv | 2 |
 
-Refined scan for the **exact buggy shape** N=4096, K=2048 with this ASM kernel:
+针对**精确的 buggy 形状** N=4096, K=2048 + 该 ASM kernel 的精化扫描：
 ```
 pattern: "^gfx950,\d+,4096,2048,.*,asm,.*bf16gemm_bf16_tn_256x256"
 ```
-Result: **No matches found** (in any file, including glm5 — confirming
-the buggy entry has been deleted).
+结果：**无匹配**（任何文件均无，包括 glm5——确认 buggy 条目已被删除）。
 
-Broader scan for any row with `,4096,2048,` (any kernel type):
-- llama70B_bf16_tuned_gemm.csv: no matches
-- llama405B_bf16_tuned_gemm.csv: no matches
-- qwen32B_bf16_tuned_gemm.csv: no matches
+更广泛的扫描，匹配任何含 `,4096,2048,` 的行（任意 kernel 类型）：
+- llama70B_bf16_tuned_gemm.csv：无匹配
+- llama405B_bf16_tuned_gemm.csv：无匹配
+- qwen32B_bf16_tuned_gemm.csv：无匹配
 
-Conclusion:
-- **Only glm5_bf16_tuned_gemm.csv** had the exact buggy (N=4096, K=2048)
-  ASM-256x256 entry, and it has been removed (preflight 0.11 confirmed 72
-  rows remaining).
-- llama70B / llama405B / qwen32B still use the same ASM kernel
-  `bf16gemm_bf16_tn_256x256`, but for **other N,K shapes** (none with
-  N=4096, K=2048). Whether those other shapes also misbehave at large M
-  is **out of scope here** and should be tracked as a separate open bug
-  if observed.
+结论：
+- **仅 glm5_bf16_tuned_gemm.csv** 含精确的 buggy (N=4096, K=2048) ASM-256x256 条目，且已被移除（preflight 0.11 确认剩余 72 行）。
+- llama70B / llama405B / qwen32B 仍使用同一 ASM kernel `bf16gemm_bf16_tn_256x256`，但用于**其它 N,K 形状**（无 N=4096, K=2048）。这些其它形状是否同样在大 M 下出错**超出本次范围**，若观察到应作为独立 open bug 单独跟踪。
 
 ## Bug 根因全链路
 
@@ -84,9 +75,9 @@ M=8209  |#-----------------| diff~=0   修复后 PASS（触发阈值）
 M=10021 |#-----------------| diff=0    修复后 PASS
 
 修复前（预期）：
-M=8209+ |####################| diff>>100  FAIL: BOS spam
+M=8209+ |####################| diff>>100  FAIL：BOS spam
 
-(修复后 buggy ASM kernel 已从 CSV 移除，不可达)
+（修复后 buggy ASM kernel 已从 CSV 移除，不可达）
 ```
 
 ### E2E 10k Tokens 验证结果
@@ -98,52 +89,46 @@ M=8209+ |####################| diff>>100  FAIL: BOS spam
 | 输出语言 | N/A（全 BOS）| 连贯中文 PASS |
 | 无 BOS-spam | FAIL | PASS |
 
-## Exp1 tgemm Direct Call (GPU 7)
+## Exp1 tgemm 直接调用（GPU 7）
 
-Script: `/tmp/v07_exp1_tgemm.py`
-Log:    `/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v07_exp1_tgemm.log`
+脚本：`/tmp/v07_exp1_tgemm.py`
+日志：`/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v07_exp1_tgemm.log`
 
-Setup: `tgemm.mm(a, b)` with a:[M, K=2048] bf16, b:[N=4096, K=2048] bf16,
-dispatched via `aiter.tuned_gemm.tgemm` (alias for `gemm_a16w16`).
+配置：`tgemm.mm(a, b)`，a:[M, K=2048] bf16，b:[N=4096, K=2048] bf16，通过 `aiter.tuned_gemm.tgemm`（即 `gemm_a16w16` 别名）派发。
 
-Dispatcher log shows for every M tested:
+Dispatcher 日志显示，对每个测试的 M：
 ```
 shape M:{M}, N:4096, K:2048 ... not found tuned config in
 /tmp/aiter_configs/bf16_tuned_gemm.csv, will use default config!
 using torch solution:0
 ```
-Confirming the buggy ASM kernel is **no longer reachable** at this shape
-post-fix (no tuned entry → torch fallback).
+确认修复后该形状的 buggy ASM kernel **不再可达**（无 tuned entry → torch fallback）。
 
-Results:
+结果：
 
-| M    | max_diff | Status |
-|------|----------|--------|
-| 8192 | 0.00     | PASS   |
-| 8208 | 0.00     | PASS   |
-| 8209 | 0.00     | PASS   |
-| 8216 | 0.00     | PASS   |
-| 10021| 0.00     | PASS   |
+| M    | max_diff | 状态 |
+|------|----------|------|
+| 8192 | 0.00     | PASS |
+| 8208 | 0.00     | PASS |
+| 8209 | 0.00     | PASS |
+| 8216 | 0.00     | PASS |
+| 10021| 0.00     | PASS |
 
-All M >= 8209 pass with max_diff = 0.00 (<< 50 threshold).
+所有 M >= 8209 均通过，max_diff = 0.00（远小于 50 阈值）。
 
-## Overall Conclusion
+## 总体结论
 
-- Exp5.a: **PASS** — only glm5 was affected; fix already applied.
-  Other CSVs use the same ASM kernel but for different N,K — not the
-  shape known to be buggy. No new entries to clean up for this specific
-  bug.
-- Exp1: **PASS** — at the buggy shape (N=4096, K=2048), tgemm now falls
-  back to torch for all M; numerical output correct for M up to 10021.
-- Workaround in aiter `a2883ab37` is verified effective.
+- Exp5.a：**PASS** — 仅 glm5 受影响；修复已应用。其它 CSV 使用同一 ASM kernel 但形状不同——非已知 buggy 形状。本 bug 无需清理新条目。
+- Exp1：**PASS** — 在 buggy 形状（N=4096, K=2048）下，tgemm 对所有 M 已 fallback 到 torch；M 直至 10021 数值输出均正确。
+- aiter `a2883ab37` 的 workaround 验证有效。
 
-## Exp2 E2E 10k tokens tp=4 (GPU 0,1,2,3)
+## Exp2 E2E 10k tokens tp=4（GPU 0,1,2,3）
 
-Date: 2026-04-25
-Driver: `/home/hanchang/project_fp8_tp4/logs/perf_compare_10k/run_inference.py`
-Log:    `/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v07_exp2_e2e_10k.log`
+日期：2026-04-25
+驱动脚本：`/home/hanchang/project_fp8_tp4/logs/perf_compare_10k/run_inference.py`
+日志：`/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v07_exp2_e2e_10k.log`
 
-Command:
+命令：
 ```
 rm -rf /root/.cache/atom/*
 MODEL="stepfun-ai/Step-3.5-Flash" TP=4 GMU=0.7 MAX_TOKENS=10 \
@@ -151,42 +136,36 @@ MODEL="stepfun-ai/Step-3.5-Flash" TP=4 GMU=0.7 MAX_TOKENS=10 \
   /opt/venv/bin/python /home/hanchang/project_fp8_tp4/logs/perf_compare_10k/run_inference.py
 ```
 
-Engine config: tp=4, gmu=0.7, max_num_batched_tokens=16384, max_num_seqs=4,
-enforce_eager=True, kv_cache_dtype=bf16.
+Engine 配置：tp=4, gmu=0.7, max_num_batched_tokens=16384, max_num_seqs=4, enforce_eager=True, kv_cache_dtype=bf16。
 
-Result (from log, Request 1 — the actual 10k prompt request):
+结果（取自日志，Request 1 即真实 10k prompt 请求）：
 - Input tokens: 10021
 - Output tokens: 10
 - TTFT: 331 ms
 - TPOT: 49.9 ms
 - Total latency: 791.5 ms
 
-Token IDs (output):
+输出 token IDs：
 `[3648, 303, 6640, 1621, 78040, 16761, 24376, 7113, 301, 5149]`
 
-BOS-spam checks:
-- first_token = 3648 (NOT BOS id=1) — PASS
-- len(set(token_ids)) = 10 (>= 5) — PASS
-- 0 not in token_ids[1:] — PASS (no token is 0)
-- 1 (BOS) not in token_ids — PASS
+BOS-spam 检查：
+- first_token = 3648（非 BOS id=1）— PASS
+- len(set(token_ids)) = 10（>= 5）— PASS
+- 0 not in token_ids[1:] — PASS（无任何 token 为 0）
+- 1（BOS）not in token_ids — PASS
 
-Output text (decoded): `好的，用户给了一段重复了很多遍的关于`
-("OK, the user provided a long repeated passage about ...") — coherent
-Chinese, semantically appropriate to a long-prompt summarization task.
+解码输出文本：`好的，用户给了一段重复了很多遍的关于`——连贯中文，语义符合长 prompt 摘要任务。
 
-Exit status: clean shutdown, no crash, no NCCL/Gloo errors.
+退出状态：clean shutdown，无 crash，无 NCCL/Gloo error。
 
-Conclusion: **PASS** — long-prompt (10k) tp=4 inference produces a
-non-BOS, diverse, coherent output sequence. The prior tp=4 long-sequence
-BOS-spam bug is no longer reproducible after the aiter `a2883ab37`
-workaround (glm5 CSV ASM-256x256 entry removed).
+结论：**PASS** — 长 prompt（10k）tp=4 推理产生非 BOS、多样、连贯的输出序列。先前 tp=4 长序列 BOS-spam bug 在 aiter `a2883ab37` workaround（移除 glm5 CSV 的 ASM-256x256 条目）后已不可复现。
 
-## Exp3 short prompt tp=4 regression
+## Exp3 短 prompt tp=4 回归
 
-Date: 2026-04-25
-Log: `/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v07_exp3_short_tp4.log`
+日期：2026-04-25
+日志：`/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v07_exp3_short_tp4.log`
 
-Command:
+命令：
 ```
 rm -rf /root/.cache/atom/*
 cd /tmp && CUDA_VISIBLE_DEVICES=0,1,2,3 AITER_LOG_LEVEL=WARNING \
@@ -196,7 +175,7 @@ cd /tmp && CUDA_VISIBLE_DEVICES=0,1,2,3 AITER_LOG_LEVEL=WARNING \
   --max-num-batched-tokens 4096 --max-num-seqs 2048
 ```
 
-Per-request (from log):
+每个 request 数据（取自日志）：
 | Req | input | output | latency | TTFT  | TPOT   |
 |-----|-------|--------|---------|-------|--------|
 | 0   | 16    | 64     | 65.47s  | 1080 ms | 1022 ms |
@@ -204,27 +183,17 @@ Per-request (from log):
 | 2   | 19    | 60 (eos) | 61.48s | 1080 ms | 1024 ms |
 | 3   | 21    | 64     | 65.47s  | 1080 ms | 1022 ms |
 
-Comparison vs V01 Exp3 tp=4 baseline (TTFT=84ms, TPOT=18ms):
-- TTFT delta: +1185% (1080 vs 84 ms) — far outside +-10%
-- TPOT delta: +5577% (1022 vs 18 ms) — far outside +-10%
+与 V01 Exp3 tp=4 baseline（TTFT=84ms，TPOT=18ms）对比：
+- TTFT delta：+1185%（1080 vs 84 ms）— 远超 ±10%
+- TPOT delta：+5577%（1022 vs 18 ms）— 远超 ±10%
 
-Correctness checks (output text identical to V01 Exp3 baseline):
-- "introduce yourself" -> "Hmm, the user simply asked me to introduce
-  myself. This is a straightforward request with no complex context or
-  hidden needs. ..."  — matches V01 verbatim.
-- "1+2+3=?" -> "We are asked: \"1+2+3=?\" This is a simple arithmetic
-  sum. 1+2=3, then 3+3=6. So the answer is 6.</think>The sum of 1, 2,
-  and 3 is 6." — matches V01 verbatim.
-- "list all prime numbers within 100" -> identical opening to V01.
-- BOS-spam: none observed. Outputs coherent.
+正确性检查（输出文本与 V01 Exp3 baseline 一致）：
+- "introduce yourself" -> "Hmm, the user simply asked me to introduce myself. This is a straightforward request with no complex context or hidden needs. ..." — 与 V01 逐字一致。
+- "1+2+3=?" -> "We are asked: \"1+2+3=?\" This is a simple arithmetic sum. 1+2=3, then 3+3=6. So the answer is 6.</think>The sum of 1, 2, and 3 is 6." — 与 V01 逐字一致。
+- "list all prime numbers within 100" -> 开头与 V01 完全相同。
+- BOS-spam：未观察到。输出连贯。
 
-Conclusion: **FAIL on perf threshold** (both TTFT and TPOT >> +10% vs
-V01 baseline), but **correctness PASS** (outputs byte-identical to V01
-text, no BOS-spam). Numerical/functional regression is absent; the
-slowdown is a performance regression of unknown cause (observed:
-`torch._dynamo hit config.recompile_limit (8)` warnings during request
-execution; same warnings appear in V01 log so cannot conclude they are
-causal). Root-cause investigation deferred — flagged for follow-up.
+结论：**性能阈值 FAIL**（TTFT 与 TPOT 均远超 V01 baseline 的 +10%），但**正确性 PASS**（输出与 V01 文本字节一致，无 BOS-spam）。无数值/功能性回归；变慢属性能回归原因未知（观察到 request 执行期间出现 `torch._dynamo hit config.recompile_limit (8)` warning；同样的 warning 在 V01 log 中也存在，故无法判定为因果）。根因调查延期——标记为后续跟进。
 
 ## Open Items
 
