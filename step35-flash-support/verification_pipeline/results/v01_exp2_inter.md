@@ -1,12 +1,12 @@
-# V01 Experiment 2 — V1/V3 inter_dim Boundary Matrix
+# V01 实验 2 — V1/V3 inter_dim 边界矩阵
 
 **结论速览**：inter_dim ∈ {192, 256, 384, 640} 全部 PASS；inter_dim=320 需 ATOM padding（320→384）后才能通过 CK tile 约束。
 
-Test config: M=32, model_dim=7168, E=16, topk=4, dtype=bfloat16
-GPU: gfx950, CUDA_VISIBLE_DEVICES=1
-Date: 2026-04-25
-Script: /tmp/v01_exp2_inter.py
-Log: /home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v01_exp2.log
+测试配置：M=32, model_dim=7168, E=16, topk=4, dtype=bfloat16
+GPU：gfx950，CUDA_VISIBLE_DEVICES=1
+日期：2026-04-25
+脚本：/tmp/v01_exp2_inter.py
+日志：/home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v01_exp2.log
 
 ## Bug 根因：V1 kernel 在 inter_dim > 192 时计算错误
 
@@ -29,26 +29,26 @@ flowchart LR
 | tp=4 | 320 | 320->384 | 384 | 是（>192） | V3 kernel PASS |
 | tp=8 | 160 | 160->192 | 192 | 否（=192） | V1 正常 PASS |
 
-## Result Matrix
+## 结果矩阵
 
-| inter_dim | block_m chosen | cos_sim (post-fix) | Threshold | Result |
+| inter_dim | 选中 block_m | cos_sim（修复后） | 通过标准 | 结论 |
 |-----------|----------------|--------------------|-----------|--------|
-| 192       | 32 (V1 path)   | 0.99999273         | >= 0.9999 | PASS   |
-| 256       | 128 (V3 forced)| 0.99999255         | >= 0.9999 | PASS   |
-| 320       | 128 (V3 forced)| ERROR              | n/a       | N/A (tile constraint, see note) |
-| 640       | 128 (V3 forced)| 0.99999249         | >= 0.9999 | PASS   |
+| 192       | 32（V1 路径）   | 0.99999273         | >= 0.9999 | PASS   |
+| 256       | 128（V3 forced）| 0.99999255         | >= 0.9999 | PASS   |
+| 320       | 128（V3 forced）| ERROR              | n/a       | N/A（tile 约束，见下方说明） |
+| 640       | 128（V3 forced）| 0.99999249         | >= 0.9999 | PASS   |
 
-inter_dim=320 error message:
+inter_dim=320 报错信息：
 ```
 wrong! device_gemm with the specified compilation parameters does not support this GEMM problem
 ```
-This is not a correctness failure of Fix 2 — it is a CK kernel tile-size constraint:
-the forced V3 kernel `moe_ck2stages_gemm2_256x128x128x64_1x4_..._v3` requires
-inter_dim divisible by its N tile (128). 320 is not a multiple of 128, so no
-matching CK instance exists. 192 / 256 / 640 are all multiples of 128 (or 192
-falls through to the unaffected V1 path where block_m=32).
+这并非 Fix 2 的正确性失败——而是 CK kernel tile-size 约束：
+强制 V3 kernel `moe_ck2stages_gemm2_256x128x128x64_1x4_..._v3` 要求
+inter_dim 能被其 N tile (128) 整除。320 不是 128 的倍数，所以没有
+匹配的 CK 实例。192 / 256 / 640 都是 128 的倍数（或 192 走未受影响的
+V1 路径，block_m=32）。
 
-## Boundary Confirmation (from code reading)
+## 边界确认（代码阅读）
 
 `/home/hanchang/aiter/aiter/fused_moe.py` lines 900-910 (Fix 2, commit 68fc7d48b):
 
@@ -66,21 +66,20 @@ if not run_1stage and inter_dim > 192 and get_gfx() == "gfx950" \
         kernelName2 = "moe_ck2stages_gemm2_256x128x128x64_1x4_TypeCast_v3_Nswizzle0_Quant0_MulRoutedWeight1_B16_B16_B16"
 ```
 
-The runtime aiter logs in our run confirm the dispatch:
-- inter_dim=192 → `block_m = 32` (boundary not crossed, V1 path)
-- inter_dim=256, 320, 640 → `block_m = 128` (V3 forced)
+本次运行的 aiter 运行时日志确认 dispatch：
+- inter_dim=192 → `block_m = 32`（未跨越边界，V1 路径）
+- inter_dim=256, 320, 640 → `block_m = 128`（V3 forced）
 
-This validates that 192 is exactly the cut-off (`inter_dim > 192`).
+这验证了 192 恰好是分界点（`inter_dim > 192`）。
 
-## V01 Exp2 Conclusion
+## V01 Exp2 结论
 
-**PASS** — Fix 2's V3-forced override produces correct results
-(cos_sim approx. 0.99999) for every inter_dim that has a matching CK kernel
-instance (192 via V1, 256 and 640 via V3). The inter_dim=320 case is an
-unrelated CK tile-size limitation, not a correctness regression of the fix.
-The 192 boundary in the guard expression `inter_dim > 192` is confirmed
-empirically: at exactly 192 the dispatcher picks block_m=32 (V1) and at
-inter_dim > 192 it picks block_m=128 (V3).
+**PASS** —— Fix 2 的 V3-forced 覆盖在所有有匹配 CK kernel 实例的 inter_dim
+上都产生正确结果（cos_sim 约 0.99999）：192 走 V1，256 和 640 走 V3。
+inter_dim=320 的情况是无关的 CK tile-size 限制，并非该修复的正确性回归。
+guard 表达式 `inter_dim > 192` 中的 192 边界已通过实验确认：
+恰好 192 时 dispatcher 选 block_m=32（V1），而 inter_dim > 192 时
+选 block_m=128（V3）。
 
 ## 补充：inter_dim=384（ATOM tp=4 padding 后实际值）
 
