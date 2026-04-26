@@ -8,6 +8,27 @@ Date: 2026-04-25
 Script: /tmp/v01_exp2_inter.py
 Log: /home/hanchang/project_fp8_tp4/verification_pipeline/results/logs/v01_exp2.log
 
+## Bug 根因：V1 kernel 在 inter_dim > 192 时计算错误
+
+```mermaid
+flowchart LR
+    A["fused_moe() 调用<br/>inter_dim, q_type, gfx"] --> B{"gfx950?<br/>inter_dim > 192?<br/>q_type 非 blockscale?"}
+    B -- "全部 YES<br/>(Fix 2 后)" --> C["block_m = 128<br/>选 V3 kernel"]
+    B -- "任一 NO" --> D["block_m = 16/64<br/>选 V1 kernel"]
+    C --> E["V3: 256x128x128x64<br/>gfx950 正确"]
+    D --> F{"inter_dim > 192?"}
+    F -- YES --> G["V1 计算错误<br/>cos_sim ~ 0.004"]
+    F -- NO --> H["V1 正常<br/>cos_sim >= 0.9999"]
+```
+
+### Step-3.5-Flash 各 TP 配置实际 inter_dim
+
+| TP | 原始 inter_dim | ATOM padding | 最终 inter_dim | 触发 V1 bug？ | 修复后 |
+|----|--------------|-------------|--------------|-------------|--------|
+| tp=2 | 640 | 无需 | 640 | 是（>192） | V3 kernel PASS |
+| tp=4 | 320 | 320->384 | 384 | 是（>192） | V3 kernel PASS |
+| tp=8 | 160 | 160->192 | 192 | 否（=192） | V1 正常 PASS |
+
 ## Result Matrix
 
 | inter_dim | block_m chosen | cos_sim (post-fix) | Threshold | Result |

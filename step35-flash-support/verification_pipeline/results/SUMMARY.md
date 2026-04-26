@@ -19,6 +19,64 @@ Fix 生效后 FP8 tp=4 decode TPOT 比 BF16 快 **19%**，prefill TTFT 快 **14%
 
 ---
 
+## 7 项修复全景图
+
+### 修复依赖关系与验证顺序
+
+```mermaid
+flowchart TD
+    subgraph ATOM ["ATOM 修复"]
+        F1["Fix 1 (ec8cbe8)<br/>shuffle_weights<br/>gfx950 skip 移除"]
+        F2["Fix 3a (4a8495e)<br/>SwigluStep wiring<br/>layers 43-44"]
+        F3["Fix 4 (635e59e)<br/>inter_dim padding<br/>320->384, 160->192"]
+        F4["Fix 6 (ccb64621)<br/>FP8 scale shard<br/>floor->ceil"]
+    end
+    subgraph AITER ["aiter 修复"]
+        F5["Fix 2 (68fc7d48b)<br/>V1->V3 kernel<br/>block_m=128 guard"]
+        F6["Fix 3b (7ebae9afb)<br/>sliding window<br/>off-by-one"]
+        F7["Fix 5 (c38d0c9e6)<br/>FP8 q_type guard<br/>blockscale 豁免"]
+        F8["Fix 7 (a2883ab37)<br/>glm5 CSV 删行<br/>ASM kernel workaround"]
+    end
+    F1 --> V01["V01 MoE PASS"]
+    F5 --> V01
+    F2 --> V02["V02 SwigluStep PASS"]
+    F6 --> V03["V03 SlidingWindow PASS"]
+    F3 --> V04["V04 TP Support PASS"]
+    F5 --> V04
+    F7 --> V05["V05 FP8 Inference PASS"]
+    F4 --> V06["V06 FP8 tp=4 PASS"]
+    F8 --> V07["V07 LongSeq BOS PASS"]
+```
+
+### 综合性能对比
+
+```
+                  TTFT (ms)              TPOT (ms)
+配置            | 0    50   100  150   | 0   10   20   30
+----------------+---------------------+------------------
+BF16  tp=2      | ########  85-92     | #########  17-18
+BF16  tp=4      | ########  81-84     | ########   16-18
+FP8   tp=2      | ########  87        | #######    14   <- TPOT -22% vs BF16 tp=2
+FP8   tp=4      | ########  86        | ######     13   <- TPOT -19% vs BF16 tp=4
+----------------+---------------------+------------------
+FP8 在 decode 性能上显著优于 BF16（TPOT 快 19-22%）
+```
+
+### 7 项修复验证矩阵
+
+| 修复 | Commit | 验证方法 | 关键指标 | 结论 |
+|------|--------|---------|---------|------|
+| Fix 1 shuffle_weights | ec8cbe8 | op_test cos_sim | preshuffle_on=0.99999 | PASS |
+| Fix 2 V1->V3 block_m | 68fc7d48b | inter_dim 矩阵 | 192/384/640 全 PASS | PASS |
+| Fix 3a SwigluStep | 4a8495e | 12 cases cos_sim | >=0.99999 | PASS |
+| Fix 3b sliding window | 7ebae9afb | ancestor+代码 diff | off-by-one 修复确认 | PASS |
+| Fix 4 inter_dim pad | 635e59e | e2e tp=4 | TTFT=81ms | PASS |
+| Fix 5 FP8 q_type guard | c38d0c9e6 | FP8 tp=2 e2e | TTFT=87ms | PASS |
+| Fix 6 FP8 scale ceil | ccb64621 | FP8 tp=4 e2e | TTFT=86ms | PASS |
+| Fix 7 CSV workaround | a2883ab37 | tgemm 直调+10k e2e | diff=0, token!=BOS | PASS |
+
+---
+
 ## 总体结论
 
 | 专题 | P0 实验 | 结论 | 关键数据 |

@@ -48,6 +48,56 @@ Conclusion:
   is **out of scope here** and should be tracked as a separate open bug
   if observed.
 
+## Bug 根因全链路
+
+### tp=4 长序列（M ≥ 8209）输出全 BOS 的根因链
+
+```mermaid
+flowchart TD
+    A["tp=4 长序列推理<br/>input_len ≥ 8209 tokens"] --> B["prefill GEMM<br/>M=input_len, N=4096, K=2048"]
+    B --> C["aiter/tuned_gemm.py<br/>查 glm5_bf16_tuned_gemm.csv"]
+    C --> D["找到条目：N=4096, K=2048<br/>→ 选 ASM kernel<br/>bf16gemm_bf16_tn_256x256"]
+    D --> E{"M ≥ 8209?"}
+    E -- YES --> F["ASM kernel 在 gfx950<br/>M≥8209 时输出错误<br/>（数值 diff >> 100）"]
+    E -- NO --> G["ASM kernel 正常"]
+    F --> H["Attention 输出错误<br/>→ logits 全集中在 token_id=1（BOS）"]
+    H --> I["所有 output token = BOS<br/>输出形如：<s><s><s><s>..."]
+```
+
+### 修复方案（commit a2883ab37）
+
+```mermaid
+flowchart LR
+    A["glm5_bf16_tuned_gemm.csv<br/>删除 N=4096,K=2048 行<br/>（共 73→72 行）"] --> B["tuned_gemm.py<br/>该形状无 tuned 条目"]
+    B --> C["fallback 到 torch.mm<br/>（正确但略慢）"]
+    C --> D["M≥8209 diff=0.00<br/>10k tokens first_token=3648 PASS"]
+```
+
+### M 阈值可视化
+
+```
+tgemm max_diff（N=4096, K=2048）：
+
+M=8192  |#-----------------| diff~=0   修复后 PASS
+M=8208  |#-----------------| diff~=0   修复后 PASS
+M=8209  |#-----------------| diff~=0   修复后 PASS（触发阈值）
+M=10021 |#-----------------| diff=0    修复后 PASS
+
+修复前（预期）：
+M=8209+ |####################| diff>>100  FAIL: BOS spam
+
+(修复后 buggy ASM kernel 已从 CSV 移除，不可达)
+```
+
+### E2E 10k Tokens 验证结果
+
+| token 位置 | 修复前（预期）| 修复后（实测）|
+|-----------|------------|------------|
+| first_token | 1（BOS） | **3648**（"好"）PASS |
+| token[1:5] | [1,1,1,1] | 多样，非 BOS PASS |
+| 输出语言 | N/A（全 BOS）| 连贯中文 PASS |
+| 无 BOS-spam | FAIL | PASS |
+
 ## Exp1 tgemm Direct Call (GPU 7)
 
 Script: `/tmp/v07_exp1_tgemm.py`

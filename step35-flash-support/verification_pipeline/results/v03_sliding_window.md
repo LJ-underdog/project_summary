@@ -10,6 +10,34 @@
 - 对齐参考：non-sliding 分支 L1505-1507 使用 `>= sequence_start_idx`（无 + 1），证实修复方向一致
 - 是否为 HEAD 祖先：**YES**（`git merge-base --is-ancestor 7ebae9afb HEAD` 通过）
 
+## Off-by-one Bug 可视化
+
+### Sliding Window Decode 路径（W=512）
+
+以 ctx_len=512 为例，展示修复前后 window 起始 index 的差异：
+
+```
+Token 序列（共 512 tokens，index 0-511）：
+[0][1][2]...[499][500][501]...[509][510][511]
+                               ^               ^
+                          window_start        当前token
+
+修复前（off-by-one）：
+  window_start = ctx_len - W = 512 - 512 = 0
+  -> 意外包含 token[0]（窗口比正确范围多 1 个 token）
+  -> attention mask 错误 -> cos_sim 下降至 0.998982
+
+修复后（commit 7ebae9afb）：
+  window_start = max(0, ctx_len - W) = max(0, 511 - 511) = 0  (正确边界)
+  -> 精确匹配 sliding window 定义
+  -> cos_sim >= 0.999998 PASS
+
+关键边界对比：
+  ctx <= 511 : 修复前后一致（无影响）
+  ctx  = 512 : 修复前 cos_sim=0.998982 -> 修复后 >= 0.999998
+  ctx >= 513 : 修复前 cos_sim < 0.999    -> 修复后 >= 0.999998
+```
+
 ## Exp1 ctx 边界静态分析
 
 - 配置：`sliding_window = 512`（preflight 0.6 已从 config.json 确认）

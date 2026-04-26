@@ -2,6 +2,34 @@
 
 > **结论速览**：SwigluStep 激活函数在 `aiter/fused_moe.py:1541` 实现，在 ATOM `step3p5.py:192` (layers 43-44) 启用，clamp=7.0，cos_sim≥0.99999（12/12 cases PASS）。
 
+## SwigluStep 激活函数与 wiring 路径
+
+### SwiGLU 与 SwigluStep 对比
+
+```
+标准 SwiGLU（其他层）：
+  输入 x -> [gate | up] = x @ W1.T
+  h = SiLU(gate) * up
+  输出 = h @ W2.T
+
+SwigluStep（layers 43-44）：
+  输入 x -> [gate | up] = x @ W1.T
+  h = SiLU(gate).clamp(max=7.0) * up.clamp(-7.0, 7.0)   <- clamp 抑制数值爆炸
+  输出 = h @ W2.T
+```
+
+### ATOM -> aiter wiring 路径
+
+```mermaid
+flowchart LR
+    A["ATOM step3p5.py L192<br/>layer_idx in {43,44}"] --> B["activation=ActivationType.SwigluStep<br/>clamp_val=7.0"]
+    A --> C["其他层<br/>activation=ActivationType.Silu"]
+    B --> D["aiter/fused_moe.py L1541<br/>SwigluStep kernel dispatch"]
+    C --> E["aiter/fused_moe.py<br/>Silu kernel dispatch"]
+    D --> F["CK 2-stage kernel<br/>SwigluStep 实现"]
+    F --> G["cos_sim >= 0.99999 PASS<br/>(12/12 cases)"]
+```
+
 Date: 2026-04-25
 GPU: CUDA_VISIBLE_DEVICES=7 (MI350X, gfx950)
 Script: `/tmp/v02_exp1_prod.py`

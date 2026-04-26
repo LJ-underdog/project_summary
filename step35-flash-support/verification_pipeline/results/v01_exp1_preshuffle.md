@@ -4,6 +4,21 @@
 **GPU**: gfx950 (MI350X), `CUDA_VISIBLE_DEVICES=0`
 **Goal**: Verify Fix 1 (ATOM `ec8cbe8`) — on gfx950, CK MoE kernel requires preshuffled weights (`NSwizzle=1`); using unshuffled weights (`NSwizzle=0`) produces garbage outputs when `inter_dim > 192`.
 
+## Bug 根因与修复路径
+
+```mermaid
+flowchart TD
+    A["gfx950 上 BF16 MoE 推理"] --> B{"ATOM moe.py<br/>process_weights_after_loading"}
+    B -- "修复前 (bug)" --> C["if get_gfx() == 'gfx950': pass<br/>跳过 shuffle_weights()"]
+    B -- "修复后 (ec8cbe8)" --> D["shuffle_weights(w13, w2)<br/>始终执行"]
+    C --> E["权重物理布局：未 shuffle<br/>CK NSwizzle=0 (preshuffle_off)"]
+    D --> F["权重物理布局：已 shuffle<br/>CK NSwizzle=1 (preshuffle_on)"]
+    E --> G["CK 2-stage kernel gfx950<br/>NSwizzle=0 路径计算错误"]
+    F --> H["CK 2-stage kernel gfx950<br/>NSwizzle=1 路径计算正确"]
+    G --> I["cos_sim ~ -0.006 -> 推理乱码"]
+    H --> J["cos_sim >= 0.9999 -> 正常输出"]
+```
+
 ## Test configuration
 
 | Parameter | Value |
@@ -30,6 +45,15 @@ Driver script: `/tmp/v01_exp1_preshuffle.py` (independent of `op_tests/test_moe_
 Kernel selected for each path (from aiter log):
 - preshuffle_on : `module_moe_ck2stages_b16_b16_preshuffle_on_b16_silu_no_mulWeightStage2`
 - preshuffle_off: `module_moe_ck2stages_b16_b16_preshuffle_off_b16_silu_no_mulWeightStage2`
+
+### cos_sim 对比（ASCII 可视化）
+
+```
+preshuffle_off |X..................................| 0.00291 （几乎随机）
+preshuffle_on  |XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX| 0.99999 （正确）
+               0.0                               1.0
+```
+通过标准：preshuffle_off < 0.01 PASS   preshuffle_on >= 0.9999 PASS
 
 ## Command
 
