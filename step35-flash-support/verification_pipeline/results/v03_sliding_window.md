@@ -23,13 +23,15 @@ Token 序列（共 512 tokens，index 0-511）：
                           window_start        当前token
 
 修复前（off-by-one）：
-  window_start = ctx_len - W = 512 - 512 = 0
-  -> 意外包含 token[0]（窗口比正确范围多 1 个 token）
+  下界条件：>= sequence_start_idx + query_token_idx[:, None] + 1
+  以 ctx_len=512、W=512 为例：mask 下界比正确边界高 1
+  -> 窗口实际包含 511 个 token（少 1 个），effective window = W - 1
   -> attention mask 错误 -> cos_sim 下降至 0.998982
 
 修复后（commit 7ebae9afb）：
-  window_start = max(0, ctx_len - W) = max(0, 511 - 511) = 0  (正确边界)
-  -> 精确匹配 sliding window 定义
+  下界条件：>= sequence_start_idx + query_token_idx[:, None]（删除 + 1）
+  以 ctx_len=512、W=512 为例：窗口完整包含 512 个 token
+  -> 精确匹配 sliding window 定义（与 non-sliding 分支 L1505-1507 一致）
   -> cos_sim >= 0.999998 PASS
 
 关键边界对比：

@@ -28,13 +28,15 @@ flowchart TD
 ### FP8 vs BF16 性能对比
 
 ```
-配置        │ TTFT  │ TPOT  │ 相对 BF16 同 tp
-───────────────────────────────────────────────
-BF16 tp=2  │  92ms │  18ms │ baseline
-FP8  tp=2  │  87ms │  14ms │ TPOT -22% ✓
-BF16 tp=4  │  81ms │  16ms │ baseline
-FP8  tp=4  │  86ms │  13ms │ TPOT -19% ✓
+配置        │ TTFT                        │ TPOT  │ 相对 BF16 同 tp
+─────────────────────────────────────────────────────────────────────
+BF16 tp=2  │  91ms（本次 Exp3 实测）     │  18ms │ baseline
+FP8  tp=2  │  87ms                       │  14ms │ TPOT -22% ✓
+BF16 tp=4  │  81ms                       │  16ms │ baseline
+FP8  tp=4  │  86ms                       │  13ms │ TPOT -19% ✓
 ```
+
+注：历史 MEMORY 基线 BF16 tp=2 TTFT=92ms，本次 Exp3 实测 91ms（差异 1%，在 infra 抖动范围内）。
 
 ---
 
