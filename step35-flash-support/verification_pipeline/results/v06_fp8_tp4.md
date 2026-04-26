@@ -33,6 +33,51 @@ Verdict: PASS. Fix 3 has no negative impact on tp=2 path.
 
 ---
 
+## Fix 3 根因：Scale Shard 越界（floor→ceil）
+
+### Bug 场景（N=1280，tp=4，per_1x128 blockscale）
+
+```
+Scale tensor shape: [E, N/128] = [256, 10]   （10 个 scale blocks）
+tp=4 时每个 rank 应分到 10/4 = 2.5 → ceil=3 blocks
+
+修复前（floor 整除）：
+  load_shard_size = 10 // 4 = 2
+  rank 0: blocks [0,1]
+  rank 1: blocks [2,3]
+  rank 2: blocks [4,5]
+  rank 3: blocks [6,7]
+  blocks [8,9] 从未被任何 rank 复制！
+  → 残留默认值 1.0 → 输出 gibberish
+
+修复后（ceil 整除，commit ccb64621）：
+  load_shard_size = (10 + 4 - 1) // 4 = 13 // 4 = 3
+  rank 0: blocks [0,1,2]
+  rank 1: blocks [3,4,5]
+  rank 2: blocks [6,7,8]
+  rank 3: blocks [9] + size=min(3,1)=1（自动截断）
+  所有 10 blocks 被正确加载
+```
+
+### 代码修改对比
+
+```python
+# 修复前（floor 整除，BUGGY）：
+load_shard_size = loaded_weight.shape[shard_dim] // self.tp_size
+# 修复后（ceil 整除，ATOM moe.py L2305 & L2347）：
+load_shard_size = (loaded_weight.shape[shard_dim] + self.tp_size - 1) // self.tp_size
+```
+
+### 验证结果
+
+| 指标 | 修复前（预期）| 修复后（实测）|
+|------|------------|------------|
+| Scale 末端 blocks | 残留 1.0 | 正确值 ✓ |
+| FP8 tp=2 TTFT | N/A（tp=2 ceil 为 no-op）| 78ms ✓ |
+| FP8 tp=4 TTFT | gibberish 输出 | 86ms，输出连贯 ✓ |
+
+---
+
 ## Exp1b — Cover-completeness (static code check)
 
 Goal: locate Fix 3 (commit `ccb64621`) ceil-rounding logic and confirm it covers all experts / all scale blocks.

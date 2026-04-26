@@ -1,5 +1,43 @@
 # V05 FP8 Inference 验证
 
+## FP8 Dispatch Guard Bug 根因与修复
+
+### Bug 根因（修复前）
+
+```mermaid
+flowchart TD
+    A["FP8 模型 MoE forward<br/>quant_type = per_1x128 (blockscale)"] --> B["aiter/fused_moe.py L906<br/>修复前：无 q_type 检查"]
+    B --> C{"inter_dim > 192?<br/>gfx950?"}
+    C -- YES --> D["block_m = 128 强制 V3 路径"]
+    D --> E["blockscale dispatch<br/>仅支持 block_m ≤ 64"]
+    E --> F["dispatch 失败 / 数值错误<br/>FP8 推理无法运行"]
+```
+
+### 修复后（commit c38d0c9e6）
+
+```mermaid
+flowchart TD
+    A["FP8 模型 MoE forward<br/>quant_type = per_1x128"] --> B["aiter/fused_moe.py L906<br/>Fix 1：加 q_type guard"]
+    B --> C{"q_type ∈ {per_1x128, per_1x32}?"}
+    C -- YES --> D["跳过 block_m=128 覆盖<br/>blockscale 路径正常 dispatch"]
+    C -- NO --> E["inter_dim > 192?<br/>gfx950? → block_m=128 V3"]
+    D --> F["FP8 tp=2 TTFT=87ms ✓"]
+    E --> G["BF16 路径正常 ✓"]
+```
+
+### FP8 vs BF16 性能对比
+
+```
+配置        │ TTFT  │ TPOT  │ 相对 BF16 同 tp
+───────────────────────────────────────────────
+BF16 tp=2  │  92ms │  18ms │ baseline
+FP8  tp=2  │  87ms │  14ms │ TPOT -22% ✓
+BF16 tp=4  │  81ms │  16ms │ baseline
+FP8  tp=4  │  86ms │  13ms │ TPOT -19% ✓
+```
+
+---
+
 日期：2026-04-25
 执行者：teammate-V05
 GPU：CUDA_VISIBLE_DEVICES=0,1（GPU5 禁用）

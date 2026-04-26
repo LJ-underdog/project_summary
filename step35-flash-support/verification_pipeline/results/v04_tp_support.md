@@ -15,6 +15,34 @@ inter_dim=192 切换边界证据（来自代码，非推断）：
 
 结论：inter_dim=192 是 V1/V3 切换边界，由 aiter `fused_moe.py:906` + ATOM `moe.py:502` 共同决定。CK codegen 目录 `/home/hanchang/aiter/csrc/ck_gemm_moe_2stages_codegen/` 存在（含 `gemm_moe_ck2stages.cu/.h/_common.cuh`），但具体 NPerBlock/192 字面值由 Python 侧 dispatch 决定。
 
+## inter_dim Padding 可视化（commit 635e59e）
+
+### 为何需要 Padding？
+
+CK 2-stage GEMM 的 tile 大小要求 inter_dim 对齐至特定边界：
+- inter_dim ≤ 192：对齐至 64（V1 kernel tile）
+- inter_dim  > 192：对齐至 128（V3 kernel tile，256×128×128×64）
+
+```
+原始 inter_dim（来自模型权重）→ ATOM padding → 传入 fused_moe 的实际值
+
+tp=2：原始 640 → 不需 padding → 640  （640 % 128 = 0 ✓）
+tp=4：原始 320 → padding 320→384    → 384  （384 % 128 = 0 ✓）
+tp=8：原始 160 → padding 160→192    → 192  （192 % 64  = 0 ✓）
+
+未 padding 时：
+  tp=4：320 % 128 = 64 ≠ 0 → CK tile 越界 → crash / 计算错误
+  tp=8：160 % 64  = 32 ≠ 0 → CK tile 越界 → crash
+```
+
+### TP Support 验证矩阵
+
+| 配置 | inter_dim(原) | padding | inter_dim(最终) | V3 kernel | e2e 结果 |
+|------|-------------|---------|---------------|-----------|---------|
+| tp=2 | 640 | 无 | 640 | ✅ | TTFT=92ms ✓ |
+| tp=4 | 320 | +64 | 384 | ✅ | TTFT=81ms ✓ |
+| tp=8 | 160 | +32 | 192 | V1（=192）| 静态验证 ✓ |
+
 ## ca_comm fallback 存在性
 
 `/home/hanchang/aiter/aiter/dist/parallel_state.py`：
