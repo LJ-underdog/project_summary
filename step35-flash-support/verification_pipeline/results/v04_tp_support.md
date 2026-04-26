@@ -31,13 +31,13 @@ tp=4：原始 320 → padding 320→384    → 384  （384 % 128 = 0 ✓）
 tp=8：原始 160 → padding 160→192    → 192  （192 % 64  = 0 ✓）
 
 未 padding 时：
-  tp=4：320 % 128 = 64 ≠ 0 → CK tile 越界 → crash / 计算错误
-  tp=8：160 % 64  = 32 ≠ 0 → CK tile 越界 → crash
+  tp=4：320 % 128 = 64 ≠ 0 → CK tile 越界 → 崩溃 / 计算错误
+  tp=8：160 % 64  = 32 ≠ 0 → CK tile 越界 → 崩溃
 ```
 
 ### TP Support 验证矩阵
 
-| 配置 | inter_dim(原) | padding | inter_dim(最终) | V3 kernel | e2e 结果 |
+| 配置 | 原始 inter_dim | padding | 最终 inter_dim | V3 kernel | e2e 最终结论 |
 |------|-------------|---------|---------------|-----------|---------|
 | tp=2 | 640 | 无 | 640 | ✅ | TTFT=92ms ✓ |
 | tp=4 | 320 | +64 | 384 | ✅ | TTFT=81ms ✓ |
@@ -111,7 +111,7 @@ GPU 0,1,2,3，日志：`/home/hanchang/project_fp8_tp4/verification_pipeline/res
 
 ## V04 总结
 
-| 验证项 | 状态 | 备注 |
+| 验证项 | 结论 | 备注 |
 |--------|------|------|
 | C.2 CK manifest grep | PASS | inter_dim=192 V1/V3 切换边界由代码 dispatch 确认 |
 | ca_comm fallback 存在性 | PASS | aiter parallel_state.py 实现 ca_comm is None 分支 |
