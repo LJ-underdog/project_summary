@@ -22,22 +22,24 @@
 
 ### 1.2 Padding 的计算浪费
 
-按 ATOM 实际 align 规则（`align = 64 if inter_dim <= 192 else 128`）：
+按修复后的 ATOM align 规则（`align = block_n = 128`，bug fix commit acff926d）：
 
 | TP | `inter_dim = 1280/tp` | align | padding 目标 | 浪费比例 |
 |----|----------------------|-------|-------------|---------|
 | tp=2 | 640 | 128 | 640 | 0.0%（已对齐）|
 | tp=4 | 320 | 128 | **384** | **16.7%** |
-| tp=8 | 160 | 64  | **192** | **16.7%** |
+| tp=8 | 160 | 128 | **256** | **37.5%** |
 
-实测输出（2026-04-27，ATOM `moe.py` L1724 align 规则）：
+实测输出（修复后 `moe.py` L1724 `align = block_n`）：
 ```
 tp=2: inter=640, align=128, inter_pad=640, waste=0.0%
 tp=4: inter=320, align=128, inter_pad=384, waste=16.7%
-tp=8: inter=160, align=64,  inter_pad=192, waste=16.7%
+tp=8: inter=160, align=128, inter_pad=256, waste=37.5%
 ```
 
-**结论**：tp=4 与 tp=8 的 MoE GEMM 各自浪费约 16.7% 的计算量（stage1 N 维和 stage2 K 维各多处理 64 列无效数据）。去掉 padding 可直接节省这部分 compute。
+> **注**：旧代码（修复前）用 `align = 64 if inter_dim <= 192 else block_n`，tp=8 给出 inter_pad=192，但 192%128=64≠0，stage2 dispatch 失败。这是从 BF16 路径机械复制的 bug（详见 `investigate_align64.md`）。
+
+**结论**：tp=4 浪费约 16.7%（320→384），tp=8 浪费约 37.5%（160→256）。去掉 padding 可直接节省这部分 compute。
 
 ---
 
@@ -52,12 +54,14 @@ tp=8: inter=160, align=64,  inter_pad=192, waste=16.7%
 # L1719  inter_dim = layer.w2_weight.shape[-1]   # stage2 K = stage1 N = inter per rank
 # L1720  block_n = 128 if self.quant_type == QuantType.per_1x128 else 32
 # L1721-L1723  # NOTE: stage2 KPerBlock=64 不支持（gfx950 FP8 mfma KPack=32 约束）
-# L1724  align = 64 if inter_dim <= 192 else block_n
+# L1724  align = block_n  # 修复后（commit acff926d），恒为 128
 # L1725  inter_pad = (inter_dim + align - 1) // align * align
 ```
 
-- **`align=128`（inter>192，如 tp=4 inter=320）**：stage2 KPerBlock 在 blockscale FP8 路径只有 128，inter_dim 必须 128 对齐。
-- **`align=64`（inter≤192，如 tp=8 inter=160）**：小 inter 时 stage1 存在 NPerBlock=64 的实例（见 §3.2），只需 64 对齐，pad 到 192。
+- **修复后所有 TP 都用 `align = block_n = 128`**：stage2 KPerBlock 在 blockscale FP8 路径只有 128（见 §3），inter_dim 必须 128 对齐。
+  - tp=4 inter=320 → pad 到 384
+  - tp=8 inter=160 → pad 到 256
+- **旧代码（修复前）**：`align = 64 if inter_dim <= 192 else block_n`，对 tp=8 给出 align=64 → pad 到 192，但 192%128=64≠0，stage2 dispatch 失败。这是从 BF16 路径机械复制的 bug，已在 commit `acff926d` 修复。
 
 ### 2.2 为什么 w13 和 w2 必须同步 padding
 
@@ -81,7 +85,7 @@ tp=8: inter=160, align=64,  inter_pad=192, waste=16.7%
 
 ```
 ceil(320/128) = 3  =  ceil(384/128) = 3   (tp=4：padding 前后 scale N-blocks 数相同)
-ceil(160/128) = 2  =  ceil(192/128) = 2   (tp=8：同上)
+ceil(160/128) = 2  =  ceil(256/128) = 2   (tp=8：同上，padding 目标为 256)
 ```
 
 因此 `_process_block_quant` 只重建 weight，不触碰 scale tensor。
@@ -405,7 +409,7 @@ KPack 约束验证：
 [模型层] stage2 K = inter_dim（per TP rank）
   tp=2: inter_dim = 640 → 640 % 128 = 0 ✓ → KPerBlock=128 合法，无需 padding
   tp=4: inter_dim = 320 → 320 % 128 = 64 ≠ 0 → 无合法 KPerBlock，必须 padding 到 384
-  tp=8: inter_dim = 160 → 160 % 128 = 32 ≠ 0 → 必须 padding 到 192（align=64）
+  tp=8: inter_dim = 160 → 160 % 128 = 32 ≠ 0 → 必须 padding 到 256（align=128）
 
 [结论]
 gfx950 + FP8 blockscale + tp=4（inter=320）的 stage2 MoE GEMM
@@ -508,6 +512,7 @@ error: static assertion failed due to requirement 'KPerThread % 32 == 0':
 
 | 审核方 | 范围 | 关键修正 |
 |--------|------|---------|
-| reviewer-A | §1-5 | moe_num_experts 288（非 48）；tp=8 padding 到 192（非 256）；§3.1 补 PipelineVer 列；§4.1 L318 起（非 L319） |
-| reviewer-B | §6-10 | tp=8 padding 到 192（非 256）确认；KPack 公式链 ✓；rocm-ref 引用 ✓；数学推导 ✓ |
+| reviewer-A | §1-5 | moe_num_experts 288（非 48）；初版基于 ATOM 旧代码判定 tp=8 padding 到 192（非 256）；§3.1 补 PipelineVer 列；§4.1 L318 起（非 L319） |
+| reviewer-B | §6-10 | 初版按旧 align 规则确认 tp=8 padding 到 192；KPack 公式链 ✓；rocm-ref 引用 ✓；数学推导 ✓ |
 | verifier-A（Lead 代执行） | 编译产物 | stage1 NPerBlock=64 的 3 个 .cuda.o 实测确认存在 |
+| bug-fix（2026-04-27） | §1.2/§2.1/§2.3/§9 | ATOM 旧代码 `align = 64 if inter_dim <= 192 else block_n` 对 tp=8 产出 inter_pad=192，但 192%128≠0 致 stage2 dispatch 失败。commit `acff926d` 改为 `align = block_n`（恒 128），tp=8 正确 padding 目标为 **256**（waste 37.5%），文档同步修正。 |
