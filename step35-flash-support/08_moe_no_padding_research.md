@@ -143,7 +143,7 @@ if(arg.N % NPerBlock != 0 || arg.K % KPerBlock != 0)
 | 内存 | 仍需 zero-pad weight（host 侧）；scale 已是 ceil 形态 | 真正 320 列 weight（节省 16.7%）；scale 在 N 方向多 67% |
 | CK 改动 | 放宽 `device_moe_gemm_blockscale.hpp:L448` 检查；可能给 `b_blockwise_copy` 加 N tail predicate（侵入性高） | 全新 `ScaleBlockN=64` kernel 实例 + dispatch 分支（中） |
 | ATOM/aiter 改动 | 小：去掉 `_process_block_quant` 中 weight padding；inter_dim 直接传 320 | 中大：新 `QuantType.per_1x64` 枚举 + 量化 pipeline + dispatch 镜像 |
-| 模型重新量化 | **不需要**（仍是 per_1x128 checkpoint） | **重新生成 scale 必须；回 BF16 重量化推荐但非必须（可 FP8 rebinning）** |
+| 模型重新量化 | **不需要**（仍是 per_1x128 checkpoint） | ~~**重新生成 scale 必须；回 BF16 重量化推荐但非必须（可 FP8 rebinning）**~~（**修正：不需要重新量化也不需要重新生成 scale，现有 per_1x128 checkpoint 的 scale tensor 直接复用即可。详见文末"后续审查修正记录"。** [修正：见 teammate-8 V3/V5 / teammate-9 Q4]） |
 | tp=2 场景（inter_dim=640，本身 5×128 已无 padding） | 同当前，无影响 | scale tensor 翻倍，**净亏损** |
 | 现存参考实现 | 无（CK blockscale 当前无 partial-N-block 支持，gridwise grep 0 命中 tail 处理，teammate-1 § Q5） | 无（CK 全部 blockscale example 均 hardcode 128，teammate-4 § Q1） |
 
@@ -176,20 +176,23 @@ rank 0 拿到的 scale[2] 是基于**全局列 [256:383]** 量化的（checkpoin
 **原结论（过强）**：
 > "必须从 BF16 原始权重重新量化"
 
-**修正后的准确表述**：
+~~**修正后的准确表述**：~~
 
-| 需要做的事 | 是否必须 | 说明 |
+| 需要做的事 | ~~是否必须~~ | 说明 |
 |-----------|---------|------|
-| 重新生成 per_1x64 的 scale tensor | **必须** | 将 10 个 per_1x128 N-block scale 拆为 20 个 per_1x64 N-block scale |
-| 回到 BF16 重新量化权重 | **推荐但非必须** | 可直接从现有 FP8 权重做 scale rebinning（近似，有少量精度损失）；若要"无损"精度则必须 BF16 重算 |
-| 修改 ATOM block_n=64 + 去掉 384 padding 路径 | **必须** | 否则 ATOM 仍会 narrow 到 ceil(320/64)=5 个 scale 但按 128 对齐 |
+| ~~重新生成 per_1x64 的 scale tensor~~ | ~~**必须**~~ | ~~将 10 个 per_1x128 N-block scale 拆为 20 个 per_1x64 N-block scale~~ |
+| ~~回到 BF16 重新量化权重~~ | ~~**推荐但非必须**~~ | ~~可直接从现有 FP8 权重做 scale rebinning（近似，有少量精度损失）；若要"无损"精度则必须 BF16 重算~~ |
+| 修改 ATOM 去掉 384 padding 路径 | **必须** | 详见文末修正记录 |
 
-**Scale rebinning 的可行性**（数学）：
-```
-new_scale[2k]   = max(|w_fp8[128k : 128k+64]|) × old_scale[k] / FP8_MAX
-new_scale[2k+1] = max(|w_fp8[128k+64 : 128k+128]|) × old_scale[k] / FP8_MAX
-```
-在已有 FP8 权重上重算，无需 BF16 原权重，但精度略低于 BF16→FP8 重量化。
+~~**Scale rebinning 的可行性**（数学）：~~
+~~```~~
+~~new_scale[2k]   = max(|w_fp8[128k : 128k+64]|) × old_scale[k] / FP8_MAX~~
+~~new_scale[2k+1] = max(|w_fp8[128k+64 : 128k+128]|) × old_scale[k] / FP8_MAX~~
+~~```~~
+~~在已有 FP8 权重上重算，无需 BF16 原权重，但精度略低于 BF16→FP8 重量化。~~
+
+**修正（2026-04-27）**：上表中"重新生成 per_1x64 scale tensor 是必须"以及 scale rebinning 的论述均**错误**。实际上 NPerBlock=64 + ScaleBlockN=128（保持 per_1x128）在 CK 代码层面合法，**不需要重新生成 scale，也不需要重新量化权重**。详见文末"后续审查修正记录"。
+[修正：见 teammate-8 V3/V5 / teammate-9 Q3/Q4]
 
 ### 额外发现：per_1x64 对 tp=8 同样无效
 
@@ -228,12 +231,16 @@ per_1x64 只对 inter_dim 是 64 整数倍的 TP 配置有效：
    - 收益微小：仅省去 host 侧 padding 的一次 zero-fill 内存开销，对运行时 TPOT 无影响。
 3. **方案 B（per_1x64）评估为"中等可行但风险高"**：
    - CK gridwise 层无硬性阻拦（ScaleBlockN 是模板参数，无 NPerBlock=64 相关 static_assert）。
-   - 主要工作量在 aiter wrapper（`gemm_moe_ck2stages_common_blockscale.cuh` 解硬编码 + `gen_instances.py` 新增 dispatch 分支）+ 模型重新量化【待 teammate-7 审查】。
-   - 风险：NXdlPerWave=1 的 mfma 效率不确定；tp=2 场景净亏损（scale 翻倍且本无 padding）；checkpoint 重新量化需 lm_eval 重验精度。
+   - ~~主要工作量在 aiter wrapper（`gemm_moe_ck2stages_common_blockscale.cuh` 解硬编码 + `gen_instances.py` 新增 dispatch 分支）+ 模型重新量化【待 teammate-7 审查】。~~
+     （**修正：模型重新量化不是必须的。** 主要工作量仅是 aiter 新增 NPerBlock=64 实例 + 去掉 ATOM weight zero-pad；ScaleBlockN 保持 128，scale tensor 不动。[修正：见 teammate-8 V3 / teammate-9 Q4]）
+   - ~~风险：NXdlPerWave=1 的 mfma 效率不确定；tp=2 场景净亏损（scale 翻倍且本无 padding）；checkpoint 重新量化需 lm_eval 重验精度。~~
+     （**修正：scale 不翻倍（保持 per_1x128），tp=2 不会因为 scale 翻倍而净亏损；checkpoint 无需重新量化、无需 lm_eval 重验。** 残留风险仅限 NXdlPerWave=1 的 mfma 效率。[修正：见 teammate-8 V3 / teammate-9 Q4]）
 4. **决策门槛**：除非 padding 浪费对端到端 TPOT 影响 >5%（当前未实测，建议先量化端到端代价），否则不投资方案 B。
 5. **下一步实验建议**（如需推进）：
-   - 在 CK 侧基于 `composable_kernel/example/65_gemm_multiply_multiply/moe_gemm1_xdl_fp8_blockscale.cpp` 改 `Scale_Block_N=64`，跑 N=320 microbench 验证编译可过 + 实测 vs NPerBlock=128+padding 的性能差。
-   - 若 PoC 通过且性能正向，再启动 aiter dispatch 改造与量化 pipeline。
+   - ~~在 CK 侧基于 `composable_kernel/example/65_gemm_multiply_multiply/moe_gemm1_xdl_fp8_blockscale.cpp` 改 `Scale_Block_N=64`，跑 N=320 microbench 验证编译可过 + 实测 vs NPerBlock=128+padding 的性能差。~~
+   - ~~若 PoC 通过且性能正向，再启动 aiter dispatch 改造与量化 pipeline。~~
+   - **修正后**：CK 侧不需要改 `Scale_Block_N`，保持 128。只需在 aiter 新增 `NPerBlock=64 + Scale_Block_N=128` 的实例化，跑 N=320 microbench 验证编译 + 实测精度 vs 当前 padding 方案（teammate-9 已实测精度等价，median 0%）。无需任何"量化 pipeline"。
+     [修正：见 teammate-8 V3/V5 / teammate-9 Q4]
 
 ---
 
@@ -288,4 +295,41 @@ per_1x64 只对 inter_dim 是 64 整数倍的 TP 配置有效：
   9. ATOM 第二份 `Fp8MoEMethodCutlass`（moe.py:1517+）是否在 Step-3.5-Flash-FP8 实际路径上（teammate-5 Q4）。
   10. gridwise blockscale L1500-2200 段（IsInputGemm=false）scale 索引行为是否与 IsInputGemm=true 对称（teammate-1 未验证假设）。
   11. FP8-to-FP8 scale rebinning（从 per_1x128 拆为 per_1x64）的实际精度损失量级（teammate-7 未验证假设 2）。
+      （**修正：scale rebinning 不再是必要工作；不需要 per_1x64 scale。** [修正：见 teammate-8 V3 / teammate-9 Q4]）
   12. per_1x64 + tp=4 下 ATOM `_load_w13` 是否确实走非 padding 路径（需代码验证，teammate-7 未验证假设 1）。
+      （**修正：teammate-9 Q3 已验证 `_load_w13` (moe.py:2287-2310) 直接 narrow checkpoint 的 scale，无需走"非 padding 路径"——保持 per_1x128 scale 即可。** [修正：见 teammate-9 Q3]）
+
+---
+
+## 后续审查修正记录
+
+### 修正 1：NPerBlock=64 + per_1x128 在代码层面合法（2026-04-27）
+
+**原结论（错误）**：去掉 padding 必须使用 per_1x64 quantization scheme（ScaleBlockN=64）。
+
+**修正后**：NPerBlock=64 + ScaleBlockN=128（保持 per_1x128）在代码层面完全合法：
+- scale 索引公式 `block_n_id * NPerBlock / ScaleBlockN`（C++ 整数除，gridwise_moe_gemm_blockscale.hpp:1418）
+  在 NPerBlock=64, ScaleBlockN=128 时产生映射 0,0,1,1,2，两个相邻 64 列 tile 共用一个 per_1x128 scale，数学正确。
+- device 检查 `arg.N % NPerBlock`（device_moe_gemm_blockscale.hpp:448）：320 % 64 = 0，通过。
+- 无任何 static_assert 要求 NPerBlock == ScaleBlockN。
+
+**证据**：teammate-8 V3/V5（代码直读）；teammate-9 Q4（实验：精度误差中位 0%，平均 4-6%，与当前方案等价）。
+
+### 修正 2：不需要重新量化模型，现有 scale tensor 直接复用（2026-04-27）
+
+**原结论（错误）**："重新生成 per_1x64 scale tensor 是必须的"
+
+**修正后**：现有 checkpoint 的 per_1x128 scale tensor（shape=(288,10,32)）可直接用于 NPerBlock=64 kernel。
+精度误差来自 scale[2] 基于全局 [256:383]（128 列）但 rank 0 只持有 [256:319]（64 列），
+该误差**已存在于当前 NPerBlock=128 方案中**，切换到 NPerBlock=64 不会让它更差。
+
+**证据**：teammate-9 Q3（ATOM moe.py:2287-2310，rank 0 的 scale[2] 来自 checkpoint narrow）；
+teammate-9 Q4（实测 320 个 block，max 误差 46.43% 但中位 0%）。
+
+### 真正需要做的（修正后）
+
+1. 在 aiter 新增 NPerBlock=64 的 CK blockscale kernel 实例（ScaleBlockN 保持 128）
+2. 去掉 ATOM `_process_block_quant` 的 weight zero-pad 逻辑（moe.py:1709-1749）
+3. Scale tensor 无需改动
+
+详见文档 09_moe_no_padding_deep_dive.md。
