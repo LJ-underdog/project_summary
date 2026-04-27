@@ -22,6 +22,13 @@
 
 **详情**：[step35-flash-support/README.md](./step35-flash-support/README.md)
 
+### Step-3.5-Flash 验证状态（2026-04-26）
+
+V01-V07 验证 pipeline **全部 PASS**。详见：
+- 验证结果汇总：`step35-flash-support/verification_pipeline/results/SUMMARY.md`
+- 下一步任务：`step35-flash-support/verification_pipeline/NEXT_TASK_BRIEF.md`
+  （目标：FP8 tp=4 无 padding CK kernel，消除 inter_dim=320→384 的 20% 显存浪费）
+
 ---
 
 ## 调试方法论
