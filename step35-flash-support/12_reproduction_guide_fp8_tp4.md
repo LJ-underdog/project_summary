@@ -29,7 +29,7 @@ torch.zeros(128, device='cuda'); torch.cuda.synchronize()  # warmup
 s = time.time()
 for _ in range(10): torch.zeros(128, device='cuda')
 torch.cuda.synchronize()
-ms = (time.time()-s)*100
+ms = (time.time()-s)*1000/10   # 10次的总耗时(s) → 每次平均毫秒数
 flag = '*** SLOW - hardware fault!' if ms > 100 else 'OK'
 print(f'GPU$i: {ms:.1f}ms/op  {flag}')
 "
@@ -78,13 +78,18 @@ git log --oneline | grep a2883ab37
 # a2883ab37 fix: remove buggy ASM kernel entry for (N=4096,K=2048) bf16 GEMM on gfx950
 ```
 
-如果没有此 commit，cherry-pick 它：
+如果没有此 commit，有两种方式修复：
+
+**方式 A（推荐）：从维护者的 GitHub fork cherry-pick**
 
 ```bash
-git remote add junlin12 git@github.com:LJ-underdog/aiter.git  # 或联系维护者获取 remote
+# LJ-underdog/aiter 是维护者（Jun Lin）在 GitHub 上的 fork，包含所有 patch
+git remote add junlin12 git@github.com:LJ-underdog/aiter.git
 git fetch junlin12 feat/step3p5-moe-swiglustep
 git cherry-pick a2883ab37
 ```
+
+**方式 B：手动删除 CSV 中触发 bug 的 entry**（见 §3.1）
 
 > **最常见的坑**：如果 `a2883ab37` 缺失，tp=4 长序列（>8209 tokens）prefill 后第一个 decode token 就是 BOS，且全 512 个 token 输出均为 BOS。
 
@@ -164,9 +169,12 @@ grep -n "load_shard_size\|tp_size - 1" /path/to/ATOM/atom/model_ops/moe.py | hea
 ### 3.3 确认 align 修复（FP8 blockscale）
 
 ```bash
-grep -n "align = block_n\|align = 64 if" /path/to/ATOM/atom/model_ops/moe.py | head -5
-# 期望（约 L1726）：align = block_n（不含条件分支）
-# 如果看到 align = 64 if inter_dim <= 192 else block_n 则是旧 bug（tp=8 会 padding 到 192）
+grep -n "align = " /path/to/ATOM/atom/model_ops/moe.py | head -10
+# 期望看到两行：
+# ~L502:  align = 64 if inter_dim <= 192 else 128    ← BF16 路径（UnquantizedFusedMoE），正常，保留
+# ~L1726: align = block_n                              ← FP8 路径（_process_block_quant），修复后的正确值
+#
+# 如果 L1726 也是 "align = 64 if ..."，说明 FP8 align bug 未修复（tp=8 会 padding 到 192 而非 256）
 ```
 
 ---
@@ -209,11 +217,16 @@ else: print('ERROR: config not found')
 
 ## Step 5：运行推理
 
-### 5.1 清理 ATOM 编译缓存
+### 5.1 清理编译缓存
 
 ```bash
+# ATOM JIT 缓存（每次修改 ATOM 代码后必须清理）
 rm -rf /root/.cache/atom/*
-# 每次修改 ATOM 代码后必须执行
+
+# aiter JIT 缓存（修改 aiter CK codegen 代码后必须清理；否则 .so 不更新，silently 用旧 kernel）
+rm -f /path/to/aiter/aiter/jit/module_moe_ck2stages_*.so
+rm -rf /path/to/aiter/aiter/jit/build/module_moe_ck2stages_*
+# 注意：必须同时删 .so 和 build/ 目录，只删其一无效
 ```
 
 ### 5.2 FP8 tp=4 推理命令（标准验证）
@@ -221,7 +234,6 @@ rm -rf /root/.cache/atom/*
 ```bash
 cd /tmp && \
 CUDA_VISIBLE_DEVICES=0,1,2,3 \
-ATOM_LOG_LEVEL=WARNING \
 AITER_LOG_LEVEL=WARNING \
 /opt/venv/bin/python -m atom.examples.simple_inference \
   --model stepfun-ai/Step-3.5-Flash-FP8 \
@@ -301,21 +313,23 @@ Generated: "<s><s><s><s><s>..."
 ValueError: The output_size of gate's and up's weight = 320 is not divisible by block_n = 128
 ```
 
-原因：FP8 ceil 整除修复未生效（commit `ccb64621` 未包含）。
-修复：确认 ATOM `moe.py` 中 `load_shard_size` 使用 ceil 整除。
+原因：**align bug 未修复**（§3.3 的 fix 未生效）。inter_dim=320 用 `align=64`（旧 bug）padding 到 192，但 192 % 128 = 64 ≠ 0，导致 create_weights 中的整除检查失败。
+修复：确认 ATOM `moe.py` L1726 为 `align = block_n`（不含 `64 if inter_dim <= 192` 条件分支）。
 
-**错误 3：推理结果乱码（gibberish）**
+**错误 3：推理结果乱码（gibberish，语义完全错误但无 crash）**
 
-原因：FP8 scale 未全部加载（floor 整除导致最后几个 scale block 用 `torch.ones()` 默认值）。
-修复：同错误 2。
+原因：**FP8 scale ceil 整除未修复**（§3.2 的 fix 未生效）。floor 整除导致最后几个 scale block 未被任何 rank 加载，残留 `torch.ones()` 默认值，dequant 后数值严重偏离。
+修复：确认 ATOM `moe.py` 中 `_load_w13`（~L2310-2312）和 `_load_w2`（~L2352-2354）的 `load_shard_size` 使用 ceil 整除（含 `+ self.tp_size - 1`）。
 
 **错误 4：`import aiter` 报错 namespace package**
 
 ```
+ImportError: cannot import name 'ActivationType' from 'aiter' (unknown location)
+# 或
 AttributeError: module 'aiter' has no attribute 'fused_moe'
 ```
 
-原因：在 `/path/to/aiter/` 目录下运行了 python，导致当前目录的 `aiter/` 文件夹被识别为 namespace package。
+原因：在 `/path/to/aiter/` 目录下运行了 python，当前目录的 `aiter/` 文件夹被识别为 namespace package，导致从系统 aiter 包无法正确加载。
 修复：`cd /tmp` 后再运行 python。
 
 **错误 5：单个 GPU 速度极慢（TPOT > 500ms）**
@@ -393,7 +407,10 @@ CUDA_VISIBLE_DEVICES=0,1 AITER_LOG_LEVEL=WARNING \
 
 ## 附：已知限制
 
-- **tp=8**：GPU5 硬件异常导致推理阻塞，暂不可用
+- **tp=8**：GPU5 硬件异常导致推理阻塞，暂不可用；另 gfx950 8-GPU RCCL 可能 hang，需加 `AITER_PYNCCL_SKIP=1`
 - **长序列 tp=4**（>8209 tokens）：BOS workaround 必须生效，否则 prefill 后全 BOS
 - **CUDA Graph（--level 3）**：初次复现建议 `--level 0`（eager），稳定后再尝试更高 level
 - **FP8 blockscale tp=8 inter=160**：需 padding 到 256（align=128），尚无实测数据（GPU5 阻塞）
+- **首次推理 JIT 编译**：首次运行会触发 CK kernel JIT 编译，耗时约 2-5 分钟，属正常现象（见 §5.3）
+- **aiter JIT 缓存**：修改 aiter CK codegen 代码后，必须同时删除 `.so` 和 `jit/build/` 目录（见 §5.1），只删一处无效
+- **ATOM_LOG_LEVEL**：ATOM 不读取此环境变量；控制日志只需 `AITER_LOG_LEVEL=WARNING`
