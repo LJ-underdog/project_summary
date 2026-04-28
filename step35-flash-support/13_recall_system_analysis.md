@@ -1,275 +1,308 @@
-# Recall 系统在本次任务中的作用分析
+# Recall 使用指南（实战版）
 
-调查日期：2026-04-28
-调查范围：本次 Step-3.5-Flash 支持任务全周期（2026-04-22 ~ 04-28）
-
----
-
-## 1. Recall 系统是什么？
-
-Recall 是一个安装在 `/root/.claude/plugins/recall/` 的 Claude Code 插件，用于**跨 session 的结构化知识 / 任务追踪**。
-
-### 设计目标
-- 自动捕捉每次 session 中验证过的发现（auto-save），不依赖人工手抄
-- 把知识按"作用范围"分层，避免重复也避免污染
-- 提供任务级状态追踪（status.md），把"思考过程"和"最终结论"分开
-
-### 核心概念
-
-| 概念 | 含义 | 存放位置 |
-|------|------|----------|
-| **Project** | 一个 git repo / 工作区 | `<recall-root>/<project>/` |
-| **Branch** | git 分支级的知识隔离区 | `<project>/branches/<branch>/` |
-| **Task** | branch 下的一次具体工作 | `<project>/branches/<branch>/tasks/<task>/` |
-| **Knowledge** | 已验证的事实（[OBSERVED]/[VERIFIED]）| `knowledge/<topic>.md` |
-| **Workflows** | 复用的操作步骤 | `workflows/<name>.md` |
-| **Directives** | 项目级配置 + 强制规则 | `directives.md` |
-
-### 核心命令（来自 /recall-help）
-
-```
-Setup & Info: /recall-init  /recall-status  /recall-help
-Knowledge:    /recall-add <topic>  /recall-search <q>  /recall-changelog
-Branches:     /branch-status  /branch-abandon  /promote [branch]
-Tasks:        /task-create <name>  /task-switch <name>  /task-complete  /task-abandon
-```
-
-### 知识流转模型（promote 机制）
-
-```
-Task knowledge (verified)
-        ↓ task-complete
-Branch overlay (knowledge/<topic>.md)
-        ↓ promote (branch merged)
-Project knowledge (general patterns / archive specifics)
-```
-
-`/promote` 会把 branch 知识分类：
-- **Promote**：架构模式、硬件行为、调试技术、性能模式 → 写入 project 级
-- **Archive**：commit hash、WIP 状态、临时 workaround → 仅归档不晋升
-
-### 自动行为
-- 检测新 branch 自动建目录
-- 按 `auto-save.auto/ask/never` 规则决定是否保存某条发现
-- 检测 merge 自动触发 promote 提醒
-- 根据 `stale-branch-days` 标记陈旧 branch
+更新日期：2026-04-28
+适用对象：本仓库 maintainer + 后续接手 Step-3.5-Flash 工作的同事
+配套文件：MEMORY.md（自动加载）、project_summary/（GitHub 公开文档）、recall（私人持久化）
 
 ---
 
-## 2. 本次 Session 的 Recall 状态
+## 第一章：最快上手（3 步）
 
-### Session startup 加载的内容
+如果你只看一节，看这一节。从零到能用 recall，三条命令。
 
-```
-RECALL_BRANCH=DETACHED
-RECALL_PROJECT=unknown
-RECALL_ROOT=/root/.local/share/claude/recall
-```
+### Step 1：在某个 git repo 里 init（**必须先 cd 进去**）
 
-### `RECALL_BRANCH=DETACHED` 的含义
-
-DETACHED 表示 **当前工作目录不在任何 git repo 内，或者 git HEAD 处于 detached 状态**。本次 session 的 cwd 是 `/home/hanchang`，这是用户家目录，不是 git repo（任务里也确认 `Is directory a git repo: No`）。
-
-**后果**：
-- 所有 branch 级、task 级机制都无法生效（没有 branch 可挂靠）
-- `/task-create` 会直接拒绝："Tasks belong to feature branches. Create or switch to a branch first."
-- `/promote` 没有 branch 可处理
-- 自动 promote / 自动 branch 检测全部失效
-
-### `RECALL_PROJECT=unknown` 的含义
-
-启动时无法从 `git remote get-url origin` 解析出项目名，于是 fallback 到 `unknown`。
-对应目录 `/root/.local/share/claude/recall/unknown/` 里有完整的 directives + 空 knowledge/workflows index。
-
-### 实际加载的 directives
-
-system-reminder 里直接显示了 `/root/.local/share/claude/recall/hanchang/directives.md` 的内容（**注意 project 名是 `hanchang` 而不是 `unknown`**，说明启动脚本至少把 `hanchang/` 这个 user-level 目录的 directives 也读了一份）：
-
-```
-auto-save.auto: [hardware findings, build errors, debugging root causes,
-                 kernel behaviors, GPU architecture, verified inference results]
-auto-save.ask:  [coding conventions, architecture decisions, new model support]
-auto-save.never:[temporary workarounds, debugging session logs, speculation]
-auto-save.default: auto
-promotion: auto
-stale-branch-days: 30
-default-branch: main
-confidence-min: observed
-```
-
-外加四条强制规则：必须实证、gfx950 ≠ gfx942、cd /tmp 跑 python、清 ATOM 缓存。
-
-### `hanchang/` 项目其实有真实数据
-
-虽然 RECALL_PROJECT=unknown，但 `/root/.local/share/claude/recall/hanchang/knowledge/` 下其实有 **11 个 topic 文件**，是过去 sessions 积累的：
-
-```
-aiter-import-fix.md            gfx950-moe-kernels.md
-moe-pipeline-fix-task.md       step35flash-fp8.md
-step35flash-tp-debug.md        swiglustep-gap.md
-swiglustep-wiring-handoff.md   swiglustep-wiring-progress.md
-tp4-longseq-bos-debug.md       triton-moe-replacement.md
-index.md
-```
-
-这些都是和本次任务**直接相关**的知识。最近一次更新是 2026-04-25（V01-V07 验证 pipeline 完成那天）。
-
----
-
-## 3. 本次任务实际使用的知识管理工具
-
-| 工具 | 路径 | 作用 | 加载/写入方式 |
-|------|------|------|----------------|
-| **MEMORY.md** | `/root/.claude/projects/-home-hanchang/memory/MEMORY.md` | 工作原则、环境、路径、状态速查、topic 索引 | 每次 session 自动加载到 system context |
-| **memory/ 子文件** | `memory/{moe-kernels,tp48-fixes,fp8-work}.md` | 主题深度笔记，被 MEMORY.md 索引 | 按需 Read |
-| **project_summary/** | `/home/hanchang/project_summary/step35-flash-support/` | 12 篇结构化技术文档 + verification_pipeline 结果 | 任务结束时手动 Write，git push 到 GitHub |
-| **本地工作目录** | `/home/hanchang/project_fp8_tp4/`、`project_moe_no_padding/` 等 | 单次实验的 prompt、log、临时脚本 | 实验过程中临时产物 |
-| **junlin12_repos/** | `/home/hanchang/junlin12_repos/{ATOM,aiter}/` | 真正的代码 commit/push 源 | git 操作 |
-
-### 各自分工
-
-- **MEMORY.md** = "脑内常驻索引"：每次必读的高密度状态摘要
-- **project_summary** = "对外可读的最终文档"：他人读 GitHub 就能复现
-- **memory/*.md** = "中间深度笔记"：MEMORY.md 装不下的细节
-- **本地工作目录** = "草稿 / 实验产物"：寿命短
-
----
-
-## 4. Recall 系统 vs 实际使用工具的对比
-
-### 功能对照表
-
-| 能力 | Recall 系统 | 实际使用 | 谁更适合 |
-|------|------------|----------|----------|
-| 跨 session 状态加载 | ✓（startup 注入 directives + user.md） | ✓（MEMORY.md auto-load） | 平手，但 MEMORY.md 显示在 system prompt 里更显眼 |
-| 主题知识库 | ✓（knowledge/`<topic>`.md） | ✓（memory/*.md + project_summary/） | 各有优势：recall 自动归档、project_summary 公开 |
-| 跨 branch 隔离 | ✓（branches/`<name>`/） | ✗ | **Recall 独有** |
-| 任务进度追踪 | ✓（task status.md） | ✗ | **Recall 独有**（实际用对话上下文代替） |
-| 自动保存触发 | ✓（按 auto-save 规则） | ✗（全手工） | **Recall 独有但本次未生效** |
-| Knowledge 搜索 | ✓（/recall-search） | ✗（手工 Grep） | Recall 略胜 |
-| 公开可分享 | ✗（在 ~/.local/share/） | ✓（project_summary 推 GitHub） | **MEMORY/project_summary 独有** |
-| 复现指南 | ✓（workflows/） | ✓（12_reproduction_guide_fp8_tp4.md） | 平手 |
-
-### 重叠程度
-
-`hanchang/knowledge/step35flash-fp8.md` 和 `project_summary/step35-flash-support/05_fp8_inference.md` 是**严重重叠**的——同样的 bug 描述、同样的 L904 fix。本次任务相当于把同一份知识手写了两遍。
-
-### 互补部分
-
-- Recall 的 **directives 强制规则**（gfx950 ≠ gfx942、cd /tmp）确实在 system prompt 里强化了，这是 MEMORY.md 同时有写、但 recall 启动时也额外注入了一次
-- Recall 的 **task status.md** 概念在 MEMORY.md / project_summary 里没有对等物——本次任务的"思考过程"基本只活在对话历史里，session 结束就丢了
-
-### 没用到的 Recall 能力
-
-1. `/task-create` + `status.md`：把 V01-V07 当成 7 个 task 追踪
-2. `/branch-status`：跨任务的 branch 概览
-3. `/promote`：把 task 知识晋升到 project 级（本次连 branch 都没有）
-4. `/recall-search`：例如本次想查"tp=4 BOS bug"时，实际是手工 grep MEMORY.md
-5. `/recall-add --project`：自动把新发现写入正确层级
-6. auto-save 自动触发：本次所有写入都是手动 Write 调用
-
----
-
-## 5. 是否"用错了"？
-
-### 直接结论：**不算错，但浪费了系统设计**
-
-更准确地说：用户**绕开了 recall 系统**，自己用 MEMORY.md + project_summary 重新发明了一套等价但更轻量的知识管理流程，并在本次场景下其实更合适。
-
-### Recall 该用但没用的地方
-
-1. **没有 `/recall-init` 在某个 git repo 里**
-   后果：RECALL_PROJECT=unknown，所有 branch/task 机制全部空转。如果在 `junlin12_repos/ATOM/` 或 `junlin12_repos/aiter/` 里 init，本次 V01-V07 7 次验证、tp=4 BOS bug 调试、FP8 上线就有真正的 branch/task 结构。
-
-2. **没有用 task 系统追踪 V01-V07**
-   每次 verification 实验本来就是一个 task。用 `/task-create v06-fp8-tp4-perf` + status.md 比放在对话上下文里更耐久。
-
-3. **没有调 `/recall-add` 写入新发现**
-   tp=4 长序列 BOS bug 这个根因本来完全符合 `auto-save.auto: [debugging root causes, kernel behaviors]`，应该 `/recall-add tp4-longseq-bos-debug` 触发自动写入，而不是手动维护两份（recall 一份 + MEMORY.md 一份）。
-
-4. **没有用 `/recall-search`**
-   本次多次回看历史发现时都是手工 Grep MEMORY.md 或翻 project_summary。
-
-### 替代方案（MEMORY + project_summary）反而更合适的地方
-
-1. **公开可分享**：project_summary 在 GitHub 上，team 其他人能直接看；recall 在 `~/.local/share/` 私人目录里，离开本机就丢。
-2. **每次 session 启动就强制看见**：MEMORY.md 在 system prompt 里，没法忽略；recall 的 knowledge index 必须主动调 `/recall-status` 才看得到。
-3. **用户对结构有完全控制**：MEMORY.md 的"性能速查"表格、"Topic 文件索引"表格是定制结构；recall 的模板是固定的。
-4. **不依赖 git repo**：本次很多操作就是在 `/home/hanchang` 这个非 repo 目录下做的，MEMORY.md 不挑 cwd。
-
-### 失误成本
-
-- **重复劳动**：同一份知识写两遍（recall + project_summary）
-- **状态分裂风险**：recall 的 step35flash-fp8.md 是"待启动"状态（2026-04-24 写的），但 MEMORY.md 已经显示 FP8 跑通了。两边没同步。
-- **失去 task 历史**：V01-V07 的中间思考过程没有持久化，下次想回顾"为什么选了 tp=4 而不是 tp=2"只能翻 project_summary 的最终结论。
-
----
-
-## 6. 推荐的工作流
-
-### 选项 A：彻底放弃 recall，加固现有方案
-
-如果继续用 MEMORY.md + project_summary，建议：
-1. 删除 `/root/.local/share/claude/recall/hanchang/knowledge/` 避免脑裂
-2. 在 MEMORY.md 加一节"任务追踪"，每个大任务有 status 行
-3. 在 project_summary 里加 `tasks/` 子目录追踪 in-flight 工作
-
-### 选项 B：完整启用 recall（推荐）
-
-如果要真正用 recall 的 task / branch / promote 能力：
-
-#### 一次性设置
 ```bash
-# 在 ATOM repo 里 init
-cd /home/hanchang/junlin12_repos/ATOM
-/recall-init                       # 创建 ATOM 项目
-# 同样在 aiter repo 里
-cd /home/hanchang/junlin12_repos/aiter
-/recall-init                       # 创建 aiter 项目
+cd /home/hanchang/junlin12_repos/ATOM            # 必须是 git repo
+/recall-init
 ```
 
-#### 每次新任务
+会发生什么：
+- 从 `git remote get-url origin` 解析出项目名（例如 `ATOM`）
+- 创建 `/root/.local/share/claude/recall/ATOM/` 目录
+- 写入 `directives.md`（auto-save 规则 + 强制规则）、空的 `knowledge/index.md`、`workflows/index.md`、`user.md`
+- 如果当前不在默认分支，问你 "What's the epic/goal for this branch?"，然后建 `branches/<分支名>/` 目录
+
+> 关键陷阱：如果你在 `/home/hanchang`（家目录、非 repo）开 session，`RECALL_BRANCH=DETACHED` + `RECALL_PROJECT=unknown`，**所有 branch / task 命令全部空转**。本次 Step-3.5-Flash 任务就是这种状态。
+
+### Step 2：开始一个新 task（每个独立子目标一个）
+
 ```bash
 cd /home/hanchang/junlin12_repos/ATOM
 git checkout -b feat/step35-fp8-tp4
-# recall 自动创建 branch 目录
-/task-create fp8-blockscale-fix
-# 接着开始工作，关键发现用：
-/recall-add fp8-blockscale --branch       # branch 级临时知识
-/recall-add gfx950-mfma-kpack32 --project # 普适规律直接到 project
+/task-create fp8-blockscale-tp4
+# 提示输入 goal 时填一句话目标，例如 "让 Step-3.5-Flash FP8 在 tp=4 跑通"
 ```
 
-#### 任务收尾
+会发生什么：
+- 在 `branches/feat-step35-fp8-tp4/tasks/fp8-blockscale-tp4/` 下建 `status.md`、`knowledge.md`、`workflows.md`
+- meta.md 的 `Active Task` 字段更新
+
+### Step 3：发现新事实立即写入
+
 ```bash
-/task-complete                     # 总结 task 知识
-git merge feat/step35-fp8-tp4 main
-/promote                           # 自动晋升 branch 知识到 project
+/recall-add tp4-longseq-bos-debug --branch
+# 然后描述发现，例如 "tp=4 长序列触发 BOS 输出，根因 aiter glm5_bf16_tuned_gemm.csv line 45 ASM kernel ..."
 ```
 
-#### 跨 session 查找
-```
-/recall-status                     # 看当前 branch / task / 知识量
-/recall-search "tp=4 BOS"          # 跨 branch / archive 全文搜索
-/branch-status                     # 看哪些 branch 还没 promote
-```
+会发生什么：
+- 检查发现是 `[OBSERVED]` 还是 `[VERIFIED]`（推断/假设会被拒，让你写到 `status.md`）
+- 写入 `branches/<branch>/knowledge/tp4-longseq-bos-debug.md`，更新 branch 的 index.md
+- 终端回复 "Saved to branch/knowledge/tp4-longseq-bos-debug.md — <reason>."
 
-### 选项 C：混合（实际最现实）
-
-- **Recall**：日常 in-flight 状态、task status、跨 session 个人记忆
-- **MEMORY.md**：精简的高密度状态速查（几十行内）
-- **project_summary**：对外发布的最终技术文档（GitHub 可读）
-- **三者明确分工，禁止内容重叠**：MEMORY.md 只放"指针 + 结论"，详情链接到 recall 或 project_summary
-
-最关键的动作：**先 `/recall-init` 在某个 git repo 里**，否则 RECALL_BRANCH=DETACHED 一直会让 recall 处于半瘫痪状态。
+完成。从此每次开 session 在同一个 repo 里，`/recall-status` 就能看到状态。
 
 ---
 
-## 附录：本次 Session 的判定
+## 第二章：日常工作流（按场景）
 
-| 维度 | 判定 |
-|------|------|
-| Recall 系统是否启用 | 部分启用（directives 加载了，branch/task 全部失效） |
-| 是否符合 recall 设计意图 | 不符合（DETACHED + unknown） |
-| 替代方案是否合理 | 合理且高效，但**与 recall 重复**造成浪费 |
-| 主要损失 | task 中间状态没持久化、知识两份维护 |
-| 主要收益 | 公开 GitHub 文档质量高、cwd 灵活不挑 git |
+每个场景三段式：**什么时候用 → 用什么命令 → 期望什么输出**。
+
+### 场景 A：开始一段新工作前先看现状
+
+**时机**：刚 cd 进 repo，准备开新 task 前。
+
+**命令**：
+```bash
+/recall-status
+```
+
+**期望输出**（在 feature 分支上）：
+```
+Recall Status
+  Project:  ATOM (/root/.local/share/claude/recall/ATOM/)
+  Branch:   feat/step35-fp8-tp4 (parent: main, mode: full)
+  Task:     fp8-blockscale-tp4 (status: in-progress)
+  Topics:   11 project + 3 branch overlay
+  Workflows: 2 project + 0 branch overlay
+  Config:   auto-save: auto, confidence: observed
+  Alerts:   1 stale branch, 0 merged needing promotion
+```
+
+如果看到 `Branch: DETACHED` 或 `Project: unknown` —— **立刻退到正确目录重开 session**，不要继续工作。
+
+### 场景 B：调试中发现一个根因
+
+**时机**：实验跑完，确认了某个 bug 的根因。
+
+**命令**（branch 局部知识）：
+```bash
+/recall-add tp4-longseq-bos-debug --branch
+```
+
+**命令**（普适规律，直接写到 project 级）：
+```bash
+/recall-add gfx950-mfma-kpack32-constraint --project
+```
+
+**期望输出**：终端回复保存路径 + 决策原因。文件内容会带 `confidence: VERIFIED` 头，并自动追加证据引用（实验 log 路径、commit hash）。
+
+> 决策提示：commit hash、临时 workaround、WIP 状态用 `--branch`；硬件行为、kernel bug、调试方法论、性能模式用 `--project`。
+
+### 场景 C：需要回查"上次怎么解决的"
+
+**时机**：想起 "tp=4 长序列 BOS bug"，但记不清细节。
+
+**命令**：
+```bash
+/recall-search "tp=4 BOS"
+```
+
+**期望输出**：分组结果（按 project / branch / task / archive），含文件路径和上下文行：
+```
+[project] knowledge/tp4-longseq-bos-debug.md:18
+  - 该 ASM kernel 对非对齐 M（实测 8209-8223）输出完全错误...
+[archive: feat-step35-moe] tasks/o-proj-debug/knowledge.md:42
+  - forward hook 定位到 o_proj，单独 torchrun 测 all-reduce → 正确...
+```
+
+比手工 `Grep` MEMORY.md 快，且会同时搜到 archive（已合并分支的归档）。
+
+### 场景 D：完成一个 task
+
+**时机**：实验闭环、验证 PASS、准备 commit。
+
+**命令**：
+```bash
+/task-complete
+```
+
+**期望输出**：
+- 列出本 task 所有 unsaved findings，问"是否 promote 到 branch level"
+- 把 task `status.md` 标记 `Status: completed`
+- meta.md 的 `Active Task: none`
+- 提示 "Remaining tasks: <list>. Switch to one, or create a new task?"
+
+如果 task 失败放弃用 `/task-abandon`，它会额外问 "Why is this task being abandoned?"，把负面知识（"approach X 不行，因为 Y"）也保留下来。
+
+### 场景 E：分支合并后晋升知识
+
+**时机**：`git merge feat/step35-fp8-tp4 main` 之后。
+
+**命令**：
+```bash
+/promote                       # 自动检测所有已合并但未 promote 的 branch
+/promote feat/step35-fp8-tp4   # 或者指定单个
+```
+
+**期望输出**：
+- 自动分类：架构模式 / 硬件行为 / 调试技术 → promote；commit hash / WIP / workaround → archive
+- branch 目录从 `branches/` 移到 `archive/`，meta.md 标 `Status: promoted`
+- 终端回复 "Promoted N findings from '<branch>' to project level. Branch archived."
+
+### 场景 F：定期清理（看哪些 branch 还在）
+
+**时机**：每周 / 每个 milestone 一次。
+
+**命令**：
+```bash
+/branch-status            # 列所有 branch（active / stale / merged unpromoted / archived）
+/recall-changelog 14      # 最近 14 天哪些 knowledge 文件被改过
+```
+
+**期望输出**：
+- `/branch-status`：分类总览，标出 stale（>30 天没 commit）和 unpromoted
+- `/recall-changelog`：按时间反序的修改列表，每条带文件路径 + 第一行摘要
+
+### 场景 G：放弃整个 branch
+
+**时机**：方向走错，整个分支不要了。
+
+**命令**：
+```bash
+git checkout feat/dead-end
+/branch-abandon
+```
+
+**期望输出**：问放弃原因 → 列出 branch 内所有 finding → 问哪些要 promote 到 project 级（特别是负面教训）→ 移到 archive，meta.md 标 `Status: abandoned`。
+
+---
+
+## 第三章：与 MEMORY.md / project_summary 的分工
+
+三套系统**互补不替代**，明确分工才不会脑裂。
+
+| 维度 | MEMORY.md | recall | project_summary |
+|------|-----------|--------|-----------------|
+| **位置** | `/root/.claude/projects/.../memory/MEMORY.md` | `/root/.local/share/claude/recall/<project>/` | `/home/hanchang/project_summary/` |
+| **加载方式** | 每次 session 自动注入 system prompt | startup 注入 directives + user.md，其余按需 | 手工 Read + GitHub 浏览 |
+| **可见性** | LLM 永远看得到 | 必须主动 `/recall-status` 或 `/recall-search` | 任意 reader（GitHub 公开） |
+| **结构控制** | 完全自定义 | 固定模板（status.md / knowledge.md / workflows.md） | 完全自定义 |
+| **依赖 git repo** | 不依赖 | **依赖**（DETACHED 状态全瘫痪） | 不依赖（自身是 repo） |
+| **跨机器同步** | 无 | 无（私人本地） | git push 同步 |
+| **适合内容** | 几十行内的高密度状态速查 + topic 索引 | task 中间状态、in-flight 知识、跨 session 个人记忆 | 对外发布的最终技术文档 |
+| **不适合** | 长篇细节、commit 列表 | 公开分享、文档化叙述 | 频繁更新的 in-flight 状态 |
+| **更新频率** | 里程碑级（每周） | 实时（每个发现） | 任务收尾（每次） |
+
+### 推荐分工原则
+
+1. **MEMORY.md 只放"指针 + 结论"**：路径表、状态速查、topic 索引（指向 recall 或 project_summary）。绝不复制粘贴细节。
+2. **recall 放"过程 + 中间状态"**：每个 task 的 status.md、debug 思路、未 promote 的 branch knowledge。
+3. **project_summary 放"最终结论 + 复现指南"**：跑通的命令、最终性能数字、commit hash 列表、新人能跟着复现的 step-by-step。
+
+### 重叠 = 浪费 + 脑裂风险
+
+本次任务里 `recall/hanchang/knowledge/step35flash-fp8.md` 和 `project_summary/05_fp8_inference.md` 大量重叠，造成两边状态不同步（recall 那份停在"待启动"，project_summary 显示 FP8 跑通）。**避免方法**：recall 写完后 `/task-complete` → `/promote` → 内容定型 → 把 project_summary 写成"指向 recall + 加 GitHub 友好的叙述"，不重写细节。
+
+---
+
+## 第四章：本次任务的复盘
+
+### 为什么 RECALL_BRANCH=DETACHED？
+
+- 本次 session 的 cwd 是 `/home/hanchang`（家目录）
+- `/home/hanchang` 不是 git repo（task header 也确认 `Is directory a git repo: No`）
+- recall 启动脚本拿不到 `git branch --show-current`，fallback 到 DETACHED
+- 同时 `git remote get-url origin` 也失败，project fallback 到 `unknown`
+- 后果：`/task-create` 直接拒绝（"Tasks belong to feature branches"），`/promote`、`/branch-status` 全部空转，auto-save 没有 branch 可挂载
+
+但 startup 仍然加载了 `/root/.local/share/claude/recall/hanchang/directives.md`（这是按 user 名而非 project 名兜底找的），所以 4 条强制规则 + auto-save 配置仍生效。
+
+### 如果重来，关键时点应该用什么 recall 命令？
+
+下面是本次任务的实际时间线，标注**应该但没用**的 recall 命令：
+
+| 时点 | 实际做了什么 | 应该用 recall 做什么 |
+|------|--------------|---------------------|
+| 2026-04-22 任务启动 | 在 `/home/hanchang` 开 session | `cd /home/hanchang/junlin12_repos/ATOM && /recall-init` 把 cwd 切到 repo，让 RECALL_BRANCH 生效 |
+| 2026-04-22 创建 feat 分支 | `git checkout -b feat/step3p5-moe-swiglustep` | 同步 `/task-create moe-pipeline-fix` 把 V01 单独追踪 |
+| 2026-04-23 修完 MoE V1/V3 dispatch | 直接手写 memory/moe-kernels.md | `/recall-add gfx950-moe-v1-broken --project`（这是普适硬件行为，符合 auto-save.auto） |
+| 2026-04-24 tp=2/tp=4 stage1 修完 | 手写 memory/tp48-fixes.md | `/task-complete moe-pipeline-fix` 然后 `/task-create tp-stage1-padding` |
+| 2026-04-25 tp=4 长序列 BOS bug 定位 | 手写 memory/tp48-fixes.md + 后来又同步到 recall/tp4-longseq-bos-debug.md | `/recall-add tp4-longseq-bos-debug --branch` 一次完成；调试方法论那段可以单独 `/recall-add longseq-bug-bisect-methodology --project` |
+| 2026-04-25 V01-V07 验证全 PASS | 手写 verification_pipeline/results/SUMMARY.md | 每个 V0x 用 `/task-create v0x-verification`，跑完 `/task-complete`，最后 `/promote` |
+| 2026-04-26 FP8 tp=2/tp=4 跑通 | 手写 memory/fp8-work.md + 重复写 recall/step35flash-fp8.md | `/recall-add fp8-blockscale-quant --project`，避免两份维护 |
+| 2026-04-28 任务收尾 | 手写 project_summary/01-12 | `git merge && /promote` 把 branch knowledge 自动晋升，project_summary 只写"叙述 + 指针" |
+
+### 三条最大教训
+
+1. **session 入口 cwd 决定一切**：必须先 cd 到 git repo 再开 session，否则 recall 半瘫痪。建议把"必须从 junlin12_repos/ 操作"这条规则扩展为"必须从 junlin12_repos/ 开 session"。
+2. **同一份知识不要两边写**：要么 recall + 在 MEMORY.md 留指针，要么 project_summary + 在 MEMORY.md 留指针。不要 MEMORY.md 自身存细节再分别同步两边。
+3. **task 概念被严重浪费**：V01-V07 天然就是 7 个 task，每个有自己的"中间假设 → 验证 → 结论"过程。这段历史现在只活在对话上下文里，session 一结束就丢了。
+
+---
+
+## 第五章：命令速查表
+
+### Setup & Info
+
+| 命令 | 参数 | 用途 | 返回 |
+|------|------|------|------|
+| `/recall-init` | — | 当前 git repo 一次性初始化 | 创建 `<root>/<project>/` + 默认 directives + 空 index |
+| `/recall-status` | — | 看当前 branch / task / 知识量 | 6-7 行紧凑状态块 |
+| `/recall-help` | — | 列所有命令 | 帮助文本 |
+
+### Knowledge
+
+| 命令 | 参数 | 用途 | 备注 |
+|------|------|------|------|
+| `/recall-add <topic>` | `--project` / `--branch` 控制 scope | 写入新发现 | 必须是 `[OBSERVED]` / `[VERIFIED]`，假设会被拒 |
+| `/recall-search <query>` | 关键词 | 跨 project + branch + task + archive 全文搜索 | 结果按 scope 分组 |
+| `/recall-changelog [days]` | 天数（默认 7） | 最近改动的 knowledge 文件 | 按时间反序 |
+
+### Branches
+
+| 命令 | 参数 | 用途 | 何时用 |
+|------|------|------|--------|
+| `/branch-status` | — | 所有 branch 总览（active / stale / merged / archived） | 周期清理 |
+| `/promote [branch]` | 可选 branch 名（默认自动检测已 merge 的） | branch 知识晋升到 project 级 | merge 之后 |
+| `/branch-abandon` | — | 当前 branch 整体放弃 + 抢救负面知识 | 方向走错时 |
+
+### Tasks
+
+| 命令 | 参数 | 用途 | 前置条件 |
+|------|------|------|----------|
+| `/task-create <name>` | kebab-case 名字 | 在当前 branch 下建新 task | 必须在 feature 分支（不能是 main/develop） |
+| `/task-switch <name>` | 名字或部分匹配 | 切换 active task | 当前 branch 已有该 task |
+| `/task-complete [name]` | 可选 task 名 | 收尾 task + 复盘知识 | 默认收尾 active task |
+| `/task-abandon [name]` | 可选 task 名 | 放弃 task + 抢救负面知识 | 会问 abandon 原因 |
+
+### 配置文件速查
+
+| 文件 | 路径 | 改什么 |
+|------|------|--------|
+| `directives.md` | `<root>/<project>/directives.md` | auto-save.auto/ask/never 规则、stale-branch-days、default-branch、强制规则 |
+| `user.md` | `<root>/<project>/user.md` | WORKSPACE / CONTAINER / 编辑器偏好等 key-value |
+| `knowledge/index.md` | `<root>/<project>/knowledge/index.md` | topic 列表（recall-add 自动维护） |
+| `branches/<name>/meta.md` | branch 元数据 | active task、parent、mode、HEAD 日期 |
+
+### auto-save 规则（来自本机 directives）
+
+- `auto`：hardware findings、build errors、debugging root causes、kernel behaviors、GPU architecture、verified inference results
+- `ask`：coding conventions、architecture decisions、new model support
+- `never`：temporary workarounds、debugging session logs、speculation
+
+`auto` 类发现命中关键词时，agent 会直接写入；`ask` 类会先问；`never` 类绝不写入 knowledge（只能进 task 的 status.md）。
+
+---
+
+## 最高价值的 3 个 recall 功能
+
+如果时间有限，先用这三个，能拿到 80% 的收益：
+
+1. **`/recall-search <query>`** —— 跨 project / branch / task / archive 全文搜索。比手工 Grep MEMORY.md 强一个数量级，特别是项目历史长了之后回查"上次怎么修的"。本次任务里多次需要回看历史发现，每次都是手工 grep，浪费时间。
+
+2. **`/task-create` + `/task-complete`** —— 给"思考过程"一个持久化容器。V01-V07 这种验证序列、tp=4 BOS bug 这种多假设排查，中间状态不持久化等于每次都要重新载入上下文。task 的 `status.md` 就是为这个设计的。
+
+3. **`/recall-add <topic> --project` / `--branch`** —— 强制每条新发现立即归位。配合 auto-save.auto 的关键词，新事实落地几乎零成本。本次最大的浪费是同一个 finding 在 memory/、project_summary/、recall/ 写了三遍——用 `/recall-add` 一次写入 + project_summary 引用，能把工作量砍掉一半。
+
+剩余功能（`/promote`、`/branch-abandon`、`/recall-changelog`）属于"用熟之后才会觉得离不开"的辅助层，初期可以不强求。
