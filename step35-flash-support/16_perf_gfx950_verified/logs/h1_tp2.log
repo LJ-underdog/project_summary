@@ -1,0 +1,13 @@
+[PERF] script_start tp=2 target_input=10240 target_output=1024 measure_method=A
+[PERF] actual_input_tokens=10261 (target=10240)
+[PERF] creating LLMEngine ...
+[PERF] engine_init_secs=58.29
+[PERF] warmup generate (max_tokens=4) ...
+[PERF] measure generate (method A) ...
+[PERF] tp=2 input=10262 output=215
+[PERF] method=A
+[PERF] TTFT = 0.384 s
+[PERF] TPOT = 12.346 ms/token
+[PERF] total_latency = 3.026 s
+[PERF] throughput_decode = 81.00 tokens/s
+[PERF] wall_clock = 3.038 s (sanity)

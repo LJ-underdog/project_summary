@@ -93,11 +93,12 @@
 
 | ID | 状态 | 假设 | 验证方法 / 结论 |
 |----|------|------|---------------|
-| H1 | ⬜ **未验证** | **aiter dirty patch 差异**：gfx942 有 `fused_moe.py:881-886 run_1stage=False`，强制 per_1x128 走 CK 2-stage；gfx950 无此 patch，可能走不同（更慢）的 kernel 路径 | 在 gfx950 上临时加相同 patch，对比 TPOT — **优先级最高** |
-| H2 | ⬜ **未验证** | **gfx950 CK kernel 调优不足**：gfx950 是更新硬件，MoE/attention kernel 对 MI350X 的 tuning 可能不完整 | 检查 `aiter/configs/tuned_fmoe.csv` 中 gfx950 条目数量；对比 gfx942 覆盖度 |
-| H3 | ⬜ **未验证** | **ATOM/JIT cache 差异**：gfx950 每次清了 cache，gfx942 复用编译产物；JIT 冷启动可能影响 kernel dispatch | 在 gfx950 不清 cache 重跑，对比结果 |
-| H4 | ⬜ **未验证** | **GPU 硬件状态**：gfx950 GPU5 已知异常，其他 GPU 是否也有隐性问题 | `rocm-smi` 检查 GPU 0-3 健康；对比单卡 gemm 基准 |
-| H5 | ✅ **已排除** | ~~测试脚本差异~~ | #301/#302 实测：TPOT 脚本差异 ≈0%，TTFT 最大 37%，但同脚本 gfx950 仍比 gfx942 慢 2.1-2.4× |
+| H1 | ✅ **已排除** | ~~aiter dirty patch 差异（run_1stage=False）~~ | #403/#404 实测：patch 生效（日志确认走 2-stage），但 TTFT 变化 tp=2 -1.0% / tp=4 +2.9%，均在噪声范围内。MoE 1-stage vs 2-stage 不是 prefill 瓶颈。 |
+| **H6** | 🔴 **新发现，优先验证** | **bf16_tuned_gemm.csv 覆盖率不足**：H1 patch 日志中大量出现 `not found tuned config in bf16_tuned_gemm.csv, using torch solution:0`。M=10262 的 prefill GEMM（attention Q/K/V proj、MLP 等）全走 torch.mm fallback，而 gfx942 可能有完整 tuning 条目走 ASM/CK kernel。 | 对比 gfx950 vs gfx942 的 `bf16_tuned_gemm.csv` 条目数和 M 覆盖范围；在 gfx950 上补充 10k shape 的 tuning 条目后重测 |
+| H2 | ⬜ **未验证** | **gfx950 CK kernel 调优不足**（MoE/attention kernel tuning） | 检查 `aiter/configs/tuned_fmoe.csv` 中 gfx950 条目数量；对比 gfx942 覆盖度 |
+| H3 | ⬜ **未验证** | **ATOM/JIT cache 差异** | 在 gfx950 不清 cache 重跑，对比结果 |
+| H4 | ⬜ **未验证** | **GPU 硬件状态** | `rocm-smi` 检查 GPU 0-3 健康；对比单卡 gemm 基准 |
+| H5 | ✅ **已排除** | ~~测试脚本差异~~ | #301/#302：同脚本 gfx950 仍比 gfx942 慢 2.1-2.4× |
 
 ---
 
@@ -114,10 +115,18 @@
 
 ## 七、遗留问题与建议
 
-1. **根因调查优先级**：H1（dirty patch）和 H5（脚本差异）成本最低，建议先验证
-2. **gfx942 上跑 perf_correctness_bench.py**：用完全相同脚本+参数在 gfx942 重跑，消除脚本差异（H5）
-3. **MEMORY.md 历史数据校正**：MEMORY 中记录的 FP8 tp=4 TTFT=86ms 是短 prompt（~20 tokens）场景，与本次 10k 输入 382.9ms 不可直接比较，两者均正确但场景不同
-4. **Run1 vs Run2 抖动**：tp=4 Run1=274ms，Run2=382ms，相差 40%，建议增加 runs=3 取中位数
+### 已排除
+- **H1**（2026-04-29）：run_1stage=False patch 生效但 TTFT 无显著变化，MoE kernel 选择不是瓶颈
+- **H5**（2026-04-29）：脚本差异只解释 TTFT ≤37%，同脚本仍差 2×
+
+### 下一步优先级
+1. **H6（最高）**：检查 `aiter/configs/bf16_tuned_gemm.csv`（或对应路径），对比 gfx950 vs gfx942 对 M≈10k 形状的覆盖情况。H1 验证日志中的 `not found tuned config ... using torch solution:0` 是强信号。
+2. **H2**：检查 `tuned_fmoe.csv` 的 gfx950 条目数量
+3. **H3/H4**：成本低，可并行排查
+
+### 其他注意事项
+- **MEMORY.md 历史数据校正**：MEMORY 中记录的 FP8 tp=4 TTFT=86ms 是短 prompt（~20 tokens）场景，与本次 10k 输入 382.9ms 不可直接比较，两者均正确但场景不同
+- **Run 抖动**：tp=4 Run1/Run2 TTFT 差异较大，建议后续测试增加 runs=3 取中位数
 
 ---
 
