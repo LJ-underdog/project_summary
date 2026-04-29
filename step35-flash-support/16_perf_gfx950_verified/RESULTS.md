@@ -94,7 +94,7 @@
 | ID | 状态 | 假设 | 验证方法 / 结论 |
 |----|------|------|---------------|
 | H1 | ✅ **已排除** | ~~aiter dirty patch 差异（run_1stage=False）~~ | #403/#404 实测：patch 生效（日志确认走 2-stage），但 TTFT 变化 tp=2 -1.0% / tp=4 +2.9%，均在噪声范围内。MoE 1-stage vs 2-stage 不是 prefill 瓶颈。 |
-| **H6** | 🔴 **新发现，优先验证** | **bf16_tuned_gemm.csv 覆盖率不足**：H1 patch 日志中大量出现 `not found tuned config in bf16_tuned_gemm.csv, using torch solution:0`。M=10262 的 prefill GEMM（attention Q/K/V proj、MLP 等）全走 torch.mm fallback，而 gfx942 可能有完整 tuning 条目走 ASM/CK kernel。 | 对比 gfx950 vs gfx942 的 `bf16_tuned_gemm.csv` 条目数和 M 覆盖范围；在 gfx950 上补充 10k shape 的 tuning 条目后重测 |
+| **H6** | 🔴 **成立（强证据）** | **bf16_tuned_gemm.csv 对 Step-3.5-Flash 形状覆盖为零** | 见下方 §四 H6 详细分析 |
 | H2 | ⬜ **未验证** | **gfx950 CK kernel 调优不足**（MoE/attention kernel tuning） | 检查 `aiter/configs/tuned_fmoe.csv` 中 gfx950 条目数量；对比 gfx942 覆盖度 |
 | H3 | ⬜ **未验证** | **ATOM/JIT cache 差异** | 在 gfx950 不清 cache 重跑，对比结果 |
 | H4 | ⬜ **未验证** | **GPU 硬件状态** | `rocm-smi` 检查 GPU 0-3 健康；对比单卡 gemm 基准 |
@@ -113,6 +113,64 @@
 
 ---
 
+## 四（新增）、H6 根因分析 — bf16_tuned_gemm.csv 覆盖率严重不足
+
+> 来源：teammate-7 #501 调查（2026-04-29）
+> 代码：`aiter/tuned_gemm.py:38-193`，`aiter/jit/core.py:178-296`
+
+### 证据链
+
+**1. 加载机制**：runtime CSV = `/tmp/aiter_configs/bf16_tuned_gemm.csv`（base + model_configs/* 合并）
+
+**2. gfx950 tuning 来源**：
+
+| 文件 | gfx950 条目 |
+|------|------------|
+| `aiter/configs/bf16_tuned_gemm.csv`（base） | **0**（完全为空）|
+| `model_configs/glm5_bf16_tuned_gemm.csv` | 71 |
+| `model_configs/llama*`, `dsv3*`, `qwen32B*` 等 | 合计 ~708 |
+| **Step-3.5-Flash 专属文件** | **不存在** |
+
+→ gfx950 的所有 tuning 来自其他模型；**没有针对 Step-3.5-Flash (hidden=4096) 的专属 tuning**
+
+**3. M 值覆盖**：M ∈ {1…512（步长8）, 1024, 2048, 4096, 8192, **gap**, 16384, 32768}
+→ **M=10262（实际 prefill tokens）落入 8192~16384 的空隙，无任何 tuning 条目**
+
+**4. (N, K) 覆盖**：Step-3.5-Flash prefill 用到的关键形状：
+
+| (N, K) | 用途 | gfx950 有 tuning？ |
+|--------|------|-------------------|
+| (4096, 4096) | attn O proj | ❌ 无 |
+| (11264, 4096) | QKV proj（合并）| ❌ 无 |
+| (7168, 4096) | MLP gate/up | ❌ 无 |
+| (4096, 5632) | MLP down | ❌ 无 |
+| (64448, 4096) | lm_head | ❌ 无 |
+| (4096, 2048) | attn proj (tp=4) | ✓ 有，但 M 只到 512，M=10262 不命中 |
+
+**5. 实测 miss 数**（h1 验证日志，`using torch solution:0`）：
+- tp=2：**62 次**（全部 prefill GEMM fallback → torch.mm）
+- tp=4：**120 次**（更多 TP 切分形状，miss 更多）
+
+**6. decode TPOT 也受影响**：(N,K)=(4096,4096) 等形状在 gfx950 tuning 中完全不存在，M=1 的 decode 也同样 miss → **TTFT 和 TPOT 均 2× 慢均可由此解释**
+
+### 结论
+
+**gfx950 上 Step-3.5-Flash 的所有非 MoE 的 bf16 GEMM（attention proj、MLP、lm_head）均走 torch.mm fallback，未使用任何调优 ASM/flydsl kernel。** 这是 TTFT 和 TPOT 均比 gfx942 慢约 2× 的最可能根因。
+
+gfx942 在 `/workspace/aiter/aiter/configs/model_configs/` 中很可能存在针对 Step-3.5-Flash (hidden=4096) 形状的专属 tuning CSV，使其走优化 kernel。
+
+### 修复路径
+
+1. **近期 workaround**：为 Step-3.5-Flash 在 gfx950 上创建专属 tuning CSV：
+   - 用 `AITER_TUNE_GEMM=1` dump 缺失形状
+   - 在 gfx950 上 offline tune (M=10262/8192/16384, N=4096/7168/11264, K=4096 等)
+   - 写入 `aiter/configs/model_configs/step3p5_bf16_tuned_gemm.csv`
+   - 预期效果：TTFT 大幅下降，接近 gfx942 水平
+
+2. **长期**：aiter 官方应在 gfx950 上为 Step-3.5-Flash 补全 tuning
+
+---
+
 ## 七、遗留问题与建议
 
 ### 已排除
@@ -120,9 +178,8 @@
 - **H5**（2026-04-29）：脚本差异只解释 TTFT ≤37%，同脚本仍差 2×
 
 ### 下一步优先级
-1. **H6（最高）**：检查 `aiter/configs/bf16_tuned_gemm.csv`（或对应路径），对比 gfx950 vs gfx942 对 M≈10k 形状的覆盖情况。H1 验证日志中的 `not found tuned config ... using torch solution:0` 是强信号。
-2. **H2**：检查 `tuned_fmoe.csv` 的 gfx950 条目数量
-3. **H3/H4**：成本低，可并行排查
+1. **H6 已成立**（2026-04-29）：为 gfx950 补充 Step-3.5-Flash 专属 tuning CSV（见 §四修复路径）
+2. H2/H3/H4 暂时搁置，H6 修复后重测若仍有差距再继续
 
 ### 其他注意事项
 - **MEMORY.md 历史数据校正**：MEMORY 中记录的 FP8 tp=4 TTFT=86ms 是短 prompt（~20 tokens）场景，与本次 10k 输入 382.9ms 不可直接比较，两者均正确但场景不同

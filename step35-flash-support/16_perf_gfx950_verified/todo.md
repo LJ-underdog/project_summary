@@ -29,9 +29,14 @@
 - [x] #405 [执行] 还原 patch（git diff clean，status clean，缓存已清）
 - [x] #406 [执行] 更新 RESULTS.md（H1 排除 + H6 新发现）@Lead
 
+## Phase 5（H6 验证 — bf16_tuned_gemm.csv 覆盖率）
+- [x] #501 [调查] bf16 tuning 严重不覆盖 Step-3.5-Flash prefill 形状（runtime CSV /tmp/aiter_configs/bf16_tuned_gemm.csv: gfx950=779/gfx942=0；M={1..512,1024,2048,4096,8192,16384,32768}，M=10262 落空隙；(4096,4096)/(11264,4096)/(1280,4096)/(5120,4096)/(7168,4096) 等关键 (N,K) 不在 tuned 集；h1_tp2 miss=62, h1_tp4 miss=120，全部 fallback 到 torch solution:0）
+- [x] #502 [执行] 更新 RESULTS.md（H6 成立 + 根因分析 + 修复路径）@Lead
+
 ## In Progress
 
 ## Done
+- [x] #501 [调查] bf16 tuning 不覆盖 prefill 形状（详见 progress/teammate-7.md）@teammate-7
 - [x] #405 [执行] 还原 patch（git diff clean，status clean）@teammate-6
 - [x] #404 [验证] H1 patch tp=4: TTFT=248ms TPOT=12.549ms（≈ baseline 241/12.50）@teammate-6
 - [x] #403 [验证] H1 patch tp=2: TTFT=384ms TPOT=12.346ms（≈ baseline 388/12.28）@teammate-6
