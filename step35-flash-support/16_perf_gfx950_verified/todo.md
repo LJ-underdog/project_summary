@@ -42,9 +42,13 @@
 - [x] #702 [调查] 估算 bf16_tuned_gemm miss 的实际计算量占比 vs MoE compute（BF16 miss 占 prefill GEMM FLOPs 46.1%（92.83/201.29 TFLOPs），MoE CK 占 53.9%；torch fallback 在 tp=2 可贡献 ~87ms TTFT gap，足以解释观测；62 次 miss 全部为 attn/dense/shared/head shape，无 MoE expert shape）
 - [x] #703 [执行] 汇总结论，更新 RESULTS.md（MoE→CK确认，BF16 miss 46% FLOPs，~87ms gap）@Lead
 
+## Phase 8（aiter tuning 全量盘点）
+- [x] #801 [调查] aiter configs/ 下所有 CSV 的 gfx950/gfx942 覆盖（70 CSV 全扫；gfx942 仅在 dsv3/batched/rowwise 上独占，0 命中 Step-3.5-Flash 形状；gfx950 也 0 命中 BF16 (N,K=4096) 与 fmoe (inter_dim=640, expert∈{288,289})；gfx942 vs gfx950 tuning 差异不能解释性能差异；详见 progress/teammate-11.md）
+
 ## In Progress
 
 ## Done
+- [x] #801 [调查] aiter GEMM tuning 全量盘点（详见 progress/teammate-11.md）@teammate-11
 - [x] #701 [调查] BF16/FP8 routed MoE 路径（CK fmoe，与 bf16_tuned_gemm.csv 无关；详见 progress/teammate-9.md）@teammate-9
 - [x] #702 [调查] compute 占比估算（BF16 miss 46.1% / MoE CK 53.9%；可解释 ~87ms tp=2 TTFT gap；详见 progress/teammate-10.md）@teammate-10
 - [x] #601 [调查] FP8 fmoe tuning 0 命中（详见 progress/teammate-8.md）@teammate-8

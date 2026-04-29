@@ -209,11 +209,16 @@
 
 **6. decode TPOT 也受影响**：(N,K)=(4096,4096) 等形状在 gfx950 tuning 中完全不存在，M=1 的 decode 也同样 miss → **TTFT 和 TPOT 均 2× 慢均可由此解释**
 
-### 结论
+### 结论（#801 修正）
 
-**gfx950 上 Step-3.5-Flash 的所有非 MoE 的 bf16 GEMM（attention proj、MLP、lm_head）均走 torch.mm fallback，未使用任何调优 ASM/flydsl kernel。** 这是 TTFT 和 TPOT 均比 gfx942 慢约 2× 的最可能根因。
+**gfx950 上 Step-3.5-Flash 的所有非 MoE 的 bf16 GEMM（attention proj、MLP、lm_head）均走 torch.mm fallback。** 这对 gfx950 自身性能有影响，但 **gfx942 在本 aiter 仓库中同样没有 Step-3.5-Flash 的 BF16 tuning**：
 
-gfx942 在 `/workspace/aiter/aiter/configs/model_configs/` 中很可能存在针对 Step-3.5-Flash (hidden=4096) 形状的专属 tuning CSV，使其走优化 kernel。
+- 所有 `*bf16_tuned_gemm.csv` 中 gfx942 条目数 = **0**（gfx942 完全没有 BF16 tuning）
+- gfx942 独有的条目仅在 `dsv3_a8w8_bpreshuffle`（K=7168）和 batched GEMM，**不覆盖 Step-3.5-Flash 的 (N, K=4096) 形状**
+
+→ **gfx942 vs gfx950 的 2× 性能差距，不能由"gfx942 有 BF16 tuning 而 gfx950 没有"来解释**
+
+gfx942 机器可能在其本地 `/workspace/aiter/aiter/configs/` 下有额外的 Step-3.5-Flash 专属 tuning（gfx950 的 aiter repo 中没有），或者 gfx942（MI308X）在相同 torch.mm 路径下执行速度本身就比 gfx950（MI350X）快（硬件内存带宽/计算特性差异）。需要 SSH 访问 gfx942 确认其实际 CSV 文件内容。
 
 ### Gap-1 修复路径
 
@@ -277,13 +282,26 @@ tuned_fmoe.csv 中 gfx942 (cu=80) 条目也不包含上述 4 个 Step-3.5-Flash 
 - **H1**（2026-04-29）：run_1stage=False patch 无效，MoE kernel 选择不是瓶颈
 - **H5**（2026-04-29）：脚本差异仅解释 TTFT ≤37%，同脚本仍差 2×
 
-### 根因汇总与修复优先级
+### aiter repo 全量盘点结论（#801，2026-04-29）
 
-| 优先级 | Gap | 影响 | 修复 |
-|--------|-----|------|------|
-| 🔴 P1 | BF16 GEMM 全 miss（H6）| gfx950 vs gfx942 主因（TTFT/TPOT 均 2×）| 补 step3p5_bf16_tuned_gemm.csv |
-| 🟡 P2 | FP8 fmoe 全 miss（#601）| 两机都有此 gap，gfx950 额外优化空间 | 补 step35flash_a8w8_blockscale_tuned_fmoe.csv |
-| ⬜ P3 | H2/H3/H4 | H6/fmoe 修复后若仍有差距再查 | — |
+70 个 CSV 文件完整扫描，关键发现：
+
+| 类别 | gfx950 | gfx942 | Step-3.5-Flash 覆盖 |
+|------|--------|--------|---------------------|
+| BF16 tuned_gemm（所有文件）| 779 条（其他模型形状）| **0 条** | ❌ 两机均无 |
+| FP8 fmoe tuned（所有文件）| inter∈{192,256,384,512,1024}，expert∈{128,256} | inter∈{192,256,384,512,1536,2048,4096}，expert≤257 | ❌ 两机均无 inter=640/expert=288-289 |
+| FP8 dense a8w8_blockscale | 覆盖 dsv3/qwen3/glm5 形状 | 仅 dsv3 rowwise（1403 条） | ❌ 两机均无 Step-3.5-Flash 形状 |
+
+**关键修正**：之前假设"gfx942 有 BF16 tuning 而 gfx950 没有"是错误的——gfx942 在 BF16 tuning 上条目为 0，两机在 Step-3.5-Flash 形状上处于相同的未 tuned 状态。
+
+### 根因重新评估与修复优先级
+
+| 优先级 | 行动 | 说明 |
+|--------|------|------|
+| 🔴 P0 | **SSH 访问 gfx942，查看其 `/workspace/aiter/aiter/configs/`** | 确认 gfx942 是否有本地 Step-3.5-Flash 专属 CSV；若有则可直接复用 |
+| 🔴 P1 | 为两机补 `step3p5_bf16_tuned_gemm.csv` | BF16 attn/dense/shared/lm_head 共 46% FLOPs 均走 torch.mm |
+| 🟡 P2 | 补 `step35flash_a8w8_blockscale_tuned_fmoe.csv` | FP8 fmoe 0 命中（两机共有）|
+| ⬜ P3 | 若 P0 确认两机 tuning 状态相同，则 gfx942 更快可能源于硬件差异（MI308X vs MI350X 在某些算子上的特性），需进一步 profiling | — |
 
 ### 其他注意事项
 - **MEMORY.md 历史数据校正**：MEMORY 中记录的 FP8 tp=4 TTFT=86ms 是短 prompt（~20 tokens）场景，与本次 10k 输入 382.9ms 不可直接比较，两者均正确但场景不同
