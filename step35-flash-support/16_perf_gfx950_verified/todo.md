@@ -33,9 +33,14 @@
 - [x] #501 [调查] bf16 tuning 严重不覆盖 Step-3.5-Flash prefill 形状（runtime CSV /tmp/aiter_configs/bf16_tuned_gemm.csv: gfx950=779/gfx942=0；M={1..512,1024,2048,4096,8192,16384,32768}，M=10262 落空隙；(4096,4096)/(11264,4096)/(1280,4096)/(5120,4096)/(7168,4096) 等关键 (N,K) 不在 tuned 集；h1_tp2 miss=62, h1_tp4 miss=120，全部 fallback 到 torch solution:0）
 - [x] #502 [执行] 更新 RESULTS.md（H6 成立 + 根因分析 + 修复路径）@Lead
 
+## Phase 6（H6 深化 — FP8 tuning 路径调查）
+- [x] #601 [调查] FP8 GEMM dispatch 路径 + gfx942/gfx950 FP8 tuning 覆盖对比（FP8 仅 routed-expert 走 fmoe；4 个 Step-3.5-Flash key tuple 全 miss：inter_dim=640/384、expert=288/289、SwigluStep、e4m3fn+per_1x128 组合无 tuning；prefill 42 MoE 层 fallback 2stage default，是 H6 之外第二个 TTFT gap）
+- [x] #602 [执行] 更新 RESULTS.md（FP8 fmoe gap + 修复路径 + 根因汇总）@Lead
+
 ## In Progress
 
 ## Done
+- [x] #601 [调查] FP8 fmoe tuning 0 命中（详见 progress/teammate-8.md）@teammate-8
 - [x] #501 [调查] bf16 tuning 不覆盖 prefill 形状（详见 progress/teammate-7.md）@teammate-7
 - [x] #405 [执行] 还原 patch（git diff clean，status clean）@teammate-6
 - [x] #404 [验证] H1 patch tp=4: TTFT=248ms TPOT=12.549ms（≈ baseline 241/12.50）@teammate-6

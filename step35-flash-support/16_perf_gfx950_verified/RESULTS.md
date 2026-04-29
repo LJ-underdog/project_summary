@@ -113,7 +113,24 @@
 
 ---
 
-## 四（新增）、H6 根因分析 — bf16_tuned_gemm.csv 覆盖率严重不足
+## 四、根因全景 — 两个独立 Tuning Gap
+
+> 来源：teammate-7 (#501) + teammate-8 (#601)，2026-04-29
+> 所有结论来自代码读取 + 日志实测，非推断
+
+### Gap-1：BF16 GEMM 全未 tuned（H6，主因）
+### Gap-2：FP8 fmoe 全未 tuned（#601，次因）
+
+**量化范围明确**（`config.json:313-608` + `step3p5.py:200-565`）：
+
+| 层类型 | 量化 | GEMM 路径 |
+|--------|------|----------|
+| Layer 3-44 routed experts | **FP8** blockscale per_1x128 | `fused_moe.py` → tuned_fmoe.csv |
+| 其他所有层（attn、dense MLP、shared expert、lm_head 等） | **BF16**（modules_to_not_convert 共 286 项）| bf16_tuned_gemm.csv |
+
+---
+
+## 四-A、H6 根因分析 — bf16_tuned_gemm.csv 覆盖率严重不足
 
 > 来源：teammate-7 #501 调查（2026-04-29）
 > 代码：`aiter/tuned_gemm.py:38-193`，`aiter/jit/core.py:178-296`
@@ -159,27 +176,75 @@
 
 gfx942 在 `/workspace/aiter/aiter/configs/model_configs/` 中很可能存在针对 Step-3.5-Flash (hidden=4096) 形状的专属 tuning CSV，使其走优化 kernel。
 
-### 修复路径
+### Gap-1 修复路径
 
-1. **近期 workaround**：为 Step-3.5-Flash 在 gfx950 上创建专属 tuning CSV：
-   - 用 `AITER_TUNE_GEMM=1` dump 缺失形状
-   - 在 gfx950 上 offline tune (M=10262/8192/16384, N=4096/7168/11264, K=4096 等)
-   - 写入 `aiter/configs/model_configs/step3p5_bf16_tuned_gemm.csv`
-   - 预期效果：TTFT 大幅下降，接近 gfx942 水平
+创建 `aiter/configs/model_configs/step3p5_bf16_tuned_gemm.csv`（gfx950 专属）：
+- 用 `AITER_TUNE_GEMM=1` dump 缺失形状
+- Offline tune：(N,K) ∈ {(11264,4096),(4096,4096),(7168,4096),(4096,5632),(1280,4096),(64448,4096)} × M ∈ {1,128,256,512,1024,2048,4096,8192,10262,16384}
+- 预期效果：BF16 GEMM miss 全部消除，TTFT 大幅下降
 
-2. **长期**：aiter 官方应在 gfx950 上为 Step-3.5-Flash 补全 tuning
+---
+
+## 四-B、FP8 fmoe tuning Gap（#601 新发现）
+
+> 来源：teammate-8 #601 调查（2026-04-29）
+> 代码：`aiter/fused_moe.py:780-867`，`aiter/jit/core.py:70-160`
+
+### FP8 fmoe dispatch key（13 元 tuple）
+
+`fused_moe.py:802-867` 按 `(cu_num, token, model_dim, inter_dim, expert, topk, activation, dtype, q_dtype_a, q_dtype_w, q_type, use_g1u1, doweight_stage1)` 查 tuned_fmoe.csv。
+
+### Step-3.5-Flash 所需的 4 个 unique key
+
+| key（简化）| tp | 状态 |
+|------------|-----|------|
+| (256, 16384, 4096, **640**, **289**, 9, Silu, bf16, e4m3fn, e4m3fn, per_1x128, True, False) | tp=2 prefill | **MISS** |
+| (256, 16384, 4096, **640**, **288**, 8, **SwigluStep**, bf16, e4m3fn, e4m3fn, per_1x128, True, False) | tp=2 prefill layer 43-44 | **MISS** |
+| (256, 1, 4096, 640, 289/288, ...) | tp=2 decode | **MISS** |
+| (256, *, 4096, **384**, 288/289, ...) | tp=4（inter padded 320→384）| inter 维匹配但 expert/activation/topk 全错 → **MISS** |
+
+### 覆盖缺口
+
+| 维度 | Step-3.5-Flash 需要 | tuned_fmoe.csv 有 | 状态 |
+|------|---------------------|-------------------|------|
+| inter_dim=640 (tp=2) | 必须 | 无 | **MISS** |
+| expert=288 / 289 | 必须 | 最近 257/513 | **MISS** |
+| SwigluStep activation | layer 43-44 必须 | 无（仅 Silu/Gelu）| **MISS** |
+| e4m3fn + per_1x128 组合 | 必须 | 部分（fnuz format，格式不同）| **MISS** |
+
+→ **FP8 routed-expert：0 命中 tuning，全部 fallback 到 default heuristics**
+
+### 关键区别：gfx942 同样 0 命中
+
+tuned_fmoe.csv 中 gfx942 (cu=80) 条目也不包含上述 4 个 Step-3.5-Flash key tuple。
+**→ FP8 fmoe tuning gap 对 gfx950 vs gfx942 性能差异无解释力**（两者都未 tuned）。
+这是一个 gfx950 独立于 gfx942 差距之外的额外优化机会。
+
+### Gap-2 修复路径
+
+用 `gemm_moe_tune.py` 为 gfx950 补 4 个 Step-3.5-Flash fmoe key：
+```bash
+# 写入：aiter/configs/model_configs/step35flash_a8w8_blockscale_tuned_fmoe.csv
+# 优先：tp=2（inter_dim=640, expert=289, Silu） + SwigluStep（layer 43-44）
+# 次之：tp=4（inter_dim=384, expert=288/289）
+```
+预期效果：MoE prefill/decode 各 layer 走调优 kernel，TTFT 和 TPOT 进一步下降。
 
 ---
 
 ## 七、遗留问题与建议
 
 ### 已排除
-- **H1**（2026-04-29）：run_1stage=False patch 生效但 TTFT 无显著变化，MoE kernel 选择不是瓶颈
-- **H5**（2026-04-29）：脚本差异只解释 TTFT ≤37%，同脚本仍差 2×
+- **H1**（2026-04-29）：run_1stage=False patch 无效，MoE kernel 选择不是瓶颈
+- **H5**（2026-04-29）：脚本差异仅解释 TTFT ≤37%，同脚本仍差 2×
 
-### 下一步优先级
-1. **H6 已成立**（2026-04-29）：为 gfx950 补充 Step-3.5-Flash 专属 tuning CSV（见 §四修复路径）
-2. H2/H3/H4 暂时搁置，H6 修复后重测若仍有差距再继续
+### 根因汇总与修复优先级
+
+| 优先级 | Gap | 影响 | 修复 |
+|--------|-----|------|------|
+| 🔴 P1 | BF16 GEMM 全 miss（H6）| gfx950 vs gfx942 主因（TTFT/TPOT 均 2×）| 补 step3p5_bf16_tuned_gemm.csv |
+| 🟡 P2 | FP8 fmoe 全 miss（#601）| 两机都有此 gap，gfx950 额外优化空间 | 补 step35flash_a8w8_blockscale_tuned_fmoe.csv |
+| ⬜ P3 | H2/H3/H4 | H6/fmoe 修复后若仍有差距再查 | — |
 
 ### 其他注意事项
 - **MEMORY.md 历史数据校正**：MEMORY 中记录的 FP8 tp=4 TTFT=86ms 是短 prompt（~20 tokens）场景，与本次 10k 输入 382.9ms 不可直接比较，两者均正确但场景不同
