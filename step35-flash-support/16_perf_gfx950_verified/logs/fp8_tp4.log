@@ -1,0 +1,46 @@
+================================================================
+=== PERF CORRECTNESS BENCH — Step-3.5-Flash FP8 ===
+================================================================
+GPU arch:          unknown
+CUDA_VISIBLE_DEVS: 0,1,2,3
+TP:                4
+Model:             /root/.cache/huggingface/hub/models--stepfun-ai--Step-3.5-Flash-FP8/snapshots/6eebda59dd87ca5729648ec7cfed0becfceb273e
+ATOM commit:       acff926d
+aiter commit:      0f8164017
+Target input tok:  10240 (±32)
+Max output tok:    1024
+Runs:              2 (take last as stable)
+----------------------------------------------------------------
+[1/4] Loading tokenizer ...
+[1/4] Building prompt ...
+[1/4] Actual input tokens: 10212
+[2/4] Initializing ATOM engine ...
+[2/4] Engine init: 64.63s
+[3/4] Warmup ...
+[3/4] Warmup done.
+[4/4] Measurement (2 run(s)) ...
+  Run1: TTFT=274.5ms  TPOT=13.6ms  total=4.45s  out_tokens=309  decode_throughput=73.7tok/s
+  Run2: TTFT=382.9ms  TPOT=12.5ms  total=3.46s  out_tokens=248  decode_throughput=80.2tok/s
+
+================================================================
+=== RESULTS (stable = last run) ===
+================================================================
+GPU arch:          unknown
+CUDA_VISIBLE_DEVS: 0,1,2,3
+TP:                4
+ATOM commit:       acff926d
+aiter commit:      0f8164017
+Input tokens:      10213
+Output tokens:     248
+TTFT (stable):     382.9 ms
+TPOT (stable):     12.5 ms/token
+Total lat (stable):3.463 s
+Decode throughput: 80.2 tok/s
+Engine init:       64.63 s
+----------------------------------------------------------------
+CORRECTNESS:       PASS
+  output chars:    1215
+  output words:    180
+  bos_spam:        False
+  first 80 chars:  'Hmm, the user has provided a massive repetitive text block alternating between a'
+================================================================

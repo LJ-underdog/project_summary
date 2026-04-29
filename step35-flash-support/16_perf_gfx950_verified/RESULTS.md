@@ -1,0 +1,130 @@
+# Step-3.5-Flash FP8 性能验证结果 — gfx950 vs gfx942
+
+**测试日期**：2026-04-29
+**执行方式**：agent team（perf_gfx950_verified）
+**脚本**：`perf_correctness_bench.py`（gfx950）/ `perf_bench.py`（gfx942）
+
+---
+
+## 一、gfx950 实测结果（本次验证）
+
+**平台**：8x MI350X (gfx950)
+**commits**：ATOM `acff926d` / aiter `0f8164017` / CK `defd7ad29`
+**模型**：`stepfun-ai/Step-3.5-Flash-FP8`（snapshots/6eebda59）
+**测试参数**：input≈10213 tokens（target 10240 ±32）/ max_output=1024 / temperature=0 / batch=1 / runs=2（取 Run2 稳态）
+
+| 配置 | GPU | TTFT (ms) | TPOT (ms/tok) | output_tokens | decode_throughput (tok/s) | CORRECTNESS |
+|------|-----|-----------|---------------|---------------|--------------------------|-------------|
+| FP8 tp=2 | 0,1 | **428.7** | **12.7** | 302 | 78.8 | PASS |
+| FP8 tp=4 | 0,1,2,3 | **382.9** | **12.5** | 248 | 80.2 | PASS |
+
+**数据来源**：
+- tp=2：`logs/fp8_tp2_full.log`（teammate-1 progress L15-20）
+- tp=4：`logs/fp8_tp4_full.log`（teammate-2 progress L16-18）
+
+**正确性验证**：
+- tp=2：first 80 chars = `"Hmm, the user has provided a repetitive text about a fox and dog sentence in bot"` → 非 BOS / 非 Qwen `<think>`，Step-3.5-Flash 风格确认
+- tp=4：first 80 chars = `"Hmm, the user has provided a massive repetitive text block alternating between a"` → 同上
+
+---
+
+## 二、gfx942 参考数据（15_perf_tp2_tp4_tp8_eval）
+
+**平台**：8x MI308X (gfx942)
+**commits**：ATOM `acff926` / aiter `0f8164017`（含 fused_moe.py:881-886 dirty patch `run_1stage=False`）/ CK `defd7ad29`
+**测试参数**：input=10265 tokens / max_output=1024 / temperature=0 / batch=1 / runs=2（取 Run2 稳态）
+
+| 配置 | GPU | TTFT (ms) | TPOT (ms/tok) | output_tokens | decode_throughput (tok/s) |
+|------|-----|-----------|---------------|---------------|--------------------------|
+| FP8 tp=2 | 0,1 | **186** | **5.2** | 317 | 190.7 |
+| FP8 tp=4 | 0,1,2,3 | **110** | **5.5** | 416 | 183.4 |
+
+**数据来源**：`15_perf_tp2_tp4_tp8_eval/progress/perf-t1.md`（tp=2）、`perf-t2.md`（tp=4）
+
+---
+
+## 三、对比分析
+
+| 指标 | FP8 tp=2 gfx950 | FP8 tp=2 gfx942 | 比值（gfx950/gfx942）|
+|------|-----------------|-----------------|---------------------|
+| TTFT | 428.7ms | 186ms | **2.3× 慢** |
+| TPOT | 12.7ms | 5.2ms | **2.4× 慢** |
+| decode_throughput | 78.8 tok/s | 190.7 tok/s | **2.4× 低** |
+
+| 指标 | FP8 tp=4 gfx950 | FP8 tp=4 gfx942 | 比值（gfx950/gfx942）|
+|------|-----------------|-----------------|---------------------|
+| TTFT | 382.9ms | 110ms | **3.5× 慢** |
+| TPOT | 12.5ms | 5.5ms | **2.3× 慢** |
+| decode_throughput | 80.2 tok/s | 183.4 tok/s | **2.3× 低** |
+
+**结论：gfx942（MI308X）在该基准下比 gfx950（MI350X）快 2-3.5 倍，与硬件代际预期相反。**
+
+---
+
+## 四、可能根因（假设，待验证）
+
+以下为 Lead 分析，所有条目均标注为【未验证假设】，需后续实验确认：
+
+| ID | 假设 | 验证方法 |
+|----|------|---------|
+| H1 | **aiter dirty patch 差异**：gfx942 有 `fused_moe.py:881-886 run_1stage=False`，强制 per_1x128 走 CK 2-stage；gfx950 无此 patch，可能走不同（更慢）的 kernel 路径 | 在 gfx950 上临时加相同 patch，对比 TPOT |
+| H2 | **gfx950 CK kernel 未完全优化**：gfx950 是更新硬件，部分 MoE/attention kernel 对 MI350X 的调优可能不完整 | 检查 aiter tuned_fmoe.csv 中 gfx950 条目是否存在；对比 gfx942 的 tuning 覆盖 |
+| H3 | **ATOM cache 差异**：gfx950 每次清了 `/root/.cache/atom/*`，gfx942 未清（KNOWN_FACTS F4 注明"JIT 不要清，复用编译产物"）；JIT 冷启动 vs 热启动可能影响 kernel 选择 | 在 gfx950 不清 cache 重跑，对比结果 |
+| H4 | **GPU 本身状态差异**：gfx950 的 GPU5 已知有硬件问题（~700ms/tensor），即使排除 GPU5，其他 GPU 是否受影响需排查 | 用 rocm-smi 检查 GPU 0-3 健康状态；对比单卡 gemm 性能 |
+| H5 | **测试脚本差异**：gfx942 用的是 `perf_bench.py`，gfx950 用的是新写的 `perf_correctness_bench.py`；两者引擎初始化参数可能有细微差异 | 在 gfx950 上用原始 `perf_bench.py` 重跑，对比结果 |
+
+---
+
+## 五、gfx950 内部 tp=2 vs tp=4 对比
+
+| 指标 | tp=2 | tp=4 | 结论 |
+|------|------|------|------|
+| TTFT | 428.7ms | 382.9ms | tp=4 快 **11%**（更多 GPU 加速 prefill） |
+| TPOT | 12.7ms | 12.5ms | 几乎持平（decode 瓶颈不在 TP 通信） |
+
+与 MEMORY 中"prefill → tp=4 快，decode → tp=2 快"的结论一致。
+
+---
+
+## 六、遗留问题与建议
+
+1. **根因调查优先级**：H1（dirty patch）和 H5（脚本差异）成本最低，建议先验证
+2. **gfx942 上跑 perf_correctness_bench.py**：用完全相同脚本+参数在 gfx942 重跑，消除脚本差异（H5）
+3. **MEMORY.md 历史数据校正**：MEMORY 中记录的 FP8 tp=4 TTFT=86ms 是短 prompt（~20 tokens）场景，与本次 10k 输入 382.9ms 不可直接比较，两者均正确但场景不同
+4. **Run1 vs Run2 抖动**：tp=4 Run1=274ms，Run2=382ms，相差 40%，建议增加 runs=3 取中位数
+
+---
+
+## 七、附：测试命令（可在 gfx942 复用）
+
+```bash
+# FP8 tp=2（gfx942 上替换 CUDA_VISIBLE_DEVICES 和 MODEL_PATH）
+cd /tmp && \
+CUDA_VISIBLE_DEVICES=0,1 \
+HF_HOME=/workspace/hf_cache \
+AITER_LOG_LEVEL=WARNING \
+/opt/venv/bin/python \
+  /path/to/perf_correctness_bench.py \
+  --tp 2 \
+  --model stepfun-ai/Step-3.5-Flash-FP8 \
+  --input-tokens 10240 \
+  --output-tokens 1024 \
+  --runs 2 \
+  --log-file /path/to/logs/fp8_tp2_gfx942.log \
+  2>&1 | tee /path/to/logs/fp8_tp2_gfx942_full.log
+
+# FP8 tp=4
+cd /tmp && \
+CUDA_VISIBLE_DEVICES=0,1,2,3 \
+HF_HOME=/workspace/hf_cache \
+AITER_LOG_LEVEL=WARNING \
+/opt/venv/bin/python \
+  /path/to/perf_correctness_bench.py \
+  --tp 4 \
+  --model stepfun-ai/Step-3.5-Flash-FP8 \
+  --input-tokens 10240 \
+  --output-tokens 1024 \
+  --runs 2 \
+  --log-file /path/to/logs/fp8_tp4_gfx942.log \
+  2>&1 | tee /path/to/logs/fp8_tp4_gfx942_full.log
+```

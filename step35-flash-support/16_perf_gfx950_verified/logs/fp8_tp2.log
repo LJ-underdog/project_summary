@@ -1,0 +1,46 @@
+================================================================
+=== PERF CORRECTNESS BENCH — Step-3.5-Flash FP8 ===
+================================================================
+GPU arch:          unknown
+CUDA_VISIBLE_DEVS: 0,1
+TP:                2
+Model:             /root/.cache/huggingface/hub/models--stepfun-ai--Step-3.5-Flash-FP8/snapshots/6eebda59dd87ca5729648ec7cfed0becfceb273e
+ATOM commit:       acff926d
+aiter commit:      0f8164017
+Target input tok:  10240 (±32)
+Max output tok:    1024
+Runs:              2 (take last as stable)
+----------------------------------------------------------------
+[1/4] Loading tokenizer ...
+[1/4] Building prompt ...
+[1/4] Actual input tokens: 10212
+[2/4] Initializing ATOM engine ...
+[2/4] Engine init: 158.12s
+[3/4] Warmup ...
+[3/4] Warmup done.
+[4/4] Measurement (2 run(s)) ...
+  Run1: TTFT=429.4ms  TPOT=12.7ms  total=3.37s  out_tokens=233  decode_throughput=78.8tok/s
+  Run2: TTFT=428.7ms  TPOT=12.7ms  total=4.25s  out_tokens=302  decode_throughput=78.8tok/s
+
+================================================================
+=== RESULTS (stable = last run) ===
+================================================================
+GPU arch:          unknown
+CUDA_VISIBLE_DEVS: 0,1
+TP:                2
+ATOM commit:       acff926d
+aiter commit:      0f8164017
+Input tokens:      10213
+Output tokens:     302
+TTFT (stable):     428.7 ms
+TPOT (stable):     12.7 ms/token
+Total lat (stable):4.249 s
+Decode throughput: 78.8 tok/s
+Engine init:       158.12 s
+----------------------------------------------------------------
+CORRECTNESS:       PASS
+  output chars:    1422
+  output words:    213
+  bos_spam:        False
+  first 80 chars:  'Hmm, the user has provided a repetitive text about a fox and dog sentence in bot'
+================================================================
