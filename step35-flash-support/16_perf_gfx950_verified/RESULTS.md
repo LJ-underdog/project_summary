@@ -113,20 +113,59 @@
 
 ---
 
-## 四、根因全景 — 两个独立 Tuning Gap
+## 四、根因全景（#701/#702 确认，2026-04-29）
 
-> 来源：teammate-7 (#501) + teammate-8 (#601)，2026-04-29
-> 所有结论来自代码读取 + 日志实测，非推断
+> 所有结论来自代码读取（文件+行号）+ 日志实测，非推断
 
-### Gap-1：BF16 GEMM 全未 tuned（H6，主因）
-### Gap-2：FP8 fmoe 全未 tuned（#601，次因）
+### 核心结论：MoE 始终走 CK kernel，bf16_tuned_gemm miss 影响的是另外 46% 的 FLOPs
 
-**量化范围明确**（`config.json:313-608` + `step3p5.py:200-565`）：
+**关键质疑已回答**：无论 BF16 还是 FP8 模式，routed MoE experts **始终** 走 CK fused_moe，与 bf16_tuned_gemm.csv 完全无关。
 
-| 层类型 | 量化 | GEMM 路径 |
-|--------|------|----------|
-| Layer 3-44 routed experts | **FP8** blockscale per_1x128 | `fused_moe.py` → tuned_fmoe.csv |
-| 其他所有层（attn、dense MLP、shared expert、lm_head 等） | **BF16**（modules_to_not_convert 共 286 项）| bf16_tuned_gemm.csv |
+代码证据：
+- BF16：`atom/model_ops/moe.py:581` `return fused_moe(...)` (UnquantizedFusedMoEMethod) → `aiter.fmoe`
+- FP8：`atom/model_ops/moe.py:1873` `torch.ops.aiter.rocm_aiter_fused_moe(...)` → `aiter.fmoe_fp8_blockscale_g1u1`
+- 两路均 import `from aiter.fused_moe import fused_moe`（moe.py:12），无任何 `tgemm.mm` 调用
+
+**bf16_tuned_gemm miss 实际影响的层**（全部通过 `atom/model_ops/linear.py:393` 的 `tgemm.mm`）：
+
+| 层类型 | 是否经过 bf16_tuned_gemm | FLOPs | 占比 |
+|--------|--------------------------|-------|------|
+| Attention QKV+O proj（45 层）| ✅ 是（BF16，modules_to_not_convert）| 69.73 TF | 34.6% |
+| Dense MLP（layer 0-2，3 层）| ✅ 是（BF16）| 8.52 TF | 4.2% |
+| Shared expert（42 MoE 层）| ✅ 是（BF16）| 13.56 TF | 6.7% |
+| Router gate（42 MoE 层）| ✅ 是（BF16）| 1.02 TF | 0.5% |
+| **BF16 tgemm miss 小计** | → torch.mm fallback | **92.83 TF** | **46.1%** |
+| MoE routed experts（42 层）| ❌ 否，直接走 CK fused_moe | 108.47 TF | 53.9% |
+| **总 GEMM** | | **201.29 TF** | 100% |
+
+**62 次 miss 来源验证**（h1_tp2_full.log，AITER_LOG_TUNED_CONFIG=1，FP8 模型）：
+
+| (N, K) | 来源层 | 来自 MoE？ |
+|--------|--------|-----------|
+| (5120, 4096) | QKV proj（64+2×8 heads × 128 / tp=2）| ❌ attn |
+| (4096, 4096) | O proj | ❌ attn |
+| (7168, 4096) | QKV proj sliding window（96+2×8 heads × 128 / tp=2）| ❌ attn |
+| (4096, 6144) | O proj sliding window | ❌ attn |
+| (11264, 4096) | Dense MLP gate_up（intermediate=11264）| ❌ dense |
+| (4096, 5632) | Dense MLP down（K=11264/tp=2）| ❌ dense |
+| (1280, 4096) | Shared expert gate_up | ❌ shared |
+| (4096, 640) | Shared expert down | ❌ shared |
+| (32, 4096) / (48, 4096) | g_proj head-wise gate | ❌ attn |
+| (64448, 4096) | lm_head（vocab=128896/tp=2）| ❌ head |
+| **MoE routed expert shape** | — | **无任何一条** |
+
+### TTFT gap 解释力（#702 计算）
+
+模型参数：hidden=4096，num_heads=64，kv_heads=8，head_dim=128，intermediate=11264，moe_inter=1280，vocab=128896
+
+在 tp=2、M=10262 下（MI350X BF16 peak ≈ 2500 TFLOPS）：
+
+| 路径 | per-GPU FLOPs | tuned kernel（50% eff）| torch.mm（15% eff）| Gap |
+|------|--------------|----------------------|--------------------|-----|
+| BF16 miss（tp=2）| 46.41 TFLOPs | 37 ms | 124 ms | **+87 ms** |
+| BF16 miss（tp=4）| 23.21 TFLOPs | 19 ms | 62 ms | **+43 ms** |
+
+→ **BF16 tuned_gemm miss 在 tp=2 单独可贡献 ~87 ms TTFT 额外延迟**，足以解释 gfx950 vs gfx942 的 TTFT gap 量级。即使 torch.mm 仅比 tuned 慢 1.5×，也会贡献 20-30 ms。
 
 ---
 

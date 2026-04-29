@@ -37,9 +37,16 @@
 - [x] #601 [调查] FP8 GEMM dispatch 路径 + gfx942/gfx950 FP8 tuning 覆盖对比（FP8 仅 routed-expert 走 fmoe；4 个 Step-3.5-Flash key tuple 全 miss：inter_dim=640/384、expert=288/289、SwigluStep、e4m3fn+per_1x128 组合无 tuning；prefill 42 MoE 层 fallback 2stage default，是 H6 之外第二个 TTFT gap）
 - [x] #602 [执行] 更新 RESULTS.md（FP8 fmoe gap + 修复路径 + 根因汇总）@Lead
 
+## Phase 7（关键质疑：MoE 是否走 CK kernel，bf16_tuned_gemm miss 是否有实际影响）
+- [x] #701 [调查] BF16/FP8 routed MoE 都走 aiter.fused_moe (CK fmoe / fmoe_fp8_blockscale_g1u1)，与 bf16_tuned_gemm.csv 无关；62/120 次 miss 全部归属 attention proj / dense+shared MLP / g_proj / lm_head（详见 progress/teammate-9.md）
+- [x] #702 [调查] 估算 bf16_tuned_gemm miss 的实际计算量占比 vs MoE compute（BF16 miss 占 prefill GEMM FLOPs 46.1%（92.83/201.29 TFLOPs），MoE CK 占 53.9%；torch fallback 在 tp=2 可贡献 ~87ms TTFT gap，足以解释观测；62 次 miss 全部为 attn/dense/shared/head shape，无 MoE expert shape）
+- [x] #703 [执行] 汇总结论，更新 RESULTS.md（MoE→CK确认，BF16 miss 46% FLOPs，~87ms gap）@Lead
+
 ## In Progress
 
 ## Done
+- [x] #701 [调查] BF16/FP8 routed MoE 路径（CK fmoe，与 bf16_tuned_gemm.csv 无关；详见 progress/teammate-9.md）@teammate-9
+- [x] #702 [调查] compute 占比估算（BF16 miss 46.1% / MoE CK 53.9%；可解释 ~87ms tp=2 TTFT gap；详见 progress/teammate-10.md）@teammate-10
 - [x] #601 [调查] FP8 fmoe tuning 0 命中（详见 progress/teammate-8.md）@teammate-8
 - [x] #501 [调查] bf16 tuning 不覆盖 prefill 形状（详见 progress/teammate-7.md）@teammate-7
 - [x] #405 [执行] 还原 patch（git diff clean，status clean）@teammate-6
