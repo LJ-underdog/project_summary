@@ -10,11 +10,11 @@
 
 ## TL;DR
 
-1. **tp=2 / tp=4 baseline 完成**：input=10240 / output=1024（实际 eos 提前），concurrency=1，temperature=0；所选 stable 数值取自 Run 2。
-2. **tp=8 起服 + 1 轮 generate 实测 PASS**：但只在 short prompt（256/64）下完成"冒烟+起服"验收，**不构成性能基线**。
+1. **tp=2 / tp=4 / tp=8 long-prompt baseline 完成**：input=10240 / output=1024（实际 eos 提前），concurrency=1，temperature=0；所选 stable 数值取自 Run 2。tp=8 long-prompt 数据由 perf-T7 补完，§7 P1 闭环。
+2. **tp=8 起服 + 1 轮 generate 实测 PASS**（perf-T4，short prompt 256/64）；tp=8 long-prompt 实测 PASS（perf-T7，10240/1024，TTFT=0.071s / TPOT=5.542 ms/tok）。
 3. **dispatch path 三 tp 完全一致**：均走 `module_moe_ck2stages_f8_f8_preshuffle_on_b16_{silu|swiglustep}_per_1x128_mulWeightStage2.so`；ATOM padding 把 inter_per_rank 自动从 (640 / 320 / 160) 处理到 (640 / 384 / 256)。
-4. **NEW-RC-3 patch（`aiter/fused_moe.py:881-886` `run_1stage=False`）在 tp=8 同样生效**（hardcoded、tp 无关）；JIT cache 跑前/跑后无任何新 module = 直接证据。
-5. **未来工作**：tp=8 long-prompt perf、多 prompt correctness、ignore_eos 满载 1024 token、CUDAGraph 调优、MFU 估算、长 context（32k+）评估，详见 §7。
+4. **NEW-RC-3 patch（`aiter/fused_moe.py:881-886` `run_1stage=False`）在 tp=8 同样生效**（hardcoded、tp 无关）；JIT cache 跑前/跑后无任何新 module = 直接证据（perf-T4 + perf-T7 双重确认）。
+5. **未来工作**（P1 已闭环）：多 prompt correctness、ignore_eos 满载 1024 token、CUDAGraph 调优、MFU 估算、长 context（32k+）评估，详见 §7。
 
 ### 核心数字表
 
@@ -22,9 +22,10 @@
 |---|---|---|---|---|---|---|---|
 | **2** | **0.186 s** | **5.245 ms/tok** | 1.843 s | 190.66 tok/s | 10265 / 317 (eos) | 25.38 s | 长 prompt perf 基线（`logs/tp2_run2.log:1-12`） |
 | **4** | **0.110 s** | **5.451 ms/tok** | 2.373 s | 183.44 tok/s | 10265 / 416 (eos) | 30.25 s | 长 prompt perf 基线（`logs/tp4_run2.log:1-12`） |
-| **8** | 0.037 s | 3.562 ms/tok | 0.262 s | 280.72 tok/s | **269 / 64 (max_tokens)** | 45.82 s | **仅起服测试**（short prompt 256/64），**禁止与 tp=2/4 横向比较**（`logs/tp8_launch.log:1-13`） |
+| **8 (long)** | **0.071 s** | **5.542 ms/tok** | 1.629 s | 180.43 tok/s | 10265 / 282 (eos) | 44.98 s | **长 prompt perf 基线（perf-T7 补完，§7 P1 闭环）**（`logs/tp8_long_run2.log:1-12`） |
+| 8 (起服) | 0.037 s | 3.562 ms/tok | 0.262 s | 280.72 tok/s | 269 / 64 (max_tokens) | 45.82 s | 仅起服测试（short prompt 256/64），不可与上方 long-prompt 行直接比（`logs/tp8_launch.log:1-13`） |
 
-引用：`progress/perf-t1.md:87-95` / `progress/perf-t2.md:87-95` / `progress/perf-t4.md:200-212`
+引用：`progress/perf-t1.md:87-95` / `progress/perf-t2.md:87-95` / `progress/perf-t4.md:200-212` / `progress/perf-t7.md:91-101`
 
 ---
 
@@ -337,13 +338,17 @@ flowchart LR
 |---|---|---|---|---|---|---|---|---|
 | 2 | 10265 | 317 | **0.186** | **5.245** | 1.843 | 190.66 | 25.38 | 基准 |
 | 4 | 10265 | 416 | **0.110** | **5.451** | 2.373 | 183.44 | 30.25 | ✓ |
-| 8 | **269** | **64** | 0.037 | 3.562 | 0.262 | 280.72 | 45.82 | **✗ 短 prompt 起服测试，不可与 tp=2/4 直接比 TTFT/TPOT** |
+| **8 (long)** | **10265** | **282** | **0.071** | **5.542** | 1.629 | 180.43 | 44.98 | **✓ 长 prompt 同口径，可与 tp=2/4 直接比**（perf-T7 补完） |
+| 8 (起服) | 269 | 64 | 0.037 | 3.562 | 0.262 | 280.72 | 45.82 | ✗ 短 prompt 起服冒烟，不可与上方 long-prompt 行比 |
 
-**警告标注**（必读）：
-- tp=8 input 仅 269（vs tp=2/4 的 10265），差近 38×；prefill 完全不在同一量级，TTFT 不可比。
-- tp=8 output 仅 64（vs tp=2/4 的 317/416），decode 步数太少 TPOT 平均稳定性差。
-- output ≠ 1024（tp=2/4 因 eos 提前停 / tp=8 因 max_tokens=64）→ total_latency 不是 1024 token 的"满载值"。
-- 完整 tp=8 long-prompt perf 见 §7 P1（待派任务）。
+**观察（基于 long-prompt 三 tp 同口径数据）**：
+- **TTFT** 随 tp 单调下降（0.186 → 0.110 → 0.071 s），tp=2 → tp=8 提速 2.62×，符合 prefill 算力扩展预期。
+- **TPOT** 随 tp 微升（5.245 → 5.451 → 5.542 ms/tok），decode batch=1 + all-reduce 通信 overhead 主导，tp=8 仅比 tp=2 慢 5.7%，数量级一致。
+- **decode_thru** 同 TPOT 倒数（190.66 → 183.44 → 180.43 tok/s）。
+- **total_latency** 受 output 长度差（317 / 416 / 282）影响不可直接比，分解为 TTFT + TPOT × output_tokens 后趋势一致。
+- **engine_init** 随 worker 数线性增（25.38 → 30.25 → 44.98 s），符合 perf-T2 §6.2 B4 经验。
+
+**短 prompt 起服测试（最后一行）警告**：tp=8 (起服) 行的 input=269 / output=64 是 perf-T4 冒烟数据，与上方 long-prompt 行不可比。
 
 ### §5 引用
 
@@ -414,14 +419,14 @@ flowchart LR
 
 | ID | 任务 | 优先级 | 预期产出 | 触发条件 | 依赖 |
 |---|---|---|---|---|---|
-| **P1** | tp=8 long prompt（10240 input + 1024 output）TTFT/TPOT 实测 | **高** | tp=8 真正可与 tp=2/4 横向比较的性能数字 | 用户/lead 询问 tp=8 perf 是否值得部署 | 重派 task：跑 `perf_bench.py --tp 8 --input-tokens 10240 --output-tokens 1024 --log-file logs/tp8_long.log`（脚本已经能跑，本任务范围只到"起服"） |
+| ~~**P1**~~ | ~~tp=8 long prompt（10240 input + 1024 output）TTFT/TPOT 实测~~ | ~~**高**~~ | ✅ **已闭环（perf-T7）**：TTFT=0.071s / TPOT=5.542 ms/tok / total=1.629s / decode_thru=180.43 tok/s / output 282 (eos)。dispatch path 与 tp=2/4 一致（ck2stages per_1x128 + e4m3fnuz + run_1stage=False）；JIT cache 0 新增。详见 `progress/perf-t7.md` + §2/§5.3/TL;DR 数字表。 | — | — |
 | **P2** | tp=8 多 prompt correctness（与 simple_inference 4 短 prompt 对比 / byte-identical） | 中 | tp=8 byte-identical PASS（同 M1/M2 协议） | 决定是否 promote tp=8 到生产 | 复用 `~/ATOM/atom/examples/simple_inference.py`，跑 tp=8 + tp=2 输出对照 |
 | **P3** | tp=2/4/8 加 `ignore_eos=True` 跑满 1024 token decode | 中 | TPOT 在 1024 步上的真正稳态平均 | reviewer 质疑 output 长度不一致影响 TPOT 平均 | 改 `perf_bench.py` 的 SamplingParams（红线本任务不动；需 lead 同意） |
 | **P4** | CUDAGraph capture sizes 调优（当前写死 `[1]`） | 低 | 多 batch / 流水推理场景下的 throughput 提升 | 上 batch>1 / serving 场景 | 改 `perf_bench.py:117`；需 lead 同意 |
 | **P5** | MFU 估算（结合 hidden=4096 / inter=1280 / 288 expert / top_k=8） | 低 | MFU% 数值 → 判定是否还有优化空间 | perf 已稳定，进一步 profile | 写新脚本计算 FLOPs，用 TPOT 反推 |
 | **P6** | tp=8 32k+ context 评估（max-num-batched-tokens 调优） | 低 | 长 context 推理是否需要额外 padding / KV 切分调整 | 业务上 256k context 需求 | 静态评估 + 实测；本次未覆盖 |
 
-**最高优先级建议**：派 P1（tp=8 long prompt perf），其余按业务驱动。
+**P1 已闭环（perf-T7 补完）**；剩余 P2-P6 按业务驱动派任务。
 
 ### §7 引用
 
@@ -451,7 +456,8 @@ flowchart LR
 - `progress/perf-t1.md:1-204` tp=2 全过程
 - `progress/perf-t2.md:1-215` tp=4 全过程
 - `progress/perf-t3.md:1-373` tp=8 静态评估全文
-- `progress/perf-t4.md:1-257` tp=8 实测全过程
+- `progress/perf-t4.md:1-257` tp=8 起服实测全过程
+- `progress/perf-t7.md:1-258` tp=8 long-prompt 实测全过程（§7 P1 闭环）
 
 ### 项目内 doc
 - `MIGRATION_REPORT.md §1.2,§4-§7,§10.3,§12` 模型参数 / RC1-3 / padding / PASS 链 / P5 行
@@ -464,7 +470,9 @@ flowchart LR
 - `logs/tp2_run2.log` / `tp2_run2_full.log`（perf-T1 Run 2，stable）
 - `logs/tp4_run1.log` / `tp4_run1_full.log`（perf-T2 Run 1）
 - `logs/tp4_run2.log` / `tp4_run2_full.log`（perf-T2 Run 2，stable）
-- `logs/tp8_launch.log` / `tp8_launch_full.log`（perf-T4 实测，468 行 stdout/stderr）
+- `logs/tp8_launch.log` / `tp8_launch_full.log`（perf-T4 起服实测，468 行 stdout/stderr）
+- `logs/tp8_long_run1.log` / `tp8_long_run1_full.log`（perf-T7 Run 1）
+- `logs/tp8_long_run2.log` / `tp8_long_run2_full.log`（perf-T7 Run 2，stable）
 - `logs/dry_run_tp2.log` / `dry_run_tp2_full.log`（perf-T0 dry-run）
 
 ### 外部 doc

@@ -25,11 +25,15 @@
 - [x] #P3-R @perf-T6 critical review → A 评级，0 block / 1 warn / 7 info；18/18 数值真实可追溯
 - [x] #P3-F lead 应用 F-1 / F-2 行号修订（2 处 Edit）→ inline 修订完成
 
+## Phase 4（P1 补完，post-close 增量 wave）
+- [x] #P4-7 @perf-T7 tp=8 long-prompt perf → TTFT=0.071s / TPOT=5.542ms·tok / total=1.629s / decode_thru=180.43tok/s / 10265→282(eos)，V3=0/W=0(实质) + JIT cache ck2stages-only ✓
+- [x] #P4-U lead 应用 perf-T7 数据到 PERF_REPORT.md（TL;DR 数字表+§5.3 对比表+§7 P1 closed+§8 引用增）→ 6 处 Edit
+
 ## In Progress
 （无）
 
 ## Done
-- #000 / #P1-A / #P1-B / #P1-C / #P2-D / #P3-W / #P3-R / #P3-F
+- #000 / #P1-A / #P1-B / #P1-C / #P2-D / #P3-W / #P3-R / #P3-F / #P4-7 / #P4-U
 
 ## Blocked
 （无）
@@ -66,8 +70,9 @@
 |---|---|---|---|---|---|---|
 | **tp=2** | 0.186 s | 5.245 ms/tok | 1.843 s | 190.66 tok/s | 10265 / 317 (eos) | 25.38 s |
 | **tp=4** | 0.110 s | 5.451 ms/tok | 2.373 s | 183.44 tok/s | 10265 / 416 (eos) | 30.25 s |
-| **tp=8 (起服)** | 0.037 s | 3.562 ms/tok | 0.262 s | 280.72 tok/s | 269 / 64 (短) | 45.82 s |
+| **tp=8 (long)** | 0.071 s | 5.542 ms/tok | 1.629 s | 180.43 tok/s | 10265 / 282 (eos) | 44.98 s |
+| tp=8 (起服) | 0.037 s | 3.562 ms/tok | 0.262 s | 280.72 tok/s | 269 / 64 (短) | 45.82 s |
 
-> ⚠ tp=8 数据是起服测试（短 prompt），**禁止与 tp=2/tp=4 横向 perf 比较**。完整 tp=8 long-prompt perf 测试见 PERF_REPORT.md §7 P1。
+> ✅ tp=8 long-prompt 已由 perf-T7 补完（与 tp=2/4 同口径），§7 P1 闭环。tp=8 起服行仅作冒烟参考。
 
-**perf_tp_eval wave 正式 CLOSED。**
+**perf_tp_eval wave 正式 CLOSED（含 P1 补完）。**
