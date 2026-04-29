@@ -1,0 +1,13 @@
+[aiter] WARNING: NUMA balancing is enabled, which may cause errors. It is recommended to disable NUMA balancing by running "sudo sh -c 'echo 0 > /proc/sys/kernel/numa_balancing'" for more details: https://rocm.docs.amd.com/en/latest/how-to/system-optimization/mi300x.html#disable-numa-auto-balancing
+[aiter] import [module_aiter_core] under /home/hanchang/aiter/aiter/jit/module_aiter_core.so
+[aiter] merge tuned file under model_configs/ and configs/ /home/hanchang/aiter/aiter/configs/bf16_tuned_gemm.csv:/home/hanchang/aiter/aiter/configs/model_configs/kimik2_bf16_tuned_gemm.csv:/home/hanchang/aiter/aiter/configs/model_configs/qwen32B_bf16_tuned_gemm.csv:/home/hanchang/aiter/aiter/configs/model_configs/llama70B_bf16_tuned_gemm.csv:/home/hanchang/aiter/aiter/configs/model_configs/glm5_bf16_tuned_gemm.csv:/home/hanchang/aiter/aiter/configs/model_configs/dsv3_bf16_tuned_gemm.csv:/home/hanchang/aiter/aiter/configs/model_configs/llama405B_bf16_tuned_gemm.csv:/home/hanchang/aiter/aiter/configs/model_configs/gptoss_bf16_tuned_gemm.csv
+[aiter] shape is M:512, N:4096, K:4096 dtype='torch.bfloat16' otype='torch.bfloat16' bias=False, scaleAB=False, bpreshuffle=False, not found tuned config in /tmp/aiter_configs/bf16_tuned_gemm.csv, will use default config! using torch solution:0
+[aiter] shape is M:1, N:4096, K:4096 dtype='torch.bfloat16' otype='torch.bfloat16' bias=False, scaleAB=False, bpreshuffle=False, not found tuned config in /tmp/aiter_configs/bf16_tuned_gemm.csv, will use default config! using torch solution:0
+[aiter] shape is M:512, N:5120, K:4096 dtype='torch.bfloat16' otype='torch.bfloat16' bias=False, scaleAB=False, bpreshuffle=False, not found tuned config in /tmp/aiter_configs/bf16_tuned_gemm.csv, will use default config! using torch solution:0
+[aiter] shape is M:1, N:5120, K:4096 dtype='torch.bfloat16' otype='torch.bfloat16' bias=False, scaleAB=False, bpreshuffle=False, not found tuned config in /tmp/aiter_configs/bf16_tuned_gemm.csv, will use default config! using torch solution:0
+[aiter] shape is M:512, N:11264, K:4096 dtype='torch.bfloat16' otype='torch.bfloat16' bias=False, scaleAB=False, bpreshuffle=False, not found tuned config in /tmp/aiter_configs/bf16_tuned_gemm.csv, will use default config! using torch solution:0
+O proj prefill (512,4096,4096): shape=torch.Size([512, 4096])
+O proj decode (1,4096,4096): shape=torch.Size([1, 4096])
+QKV proj prefill (512,5120,4096): shape=torch.Size([512, 5120])
+QKV proj decode (1,5120,4096): shape=torch.Size([1, 5120])
+dense gate_up prefill (512,11264,4096): shape=torch.Size([512, 11264])
