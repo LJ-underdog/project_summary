@@ -43,7 +43,33 @@
 
 ---
 
-## 三、对比分析
+## 三、H5 验证：perf_bench.py 在 gfx950 上重跑结果
+
+> 目的：消除脚本差异，确认 gfx950 vs gfx942 性能差距是真实的
+
+**gfx950（perf_bench.py，与 gfx942 完全相同脚本 + 参数）**：
+
+| 配置 | TTFT (ms) | TPOT (ms/tok) | decode_throughput (tok/s) |
+|------|-----------|---------------|--------------------------|
+| FP8 tp=2 (GPU 0,1) | **388** | **12.28** | 81.4 |
+| FP8 tp=4 (GPU 0,1,2,3) | **241** | **12.50** | 80.0 |
+
+**数据来源**：teammate-3 (#301) `logs/perf_bench_tp2.log`，teammate-4 (#302) `logs/perf_bench_tp4.log`
+
+**H5 结论（脚本差异）**：
+
+| 维度 | gfx950 两脚本差异 | gfx950 vs gfx942（同脚本） |
+|------|-----------------|--------------------------|
+| TPOT tp=2 | 12.7 → 12.28ms（**-3%**，可忽略）| 12.28 vs 5.2ms = **2.36× 慢** |
+| TPOT tp=4 | 12.5 → 12.50ms（**≈0%**，无差异）| 12.50 vs 5.5ms = **2.27× 慢** |
+| TTFT tp=2 | 428.7 → 388ms（**-9.5%**，小幅）| 388 vs 186ms = **2.09× 慢** |
+| TTFT tp=4 | 382.9 → 241ms（**-37%**，较大）| 241 vs 110ms = **2.19× 慢** |
+
+**H5 排除**：TPOT 几乎无脚本差异，TTFT 脚本差异最大 37%，但同脚本下 gfx950 仍比 gfx942 慢 2× 以上。脚本不是主因。
+
+---
+
+## 四、对比分析
 
 | 指标 | FP8 tp=2 gfx950 | FP8 tp=2 gfx942 | 比值（gfx950/gfx942）|
 |------|-----------------|-----------------|---------------------|
@@ -61,21 +87,21 @@
 
 ---
 
-## 四、可能根因（假设，待验证）
+## 五、可能根因（假设，待验证）
 
 以下为 Lead 分析，所有条目均标注为【未验证假设】，需后续实验确认：
 
-| ID | 假设 | 验证方法 |
-|----|------|---------|
-| H1 | **aiter dirty patch 差异**：gfx942 有 `fused_moe.py:881-886 run_1stage=False`，强制 per_1x128 走 CK 2-stage；gfx950 无此 patch，可能走不同（更慢）的 kernel 路径 | 在 gfx950 上临时加相同 patch，对比 TPOT |
-| H2 | **gfx950 CK kernel 未完全优化**：gfx950 是更新硬件，部分 MoE/attention kernel 对 MI350X 的调优可能不完整 | 检查 aiter tuned_fmoe.csv 中 gfx950 条目是否存在；对比 gfx942 的 tuning 覆盖 |
-| H3 | **ATOM cache 差异**：gfx950 每次清了 `/root/.cache/atom/*`，gfx942 未清（KNOWN_FACTS F4 注明"JIT 不要清，复用编译产物"）；JIT 冷启动 vs 热启动可能影响 kernel 选择 | 在 gfx950 不清 cache 重跑，对比结果 |
-| H4 | **GPU 本身状态差异**：gfx950 的 GPU5 已知有硬件问题（~700ms/tensor），即使排除 GPU5，其他 GPU 是否受影响需排查 | 用 rocm-smi 检查 GPU 0-3 健康状态；对比单卡 gemm 性能 |
-| H5 | **测试脚本差异**：gfx942 用的是 `perf_bench.py`，gfx950 用的是新写的 `perf_correctness_bench.py`；两者引擎初始化参数可能有细微差异 | 在 gfx950 上用原始 `perf_bench.py` 重跑，对比结果 |
+| ID | 状态 | 假设 | 验证方法 / 结论 |
+|----|------|------|---------------|
+| H1 | ⬜ **未验证** | **aiter dirty patch 差异**：gfx942 有 `fused_moe.py:881-886 run_1stage=False`，强制 per_1x128 走 CK 2-stage；gfx950 无此 patch，可能走不同（更慢）的 kernel 路径 | 在 gfx950 上临时加相同 patch，对比 TPOT — **优先级最高** |
+| H2 | ⬜ **未验证** | **gfx950 CK kernel 调优不足**：gfx950 是更新硬件，MoE/attention kernel 对 MI350X 的 tuning 可能不完整 | 检查 `aiter/configs/tuned_fmoe.csv` 中 gfx950 条目数量；对比 gfx942 覆盖度 |
+| H3 | ⬜ **未验证** | **ATOM/JIT cache 差异**：gfx950 每次清了 cache，gfx942 复用编译产物；JIT 冷启动可能影响 kernel dispatch | 在 gfx950 不清 cache 重跑，对比结果 |
+| H4 | ⬜ **未验证** | **GPU 硬件状态**：gfx950 GPU5 已知异常，其他 GPU 是否也有隐性问题 | `rocm-smi` 检查 GPU 0-3 健康；对比单卡 gemm 基准 |
+| H5 | ✅ **已排除** | ~~测试脚本差异~~ | #301/#302 实测：TPOT 脚本差异 ≈0%，TTFT 最大 37%，但同脚本 gfx950 仍比 gfx942 慢 2.1-2.4× |
 
 ---
 
-## 五、gfx950 内部 tp=2 vs tp=4 对比
+## 六、gfx950 内部 tp=2 vs tp=4 对比
 
 | 指标 | tp=2 | tp=4 | 结论 |
 |------|------|------|------|
@@ -86,7 +112,7 @@
 
 ---
 
-## 六、遗留问题与建议
+## 七、遗留问题与建议
 
 1. **根因调查优先级**：H1（dirty patch）和 H5（脚本差异）成本最低，建议先验证
 2. **gfx942 上跑 perf_correctness_bench.py**：用完全相同脚本+参数在 gfx942 重跑，消除脚本差异（H5）
@@ -95,7 +121,7 @@
 
 ---
 
-## 七、附：测试命令（可在 gfx942 复用）
+## 八、附：测试命令（可在 gfx942 复用）
 
 ```bash
 # FP8 tp=2（gfx942 上替换 CUDA_VISIBLE_DEVICES 和 MODEL_PATH）
