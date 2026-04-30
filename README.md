@@ -6,48 +6,44 @@
 
 ## 任务索引
 
-### Step-3.5-Flash 全栈推理支持（2026-04-23 ~ 2026-04-25）
+### Step-3.5-Flash 全栈推理支持（2026-04-23 ~ 2026-04-29）
 
-**背景**：在 AMD MI350X（gfx950）上为 StepFun Step-3.5-Flash 模型建立完整推理能力，
-包括 BF16 多种 TP 配置及 FP8 量化权重版本。从零跑通到 tp=2/4 BF16 + tp=2/4 FP8 全部通过。
+**背景**：在 AMD MI350X (gfx950) 上为 StepFun Step-3.5-Flash 模型建立完整推理能力，包括 BF16 多种 TP 配置及 FP8 量化权重版本；后续扩展支持 MI308X (gfx942) 平台。从零跑通到 tp=2/4 BF16 + tp=2/4/8 FP8 全部通过。
 
-| 子任务 | 状态 | 关键 commit |
-|--------|------|-------------|
-| [MoE Pipeline 修复](./step35-flash-support/01_moe_pipeline.md) | ✅ 完成 | ATOM `ec8cbe8`，aiter `68fc7d48b`+`3771835ac` |
-| [SwigluStep Wiring](./step35-flash-support/02_swiglu_step.md) | ✅ 完成 | ATOM `4a8495e`，aiter `6d70f7b54` |
-| [Sliding Window 修复](./step35-flash-support/03_sliding_window.md) | ✅ 完成 | aiter `7ebae9afb` |
-| [TP=4/8 支持](./step35-flash-support/04_tp_support.md) | ✅ tp=4 完成；tp=8 硬件阻塞 | ATOM `635e59e`，aiter `7312ea166` |
-| [FP8 tp=2 推理](./step35-flash-support/05_fp8_inference.md) | ✅ 完成 | aiter `c38d0c9e6`，ATOM `9a67e49` |
-| [FP8 tp=4 推理](./step35-flash-support/06_fp8_tp4.md) | ✅ 完成（三层 bug，scale sharding 为根因） | ATOM `ccb64621` |
+**入口**：[`step35-flash-support/README.md`](./step35-flash-support/README.md) — 项目 TL;DR + 时间线 + 4 一级条目导航 + details/ 完整索引
 
-**详情**：[step35-flash-support/README.md](./step35-flash-support/README.md)
+| 顶层文件 | 用途 |
+|---|---|
+| [`step35-flash-support/README.md`](./step35-flash-support/README.md) | 项目入口 + 概览 + 时间线 + details/ 索引 |
+| [`step35-flash-support/REPRODUCE.md`](./step35-flash-support/REPRODUCE.md) | 端到端复现指南（gfx942 / MI308X / FP8 单路径；gfx950 历史路径见 details/） |
+| [`step35-flash-support/CODE_CHANGES.md`](./step35-flash-support/CODE_CHANGES.md) | 三仓所有 code 改动总账（per-repo + per-feature 视图） |
+| [`step35-flash-support/details/`](./step35-flash-support/details/) | 所有详细内容下沉（topics/research/perf/issues/projects/meta/scripts/verification_pipeline 8 类） |
 
-### Step-3.5-Flash 验证状态（2026-04-26）
+**子任务清单**（详见 `step35-flash-support/README.md` 的 details/ 完整索引；下表给出 details/ 直链）：
 
-V01-V07 验证 pipeline **全部 PASS**。详见：
-- 验证结果汇总：`step35-flash-support/verification_pipeline/results/SUMMARY.md`
-- 下一步任务：`step35-flash-support/verification_pipeline/NEXT_TASK_BRIEF.md`
-  （目标：FP8 tp=4 无 padding CK kernel，消除 inter_dim=320→384 的 20% 显存浪费）
+| # | 子任务 | 路径 |
+|---|---|---|
+| 01 | MoE Pipeline 修复 | [`details/topics/01_moe_pipeline.md`](./step35-flash-support/details/topics/01_moe_pipeline.md) |
+| 02 | SwigluStep Wiring | [`details/topics/02_swiglu_step.md`](./step35-flash-support/details/topics/02_swiglu_step.md) |
+| 03 | Sliding Window 修复 | [`details/topics/03_sliding_window.md`](./step35-flash-support/details/topics/03_sliding_window.md) |
+| 04 | TP=4/8 支持 | [`details/topics/04_tp_support.md`](./step35-flash-support/details/topics/04_tp_support.md) |
+| 05 | FP8 tp=2 推理 | [`details/topics/05_fp8_inference.md`](./step35-flash-support/details/topics/05_fp8_inference.md) |
+| 06 | FP8 tp=4 推理（三层 bug） | [`details/topics/06_fp8_tp4.md`](./step35-flash-support/details/topics/06_fp8_tp4.md) |
+| 07 | tp=4 长序列 BOS 修复 | [`details/topics/07_tp4_longseq_bos_fix.md`](./step35-flash-support/details/topics/07_tp4_longseq_bos_fix.md) |
+| 08 | MoE no-padding 调研 | [`details/research/08_moe_no_padding_research.md`](./step35-flash-support/details/research/08_moe_no_padding_research.md) |
+| 09 | MoE no-padding 深挖 | [`details/research/09_moe_no_padding_deep_dive.md`](./step35-flash-support/details/research/09_moe_no_padding_deep_dive.md) |
+| 10 | gfx950 FP8 mfma KPack=32 约束 | [`details/research/10_fp8_mfma_kpack32_constraint.md`](./step35-flash-support/details/research/10_fp8_mfma_kpack32_constraint.md) |
+| 11 | 张量并行策略 | [`details/research/11_tensor_parallelism_strategy.md`](./step35-flash-support/details/research/11_tensor_parallelism_strategy.md) |
+| 12 | FP8 tp=4 复现指南（历史） | [`details/topics/12_reproduction_guide_fp8_tp4.md`](./step35-flash-support/details/topics/12_reproduction_guide_fp8_tp4.md) |
+| 13 | Recall 系统分析 | [`details/meta/13_recall_system_analysis.md`](./step35-flash-support/details/meta/13_recall_system_analysis.md) |
+| 14 | gfx950 → gfx942 (MI308X) 迁移 | [`details/projects/14_migration_gfx942/MIGRATION_REPORT.md`](./step35-flash-support/details/projects/14_migration_gfx942/MIGRATION_REPORT.md) |
+| 15 | TP=2/4/8 性能评估（gfx942） | [`details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md`](./step35-flash-support/details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md) |
+| 16 | gfx950 性能基线 | [`details/perf/16_perf_gfx950_verified/RESULTS.md`](./step35-flash-support/details/perf/16_perf_gfx950_verified/RESULTS.md) |
+| 17 | ATOM MoE tp=8 load crash（issue draft） | [`details/issues/17_atom_moe_tp8_load_crash/README.md`](./step35-flash-support/details/issues/17_atom_moe_tp8_load_crash/README.md) |
+| 18 | FP8 tp=8 root cause + 双层 fix | [`details/topics/18_fp8_tp8_root_cause_and_fix/README.md`](./step35-flash-support/details/topics/18_fp8_tp8_root_cause_and_fix/README.md) |
+| 19 | Kernel Dispatch 报告（gfx950） | [`details/research/19_kernel_dispatch_report/REPORT.md`](./step35-flash-support/details/research/19_kernel_dispatch_report/REPORT.md) |
 
-### Step-3.5-Flash 后续 wave（07-19，2026-04-25 ~ 2026-04-29）
-
-| 子任务 | 内容 | 状态 |
-|--------|------|------|
-| [07 tp=4 长序列 BOS 修复](./step35-flash-support/07_tp4_longseq_bos_fix.md) | 10k token prefill 全 BOS 根因与修复 | ✅ |
-| [08 MoE no-padding 调研](./step35-flash-support/08_moe_no_padding_research.md) | inter_dim=320→384 padding 是否可消除 | ✅ |
-| [09 MoE no-padding 深挖](./step35-flash-support/09_moe_no_padding_deep_dive.md) | 为什么 FP8 MoE kernel 需要 padding | ✅ |
-| [10 gfx950 FP8 mfma KPack=32 约束](./step35-flash-support/10_fp8_mfma_kpack32_constraint.md) | blockscale MoE 不能去 padding 的 ISA 级原因 | ✅ |
-| [11 张量并行策略](./step35-flash-support/11_tensor_parallelism_strategy.md) | TP 原理 + 每个算子 TP 行为分析 | ✅ |
-| [12 FP8 tp=4 复现指南](./step35-flash-support/12_reproduction_guide_fp8_tp4.md) | 新机器复现 TTFT≈86ms / TPOT≈13ms | ✅ |
-| [13 Recall 系统分析](./step35-flash-support/13_recall_system_analysis.md) | Recall 工具实战指南 | ✅ |
-| [14 gfx950 → gfx942(MI308X) 迁移](./step35-flash-support/14_migration_gfx942/MIGRATION_REPORT.md) | M1 tp=2 + M2 tp=4 PASS；NEW-RC-1/2/3 三 RC | ✅ CLOSED |
-| [15 TP=2/4/8 性能评估](./step35-flash-support/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md) | gfx942 上 tp=2/4 perf + tp=8 起服评估 | ✅ |
-| [16 gfx950 性能基线](./step35-flash-support/16_perf_gfx950_verified/RESULTS.md) | 统一脚本测得的 gfx950 perf 基线 | ✅ |
-| [17 ATOM MoE tp=8 load crash](./step35-flash-support/17_atom_moe_tp8_load_crash/README.md) | tp=8 load_w2 / load_w13 narrow size<0 issue draft | ✅ 内部 CLOSED；未 file upstream |
-| [18 FP8 tp=8 root cause + fix](./step35-flash-support/18_fp8_tp8_root_cause_and_fix/README.md) | tp=8 起服双层 root cause；ATOM `969d564` | ✅ |
-| [19 Kernel Dispatch 报告](./step35-flash-support/19_kernel_dispatch_report/REPORT.md) | FP8 tp=2/4 每类 op 的 torch / CK / ASM kernel 归属（gfx950） | ✅ |
-
-**跨 topic 资产**：[verification_pipeline/](./step35-flash-support/verification_pipeline/) — V01-V07 验证 pipeline（覆盖 01-07），含 `MASTER_PIPELINE.md` / `PIPELINE_REVIEW_FINAL.md` / `results/SUMMARY.md`。
+**跨 topic 资产**：[`details/verification_pipeline/`](./step35-flash-support/details/verification_pipeline/) — V01-V07 验证 pipeline（覆盖 01-07），含 `MASTER_PIPELINE.md` / `PIPELINE_REVIEW_FINAL.md` / `results/SUMMARY.md`。
 
 ---
 
