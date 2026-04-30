@@ -79,7 +79,7 @@
 > 所有事实直接引自 `progress/teammate-20.md` 的 §1（环境快照）+ §5（禁区清单）。teammate **不需要重新验证**这些事实，只需在引用时附 file:line。
 
 ### F1 硬件 + 模型
-- 架构：gfx942（CDNA3）/ MI308X / 40 张卡 → `progress/teammate-20.md:17-19`
+- 架构：gfx942（CDNA3）/ MI308X / 8 张卡（UBB 平台标准，rocm-smi --showid 实测 GPU[0]-GPU[7]） → `progress/teammate-20.md:17-19`（原写 40 卡有误）
 - FP8 numeric format：e4m3fnuz（NaN=0x80）→ `progress/teammate-20.md:22`
 - 模型：`stepfun-ai/Step-3.5-Flash-FP8`，hidden=4096, moe_inter=1280, n_experts=288, top_k=8, weight_block=[128,128] → `progress/teammate-20.md:49,54`
 

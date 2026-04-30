@@ -10,7 +10,7 @@
 
 ### 1.1 起点状态（gfx950 上的状况）
 
-- 参考指南是为 gfx950（MI350X，8 张卡）写的；本机 gfx942（MI308X，40 张卡）→ `TEAM_CONFIG.md:30-37`（差异表）
+- 参考指南是为 gfx950（MI350X，8 张卡）写的；本机 gfx942（MI308X，8 张卡，UBB 平台标准）→ `TEAM_CONFIG.md:30-37`（差异表）
 - gfx950 路径里几个关键 ASM kernel：
   - `bf16gemm_bf16_tn_256x256` — gfx950 独有，gfx942 dispatcher 不路由 → `PROJECT_SUMMARY.md:68`
   - ASM `fmoe_fp8_blockscale_g1u1` — gfx950 独有；gfx942 上 `aiter.fmoe_g1u1` 签名不带 block shape 参数 → `PROJECT_SUMMARY.md:69`

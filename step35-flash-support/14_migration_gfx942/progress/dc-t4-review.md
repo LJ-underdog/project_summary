@@ -47,7 +47,7 @@
 
 | KNOWN_FACTS 条目 | 报告对应章节 | 一致性 | 备注 |
 |---|---|---|---|
-| **F1** 硬件/模型（gfx942 / MI308X / 40 卡 / e4m3fnuz NaN=0x80 / hidden=4096, moe_inter=1280, n_experts=288, top_k=8, weight_block=[128,128]） | 摘要表 + §1.2 表 + 附录 A | ✅ | 摘要 "hidden=4096，moe_inter=1280，experts=288，top_k=8" 与 KNOWN_FACTS F1 完全一致；§1.2 表第 1-2 行架构 / FP8 numeric format（`e4m3fnuz` bias=8 NaN=0x80）也对齐 |
+| **F1** 硬件/模型（gfx942 / MI308X / 8 卡 / e4m3fnuz NaN=0x80 / hidden=4096, moe_inter=1280, n_experts=288, top_k=8, weight_block=[128,128]） | 摘要表 + §1.2 表 + 附录 A | ✅ | 摘要 "hidden=4096，moe_inter=1280，experts=288，top_k=8" 与 KNOWN_FACTS F1 完全一致；§1.2 表第 1-2 行架构 / FP8 numeric format（`e4m3fnuz` bias=8 NaN=0x80）也对齐（注：F1 原写 40 卡，已交叉证实为 8 卡，本 review 漏抓 — 留作流程改进证据） |
 | **F2** 三仓 commit（ATOM `acff926` / aiter `0f8164017` / CK `defd7ad29`） | 摘要表 + §1.4 + §9 | ✅ | 摘要表 "三仓起点 commit" 行 + §9.1/9.2/9.3 标题三处 commit hash **逐字符一致** |
 | **F3** PASS 判定（M1 PASS tp=2 / M2 PASS tp=4） | §1.3 + §10.1 + §10.2 | ✅ | §1.3 给定义、§10.1/10.2 引 `progress/teammate-5.md:189-191` + `progress/teammate-12.md:217-219`，与 KNOWN_FACTS F3 引用源完全相同 |
 | **F4** 三大 RC（NEW-RC-1 dtype / NEW-RC-2 ×2 / NEW-RC-3 bypass ASM） | §3 + §4 + §5 + §6 | ✅ | RC 一句话与机制描述与 KNOWN_FACTS 表格逐项对应；§4.1 注明 dtype 差异、§5.4 明确"无须改动方向正确"、§6.4 给出 `run_1stage = False` patch |
