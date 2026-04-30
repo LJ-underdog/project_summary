@@ -4,9 +4,9 @@
 > 目标：产出一份完整报告，说明 Step-3.5-Flash-FP8 在 tp=2/tp=4 下每类操作究竟调用的是 torch op、CK kernel 还是 ASM kernel，并通过实验验证
 
 ## WORK_DIR / DOC_DIR / LOG_DIR
-- WORK_DIR = `/home/hanchang/project_summary/step35-flash-support/17_kernel_dispatch_report`
-- DOC_DIR  = `/home/hanchang/project_summary/step35-flash-support/17_kernel_dispatch_report`
-- LOG_DIR  = `/home/hanchang/project_summary/step35-flash-support/17_kernel_dispatch_report/logs`
+- WORK_DIR = `/home/hanchang/project_summary/step35-flash-support/19_kernel_dispatch_report`
+- DOC_DIR  = `/home/hanchang/project_summary/step35-flash-support/19_kernel_dispatch_report`
+- LOG_DIR  = `/home/hanchang/project_summary/step35-flash-support/19_kernel_dispatch_report/logs`
 
 ## GOAL
 产出 `REPORT.md`，精确说明 Step-3.5-Flash-FP8（FP8 tp=2 + FP8 tp=4）推理时每类操作的 kernel 类型：

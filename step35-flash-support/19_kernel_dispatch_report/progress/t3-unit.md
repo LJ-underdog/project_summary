@@ -55,7 +55,7 @@ out = fused_moe(
 ```bash
 cd /tmp && CUDA_VISIBLE_DEVICES=4 AITER_LOG_LEVEL=INFO AITER_LOG_TUNED_CONFIG=1 \
   /opt/venv/bin/python /tmp/test_moe_dispatch.py 2>&1 \
-  | tee /home/hanchang/project_summary/step35-flash-support/17_kernel_dispatch_report/logs/unit_moe.log
+  | tee /home/hanchang/project_summary/step35-flash-support/19_kernel_dispatch_report/logs/unit_moe.log
 ```
 
 ### 关键 dispatch 日志
