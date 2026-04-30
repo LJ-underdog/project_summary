@@ -69,7 +69,7 @@ graph LR
 | [16_perf_gfx950_verified/RESULTS.md](./16_perf_gfx950_verified/RESULTS.md) | gfx950 性能基线（统一脚本测） |
 | [17_atom_moe_tp8_load_crash/README.md](./17_atom_moe_tp8_load_crash/README.md) | ATOM MoE tp=8 load_w2 / load_w13 narrow size<0 issue draft（未 file upstream） |
 | [18_fp8_tp8_root_cause_and_fix/README.md](./18_fp8_tp8_root_cause_and_fix/README.md) | FP8 tp=8 起服双层 root cause + fix（ATOM `969d564`） |
-| [19_kernel_dispatch_report/REPORT.md](./19_kernel_dispatch_report/REPORT.md) | FP8 tp=2/4 每类 op 的 torch / CK / ASM kernel 归属（gfx950；rename from 17，commit 见 chore/d1-must-fix） |
+| [19_kernel_dispatch_report/REPORT.md](./19_kernel_dispatch_report/REPORT.md) | FP8 tp=2/4 每类 op 的 torch / CK / ASM kernel 归属（gfx950；rename from 17_kernel_dispatch_report） |
 
 ### 跨 topic 资产
 
