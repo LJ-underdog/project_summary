@@ -48,7 +48,7 @@
 | BF16 GEMM 256×256 ASM | 路由 | **不路由**（dispatcher fallback `hipblaslt`）| BOS bug 在 gfx942 不会触发 |
 | FP8 MoE per_1x128 prefill | ASM `fmoe_g1u1`（带 block shape） | `aiter.fmoe_g1u1` 签名**不带** block shape；需走 CK 2-stage | NEW-RC-3 |
 
-引用：`progress/dc-t1.md:111-118`、`doc_consolidation/TEAM_CONFIG.md:82-84`
+引用：`progress/dc-t1.md:111-118`、`TEAM_CONFIG.md:82-84`
 
 ### 1.3 PASS 验收标准（M1 / M2 定义）
 
