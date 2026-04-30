@@ -57,6 +57,28 @@ graph LR
 | [04_tp_support.md](./04_tp_support.md) | TP=4/8 MoE kernel alignment 问题与修复 |
 | [05_fp8_inference.md](./05_fp8_inference.md) | FP8 block-quantized 模型推理支持（tp=2） |
 | [06_fp8_tp4.md](./06_fp8_tp4.md) | FP8 tp=4：三层 bug（check/padding/scale sharding ceil） |
+| [07_tp4_longseq_bos_fix.md](./07_tp4_longseq_bos_fix.md) | tp=4 长序列 prefill 全 BOS 根因与修复 |
+| [08_moe_no_padding_research.md](./08_moe_no_padding_research.md) | MoE no-padding 调研（inter_dim=320→384 padding 是否可消除） |
+| [09_moe_no_padding_deep_dive.md](./09_moe_no_padding_deep_dive.md) | 为什么 FP8 MoE kernel 需要 padding（深度分析） |
+| [10_fp8_mfma_kpack32_constraint.md](./10_fp8_mfma_kpack32_constraint.md) | gfx950 FP8 mfma KPack=32 约束（blockscale MoE 不能去 padding 的 ISA 级根因） |
+| [11_tensor_parallelism_strategy.md](./11_tensor_parallelism_strategy.md) | 张量并行策略：原理 + 每个算子 TP 行为 |
+| [12_reproduction_guide_fp8_tp4.md](./12_reproduction_guide_fp8_tp4.md) | FP8 tp=4 推理复现指南（TTFT≈86ms / TPOT≈13ms） |
+| [13_recall_system_analysis.md](./13_recall_system_analysis.md) | Recall 工具实战指南 |
+| [14_migration_gfx942/MIGRATION_REPORT.md](./14_migration_gfx942/MIGRATION_REPORT.md) | gfx950 → gfx942(MI308X) 迁移；M1 tp=2 + M2 tp=4 PASS；NEW-RC-1/2/3 三 RC |
+| [15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md](./15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md) | gfx942 上 TP=2/4/8 性能评估（含 tp=8 起服） |
+| [16_perf_gfx950_verified/RESULTS.md](./16_perf_gfx950_verified/RESULTS.md) | gfx950 性能基线（统一脚本测） |
+| [17_atom_moe_tp8_load_crash/README.md](./17_atom_moe_tp8_load_crash/README.md) | ATOM MoE tp=8 load_w2 / load_w13 narrow size<0 issue draft（未 file upstream） |
+| [18_fp8_tp8_root_cause_and_fix/README.md](./18_fp8_tp8_root_cause_and_fix/README.md) | FP8 tp=8 起服双层 root cause + fix（ATOM `969d564`） |
+| [19_kernel_dispatch_report/REPORT.md](./19_kernel_dispatch_report/REPORT.md) | FP8 tp=2/4 每类 op 的 torch / CK / ASM kernel 归属（gfx950；rename from 17，commit 见 chore/d1-must-fix） |
+
+### 跨 topic 资产
+
+| 路径 | 内容 |
+|------|------|
+| [verification_pipeline/](./verification_pipeline/) | V01-V07 验证 pipeline（覆盖 01-07）；`MASTER_PIPELINE.md` / `PIPELINE_REVIEW_FINAL.md` / `results/SUMMARY.md` / `NEXT_TASK_BRIEF.md` |
+| [code_changes_all_repos.md](./code_changes_all_repos.md) | ATOM / aiter / CK 三仓 commit 集中索引（snapshot at 2026-04-29） |
+| [repro_info.md](./repro_info.md) | FP8 tp=4 推理复现环境信息 |
+| [perf_correctness_bench.py](./perf_correctness_bench.py) | 16_perf_gfx950_verified 引用的 perf + correctness 测试脚本 |
 
 ---
 

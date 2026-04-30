@@ -29,6 +29,26 @@ V01-V07 验证 pipeline **全部 PASS**。详见：
 - 下一步任务：`step35-flash-support/verification_pipeline/NEXT_TASK_BRIEF.md`
   （目标：FP8 tp=4 无 padding CK kernel，消除 inter_dim=320→384 的 20% 显存浪费）
 
+### Step-3.5-Flash 后续 wave（07-19，2026-04-25 ~ 2026-04-29）
+
+| 子任务 | 内容 | 状态 |
+|--------|------|------|
+| [07 tp=4 长序列 BOS 修复](./step35-flash-support/07_tp4_longseq_bos_fix.md) | 10k token prefill 全 BOS 根因与修复 | ✅ |
+| [08 MoE no-padding 调研](./step35-flash-support/08_moe_no_padding_research.md) | inter_dim=320→384 padding 是否可消除 | ✅ |
+| [09 MoE no-padding 深挖](./step35-flash-support/09_moe_no_padding_deep_dive.md) | 为什么 FP8 MoE kernel 需要 padding | ✅ |
+| [10 gfx950 FP8 mfma KPack=32 约束](./step35-flash-support/10_fp8_mfma_kpack32_constraint.md) | blockscale MoE 不能去 padding 的 ISA 级原因 | ✅ |
+| [11 张量并行策略](./step35-flash-support/11_tensor_parallelism_strategy.md) | TP 原理 + 每个算子 TP 行为分析 | ✅ |
+| [12 FP8 tp=4 复现指南](./step35-flash-support/12_reproduction_guide_fp8_tp4.md) | 新机器复现 TTFT≈86ms / TPOT≈13ms | ✅ |
+| [13 Recall 系统分析](./step35-flash-support/13_recall_system_analysis.md) | Recall 工具实战指南 | ✅ |
+| [14 gfx950 → gfx942(MI308X) 迁移](./step35-flash-support/14_migration_gfx942/MIGRATION_REPORT.md) | M1 tp=2 + M2 tp=4 PASS；NEW-RC-1/2/3 三 RC | ✅ CLOSED |
+| [15 TP=2/4/8 性能评估](./step35-flash-support/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md) | gfx942 上 tp=2/4 perf + tp=8 起服评估 | ✅ |
+| [16 gfx950 性能基线](./step35-flash-support/16_perf_gfx950_verified/RESULTS.md) | 统一脚本测得的 gfx950 perf 基线 | ✅ |
+| [17 ATOM MoE tp=8 load crash](./step35-flash-support/17_atom_moe_tp8_load_crash/README.md) | tp=8 load_w2 / load_w13 narrow size<0 issue draft | ✅ 内部 CLOSED；未 file upstream |
+| [18 FP8 tp=8 root cause + fix](./step35-flash-support/18_fp8_tp8_root_cause_and_fix/README.md) | tp=8 起服双层 root cause；ATOM `969d564` | ✅ |
+| [19 Kernel Dispatch 报告](./step35-flash-support/19_kernel_dispatch_report/REPORT.md) | FP8 tp=2/4 每类 op 的 torch / CK / ASM kernel 归属（gfx950） | ✅ |
+
+**跨 topic 资产**：[verification_pipeline/](./step35-flash-support/verification_pipeline/) — V01-V07 验证 pipeline（覆盖 01-07），含 `MASTER_PIPELINE.md` / `PIPELINE_REVIEW_FINAL.md` / `results/SUMMARY.md`。
+
 ---
 
 ## 调试方法论
