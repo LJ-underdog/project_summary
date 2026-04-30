@@ -22,7 +22,7 @@
 | 文件 | 用途 | 何时读 |
 |---|---|---|
 | **`README.md`**（本文件）| 项目入口 + TL;DR + 时间线 + details/ 完整索引 | 第一次接触本项目 |
-| **`REPRODUCE.md`** | 端到端复现指南（gfx950 + gfx942 双路径） | 想从零跑通推理 |
+| **`REPRODUCE.md`** | 端到端复现指南（gfx942 / MI308X / FP8 单路径；gfx950 历史路径见 `details/`） | 想从零跑通推理 |
 | **`CODE_CHANGES.md`** | 三仓所有 code 改动总账（per-repo + per-feature 视图） | 想知道改了哪些代码 |
 | **`details/`** | 所有详细内容下沉（topics/research/perf/issues/projects/meta/scripts/verification_pipeline 8 类） | 想深入某个 topic |
 
