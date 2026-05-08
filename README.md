@@ -46,6 +46,7 @@ V01-V07 验证 pipeline **全部 PASS**。详见：
 | [17 ATOM MoE tp=8 load crash](./step35-flash-support/17_atom_moe_tp8_load_crash/README.md) | tp=8 load_w2 / load_w13 narrow size<0 issue draft | ✅ 内部 CLOSED；未 file upstream |
 | [18 FP8 tp=8 root cause + fix](./step35-flash-support/18_fp8_tp8_root_cause_and_fix/README.md) | tp=8 起服双层 root cause；ATOM `969d564` | ✅ |
 | [19 Kernel Dispatch 报告](./step35-flash-support/19_kernel_dispatch_report/REPORT.md) | FP8 tp=2/4 每类 op 的 torch / CK / ASM kernel 归属（gfx950） | ✅ |
+| [20 FP8 tp=2/4/8 复现指南](./step35-flash-support/20_reproduction_guide_fp8_tp2_4_8/README.md) | Step-3.5-Flash-FP8 tp=2/4/8 端到端 accuracy + throughput 复现指南（gfx942 / MI308X）；fresh-dir verified 12/12 acc + 7/7 thr | ✅ |
 
 **跨 topic 资产**：[verification_pipeline/](./step35-flash-support/verification_pipeline/) — V01-V07 验证 pipeline（覆盖 01-07），含 `MASTER_PIPELINE.md` / `PIPELINE_REVIEW_FINAL.md` / `results/SUMMARY.md`。
 

@@ -70,6 +70,7 @@ graph LR
 | [17_atom_moe_tp8_load_crash/README.md](./17_atom_moe_tp8_load_crash/README.md) | ATOM MoE tp=8 load_w2 / load_w13 narrow size<0 issue draft（未 file upstream） |
 | [18_fp8_tp8_root_cause_and_fix/README.md](./18_fp8_tp8_root_cause_and_fix/README.md) | FP8 tp=8 起服双层 root cause + fix（ATOM `969d564`） |
 | [19_kernel_dispatch_report/REPORT.md](./19_kernel_dispatch_report/REPORT.md) | FP8 tp=2/4 每类 op 的 torch / CK / ASM kernel 归属（gfx950；rename from 17_kernel_dispatch_report） |
+| [20_reproduction_guide_fp8_tp2_4_8/README.md](./20_reproduction_guide_fp8_tp2_4_8/README.md) | Step-3.5-Flash-FP8 tp=2/4/8 端到端 accuracy + throughput 复现指南（gfx942 / MI308X）；fresh-dir verified 12/12 acc + 7/7 thr；详见 `WAVE_CLOSE.md` |
 
 ### 跨 topic 资产
 
