@@ -12,6 +12,17 @@
 
 **入口**：[`step35-flash-support/README.md`](./step35-flash-support/README.md) — 项目 TL;DR + 时间线 + 4 一级条目导航 + details/ 完整索引
 
+> **KNOWN_FACT（2026-05-09 更新 — 派生自 wave `tp2_verify_post_merge_wave`）**：
+>
+> - **当前 gfx942 (MI308X) stepfun-Flash-FP8 MoE perf 三档 anchor**（首次实测，由 wave L18+L20 产出）：
+>   - tp=2: TTFT 1665.1 ms / TPOT 15.5 ms/tok / decode 64.3 tok/s / engine_init 82.32 s
+>   - tp=4: TTFT 980.4 ms / TPOT 14.5 ms/tok / decode 69.1 tok/s / engine_init 125.72 s
+>   - tp=8: TTFT 747.1 ms / TPOT 13.7 ms/tok / decode 73.1 tok/s / engine_init 223.31 s
+>   - 来源 + 完整观察：[`step35-flash-support/REPRODUCE.md §6.2`](./step35-flash-support/REPRODUCE.md)
+>   - wave 内 raw progress：`/home/junlin12/project_fp8_tp4_repro/tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md` + `teammate-L20-perf-tp4-tp8.md`
+> - **历史"gfx942 stepfun perf baseline"不存在**：旧 `details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md` 引用的 TTFT≈186 ms / TPOT≈5.245 ms 等数值实际为 **Qwen3-0.6B (dense, non-MoE)** path —— ATOM `EngineArgs --model` default = `Qwen/Qwen3-0.6B` 陷阱（详见 [`step35-flash-support/REPRODUCE.md §7.13`](./step35-flash-support/REPRODUCE.md)）silent 抢占了脚本里的 stepfun path 推断。该 baseline 已由 wave `tp2_verify_post_merge_wave` L17c→L19b→L19e→L22 翻转 + 文档勘误。
+
+
 | 顶层文件 | 用途 |
 |---|---|
 | [`step35-flash-support/README.md`](./step35-flash-support/README.md) | 项目入口 + 概览 + 时间线 + details/ 索引 |

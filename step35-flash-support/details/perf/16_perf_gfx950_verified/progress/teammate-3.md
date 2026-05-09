@@ -1,5 +1,21 @@
 # Teammate 3 Progress
 
+> # 🔴 历史 progress disclaimer（2026-05-09 by wave `tp2_verify_post_merge_wave` L27 加注）
+>
+> 本 progress 中下列引用 / 论断已被后续 audit 翻转：
+>
+> - "gfx942 perf_bench.py tp=2: TTFT=**186ms** TPOT=5.2ms"（line 27） — **实为 Qwen/Qwen3-0.6B dense 误归属**，并非 stepfun-Flash-FP8。决定性证据：`details/perf/15_perf_tp2_tp4_tp8_eval/logs/tp2_run2_full.log:47` `Model load done: Qwen/Qwen3-0.6B`。
+> - "同脚本 gfx950 vs gfx942 ... 388 vs **186** = gfx950 慢 **2.09×**" + "TPOT 12.28 vs 5.2 = **2.36× 慢**"（line 33-34）— 分母错位，比值无意义。
+> - "**H5 基本排除为主因**：脚本差异只能解释约 10% 的偏差，不能解释 2-3× 的硬件代际反转差距"（line 35）— **论证基础失效**：所谓 "硬件代际反转 2-3×" 是 gfx950 跑 stepfun MoE 与 gfx942 跑 Qwen3 dense 的对比，并非同 model 同路径。H5 verdict 暂不可用。
+>
+> 真实 stepfun gfx942 tp=2 anchor：TTFT≈1665ms（L18 实测，2026-05-09），与原 "186ms" 差距 ~9× → 方向甚至可能反转（gfx950 可能反而更快）。
+>
+> 本 progress 原文保留作审计追溯，引用 / 比值 / verdict 暂不可用，需重跑 gfx942 stepfun MoE perf 才能重验。
+>
+> 详见同目录 `RESULTS.md` 顶部 🔴 BANNER + 附录-DISCLAIMER + wave `tp2_verify_post_merge_wave/progress/teammate-L17c-baseline-audit.md` / L18 / L20 / L24 / L26。
+
+---
+
 ## 接手状态
 - #101 FP8 tp=2 (perf_correctness_bench.py): TTFT=428.7ms / TPOT=12.7ms / CORRECTNESS=PASS
 - #102 FP8 tp=4 (perf_correctness_bench.py): TTFT=382.9ms / TPOT=12.5ms / CORRECTNESS=PASS

@@ -1,5 +1,20 @@
 # TEAM_CONFIG — fp8-tp4-repro 文档整合任务
 
+> ## ⚠️ DEPRECATED — wave 14 历史 TEAM_CONFIG（截至 2026-04-26 / doc_consolidation 起点）
+>
+> **本 TEAM_CONFIG 反映 wave 14 进行时的状态。**保留原文作 historical reference。
+>
+> - 文中"ATOM `acff926` / aiter `0f8164017` / CK `defd7ad29`"+"NEW-RC-3 唯一允许的 dirty / 唯一 dirty 已闭环"
+>   等描述对应 2026-04-26 实施时点；之后：
+>   - ATOM 升级至 `969d564`（含 tp=8 双层 fix）
+>   - aiter NEW-RC-3 patch 已 commit 化为 `f06cdcca5`，working tree 不再 dirty
+> - 当前 step35-flash-support reproduce commit 见顶层 [`REPRODUCE.md §3.1`](../../../REPRODUCE.md)。
+> - 本 wave 最终交付报告见 [`MIGRATION_REPORT.md`](./MIGRATION_REPORT.md)（同样含 §6 / §9.2 UPDATE banner）。
+>
+> 由 `tp2_verify_post_merge_wave/L31` 标注（2026-05-09）。
+
+---
+
 > 子任务名：`doc_consolidation`
 > 父项目：`/home/junlin12/project_fp8_tp4_repro`（PROJECT CLOSED，详见 `SESSION_HANDOFF.md:329`）
 > 任务性质：纯文档整合 + 可视化重写，不涉及任何源码改动 / GPU 实验

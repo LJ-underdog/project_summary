@@ -22,10 +22,10 @@
 
 | tp | TTFT | TPOT | total_latency | decode throughput | actual input/output | engine_init | 备注 |
 |---|---|---|---|---|---|---|---|
-| **2** | **0.186 s** | **5.245 ms/tok** | 1.843 s | 190.66 tok/s | 10265 / 317 (eos) | 25.38 s | 🔴 **实为 Qwen/Qwen3-0.6B 数据（非 stepfun）**，详见顶部 BASELINE 修正 + `progress/perf-t1.md` 附录 X（`logs/tp2_run2.log:1-12`） |
-| **4** | **0.110 s** | **5.451 ms/tok** | 2.373 s | 183.44 tok/s | 10265 / 416 (eos) | 30.25 s | 长 prompt perf 基线 ⚠️ 未审计 model 归属，可能与 tp=2 同源误归属（`logs/tp4_run2.log:1-12`） |
-| **8 (long)** | **0.071 s** | **5.542 ms/tok** | 1.629 s | 180.43 tok/s | 10265 / 282 (eos) | 44.98 s | 长 prompt perf 基线（perf-T7 补完，§7 P1 闭环）⚠️ 未审计 model 归属，可能与 tp=2 同源误归属（`logs/tp8_long_run2.log:1-12`） |
-| 8 (起服) | 0.037 s | 3.562 ms/tok | 0.262 s | 280.72 tok/s | 269 / 64 (max_tokens) | 45.82 s | 仅起服测试（short prompt 256/64），不可与上方 long-prompt 行直接比 ⚠️ 同上未审计 model 归属（`logs/tp8_launch.log:1-13`） |
+| **2** | **0.186 s** | **5.245 ms/tok** | 1.843 s | 190.66 tok/s | 10265 / 317 (eos) | 25.38 s | 🔴 **实为 Qwen/Qwen3-0.6B 数据（非 stepfun）**，详见顶部 BASELINE 修正 + `progress/perf-t1.md` 附录 X（`logs/tp2_run2.log:1-12`）；stepfun 真 baseline 见 `tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md`（首次实测 TTFT≈1665.1ms / TPOT≈15.5ms） |
+| **4** | **0.110 s** | **5.451 ms/tok** | 2.373 s | 183.44 tok/s | 10265 / 416 (eos) | 30.25 s | 🔴 **实为 Qwen/Qwen3-0.6B 数据（L19d audit 100% 实证：`logs/tp4_run2_full.log:79` 等 8/8 行 `Model load done: Qwen/Qwen3-0.6B`）**，详见 `progress/perf-t2.md` 顶部 🔴 块 + 附录 X；stepfun 真 baseline 见 `tp2_verify_post_merge_wave/progress/teammate-L20-perf-tp4-tp8.md`（`logs/tp4_run2.log:1-12`） |
+| **8 (long)** | **0.071 s** | **5.542 ms/tok** | 1.629 s | 180.43 tok/s | 10265 / 282 (eos) | 44.98 s | 🔴 **实为 Qwen/Qwen3-0.6B 数据（L19d audit 100% 实证：`logs/tp8_long_run2_full.log:144` 等 12/12 行 `Model load done: Qwen/Qwen3-0.6B`）**，详见 `progress/perf-t7.md` 顶部 🔴 块 + 附录 X；stepfun 真 baseline 见 `tp2_verify_post_merge_wave/progress/teammate-L20-perf-tp4-tp8.md`（`logs/tp8_long_run2.log:1-12`） |
+| 8 (起服) | 0.037 s | 3.562 ms/tok | 0.262 s | 280.72 tok/s | 269 / 64 (max_tokens) | 45.82 s | 仅起服测试（short prompt 256/64），不可与上方 long-prompt 行直接比；🔴 **实为 Qwen/Qwen3-0.6B 起服（L19d audit 100% 实证：`logs/tp8_launch_full.log:144` 等 6/6 行 `Model load done: Qwen/Qwen3-0.6B`）**，详见 `progress/perf-t4.md` 顶部 🔴 块 + 附录 X（`logs/tp8_launch.log:1-13`） |
 
 引用：`progress/perf-t1.md:87-95` / `progress/perf-t2.md:87-95` / `progress/perf-t4.md:200-212` / `progress/perf-t7.md:91-101`
 
@@ -347,9 +347,9 @@ flowchart LR
 | tp | input | output | TTFT (s) | TPOT (ms/tok) | total (s) | decode tput (tok/s) | engine_init (s) | 可与 tp=2/4 比？ |
 |---|---|---|---|---|---|---|---|---|
 | 2 | 10265 | 317 | **0.186** | **5.245** | 1.843 | 190.66 | 25.38 | 🔴 实测 = Qwen/Qwen3-0.6B（非 stepfun）|
-| 4 | 10265 | 416 | **0.110** | **5.451** | 2.373 | 183.44 | 30.25 | ⚠️ 未审 model 归属 |
-| **8 (long)** | **10265** | **282** | **0.071** | **5.542** | 1.629 | 180.43 | 44.98 | ⚠️ 未审 model 归属（perf-T7 补完）|
-| 8 (起服) | 269 | 64 | 0.037 | 3.562 | 0.262 | 280.72 | 45.82 | ✗ 短 prompt 起服冒烟，不可与上方 long-prompt 行比；⚠️ 未审 model 归属 |
+| 4 | 10265 | 416 | **0.110** | **5.451** | 2.373 | 183.44 | 30.25 | 🔴 实测 = Qwen/Qwen3-0.6B（L19d 实证）|
+| **8 (long)** | **10265** | **282** | **0.071** | **5.542** | 1.629 | 180.43 | 44.98 | 🔴 实测 = Qwen/Qwen3-0.6B（L19d 实证；perf-T7 补完）|
+| 8 (起服) | 269 | 64 | 0.037 | 3.562 | 0.262 | 280.72 | 45.82 | ✗ 短 prompt 起服冒烟，不可与上方 long-prompt 行比；🔴 实测 = Qwen/Qwen3-0.6B（L19d 实证）|
 
 **观察（基于 long-prompt 三 tp 同口径数据）**：
 - **TTFT** 随 tp 单调下降（0.186 → 0.110 → 0.071 s），tp=2 → tp=8 提速 2.62×，符合 prefill 算力扩展预期。

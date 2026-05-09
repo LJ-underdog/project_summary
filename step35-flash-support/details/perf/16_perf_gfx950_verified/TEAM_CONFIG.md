@@ -75,7 +75,7 @@ rocm-smi --showmemuse 2>/dev/null | grep "GPU\["
 | F2 | GPU5 硬件异常（~700ms/tensor），tp=2 用 GPU 0,1，tp=4 用 GPU 0,1,2,3（串行，不冲突）| MEMORY.md + 用户确认 |
 | F3 | FP8 tp=2 短 prompt 历史值：TTFT=87ms, TPOT=14ms（V05 Exp2，input≈20 tokens） | verification_pipeline/results/v05_fp8_inference.md |
 | F4 | FP8 tp=4 短 prompt 历史值：TTFT=86ms, TPOT=13ms（V06 Exp2，input≈20 tokens） | verification_pipeline/results/v06_fp8_tp4.md |
-| F5 | 15_perf（gfx942 MI308X，10k input）：tp=2 TTFT=186ms/TPOT=5.2ms；tp=4 TTFT=110ms/TPOT=5.5ms | 15_perf_tp2_tp4_tp8_eval/progress/perf-t1.md, perf-t2.md |
+| F5 | ~~15_perf（gfx942 MI308X，10k input）：tp=2 TTFT=186ms/TPOT=5.2ms；tp=4 TTFT=110ms/TPOT=5.5ms~~ ⚠️ **F5 已失效（2026-05-09 by L17c）** — 引用值实为 Qwen/Qwen3-0.6B 误归属（raw log `tp2_run2_full.log:47` `Model load done: Qwen/Qwen3-0.6B`），并非 stepfun-Flash-FP8。真实 stepfun gfx942 anchor：tp=2 TTFT≈1665ms / tp=4 TTFT≈980ms（L18+L20 实测，详见 `step35-flash-support/REPRODUCE.md` §6.2）。本任务跑出的 gfx950 vs gfx942 对比结论已 strikethrough，详见 `RESULTS.md` 顶部 🔴 BANNER + 附录-DISCLAIMER。 | ~~15_perf_tp2_tp4_tp8_eval/progress/perf-t1.md, perf-t2.md~~ → 现 SoT：`tp2_verify_post_merge_wave/progress/teammate-L17c-baseline-audit.md` + `teammate-L18-perf-rerun.md` + `teammate-L20-perf-tp4-tp8.md` |
 | F6 | `perf_correctness_bench.py` 已调试完毕：必须用 `--model` 显式传路径，否则 EngineArgs 默认加载 Qwen | 本任务 Phase 0 排查结论 |
 | F7 | 模型路径：`/root/.cache/huggingface/hub/models--stepfun-ai--Step-3.5-Flash-FP8/snapshots/6eebda59dd87ca5729648ec7cfed0becfceb273e` | bash ls 验证 |
 | F8 | `cudagraph_capture_sizes` 必须传字符串 `"[1]"` 给 EngineArgs（已在脚本中修复） | bench-tp2/tp4 agent 报告 |

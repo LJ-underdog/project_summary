@@ -86,6 +86,18 @@ graph LR
 
 详见 `REPRODUCE.md` §6 anchors + `details/projects/14_migration_gfx942/MIGRATION_REPORT.md`。
 
+### gfx942 stepfun-Flash-FP8 MoE perf 三档 anchor（2026-05-09 实测，wave `tp2_verify_post_merge_wave`）
+
+| TP | TTFT | TPOT | decode 吞吐 | engine_init |
+|---|---|---|---|---|
+| tp=2 | **1665.1 ms** | **15.5 ms/tok** | 64.3 tok/s | 82.32 s |
+| tp=4 | **980.4 ms** | **14.5 ms/tok** | 69.1 tok/s | 125.72 s |
+| tp=8 | **747.1 ms** | **13.7 ms/tok** | 73.1 tok/s | 223.31 s |
+
+来源：[`REPRODUCE.md §6.2`](./REPRODUCE.md)（含 5 条观察 + 量级提示）；wave 原始 progress：`tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md`（tp=2）+ `teammate-L20-perf-tp4-tp8.md`（tp=4/8）。
+
+> **KNOWN_FACT — "gfx942 stepfun 历史 perf baseline" 不存在**：旧 `details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md` 引用的 TTFT≈186 ms / TPOT≈5.245 ms 等数据实际为 **Qwen3-0.6B (dense, non-MoE)** path（`EngineArgs --model` default 陷阱 silent 抢占；详见 `REPRODUCE.md §7.13`）。当前三档为首次正确实测 stepfun MoE 数据，无历史可对比。`details/perf/15_perf_tp2_tp4_tp8_eval/` 已由 wave L19b 加误归属警告，`REPRODUCE.md §7.13` 已加 KNOWN_FACT entry（L19e）。
+
 ---
 
 ## 架构速查

@@ -1,5 +1,21 @@
 # 复现信息收集 (Step-3.5-Flash FP8 tp=4)
 
+> ## ⚠️ DEPRECATED — 历史快照（截至 2026-04-28，gfx950 路径）
+>
+> **本文件已被顶层 [`step35-flash-support/REPRODUCE.md`](../../REPRODUCE.md) 取代**（保留原文作 historical reference）。
+>
+> 当前 step35-flash-support 复现请参阅：
+> - **复现指南（gfx942 主路径）**：[`step35-flash-support/REPRODUCE.md`](../../REPRODUCE.md)
+> - **代码改动总账**：[`step35-flash-support/CODE_CHANGES.md`](../../CODE_CHANGES.md)
+>
+> 本文件中列出的 commit (ATOM `acff926d` / aiter `0f8164017` / CK `defd7ad29`) 是 2026-04-28
+> 收集时点的 gfx950 状态；当前 reproduce 锁定 ATOM `969d564`（含 tp=8 双层 fix）+ aiter
+> `f06cdcca5`（NEW-RC-3 patch commit 化）+ CK `defd7ad29`（详见 REPRODUCE.md §3.1）。
+>
+> 由 `tp2_verify_post_merge_wave/L31` 标注（2026-05-09）。
+
+---
+
 收集日期：2026-04-28
 信息来源：实测 git/文件系统/已验证 V06 报告
 

@@ -4,10 +4,18 @@
 # 红线：不修改 ATOM/aiter/CK 任何源码。本脚本只调用 ATOM 公共 API。
 #
 # 用法（dry-run 示例）:
+#   ⚠️ 必须显式传 --model $STEP35_PATH（否则 ATOM EngineArgs 默认 --model=Qwen/Qwen3-0.6B
+#      会 silent 覆盖，本脚本会跑成 Qwen3 dense path，与 stepfun-Flash MoE 完全无关
+#      —— 详见 step35-flash-support/REPRODUCE.md §7.13 KNOWN_FACT）
+#   验证：跑完 grep -m2 'Model load done' logs/<run>_full.log 必须为 stepfun snapshot 路径
+#
 #   CUDA_VISIBLE_DEVICES=0,1 HF_HOME=/workspace/hf_cache \
 #   AITER_LOG_LEVEL=INFO AITER_LOG_TUNED_CONFIG=1 \
-#   /opt/venv/bin/python perf_bench.py --tp 2 --input-tokens 256 --output-tokens 32 \
+#   /opt/venv/bin/python perf_bench.py \
+#       --model $STEP35_PATH \
+#       --tp 2 --input-tokens 256 --output-tokens 32 \
 #       --log-file logs/dry_run_tp2.log
+#       # ↑ --model 不可省（即使 dry-run；详 REPRODUCE.md §7.13）
 #
 # 测量方案:
 #   方案 A (首选): ATOM postprocess 直接给出 ttft / tpot
@@ -109,6 +117,10 @@ def main():
     # 强制把 --tp 透传给 ATOM 的 tensor_parallel_size
     args.tensor_parallel_size = args.tp
     # 设置必要默认值（参考 simple_inference.py 与 SESSION_HANDOFF.md:186-198）
+    # 注：此 fallback 在实际运行中【永不命中】—— ATOM EngineArgs.add_cli_args() 已为 --model
+    # 注册 default="Qwen/Qwen3-0.6B"（silent default），所以 args.model 永远 truthy。
+    # 即历史 perf 数据被静默路由到 Qwen3 dense path 的根因（详 REPRODUCE.md §7.13）。
+    # 该 fallback 保留作 traceability，唯一的"真"防呆是命令行显式 --model $STEP35_PATH。
     if not getattr(args, "model", None):
         args.model = "stepfun-ai/Step-3.5-Flash-FP8"
     args.trust_remote_code = True

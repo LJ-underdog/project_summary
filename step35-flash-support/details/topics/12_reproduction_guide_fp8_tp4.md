@@ -1,5 +1,21 @@
 # Step-3.5-Flash FP8 tp=4 推理复现指南
 
+> ## ⚠️ DEPRECATED — gfx950 历史复现指南（保留作历史参考）
+>
+> **本文件已被顶层 [`step35-flash-support/REPRODUCE.md`](../../REPRODUCE.md) 取代**（gfx942 主路径，含 gfx950 历史 path 索引）。
+>
+> 当前 step35-flash-support 复现请优先使用：
+> - **gfx942 (MI308X) 主路径**：[`step35-flash-support/REPRODUCE.md`](../../REPRODUCE.md)
+> - **代码改动总账**：[`step35-flash-support/CODE_CHANGES.md`](../../CODE_CHANGES.md)
+>
+> 本文件中"期望第一行包含 `acff926d` / 期望 `defd7ad29`" 类 checkout anchor 对应 2026-04-25 时点的
+> gfx950 状态；当前 reproduce 锁定 ATOM `969d564` + aiter `f06cdcca5` + CK `defd7ad29`
+> （详见 REPRODUCE.md §3.1）。本文件保留作 gfx950 / 中间态历史参考。
+>
+> 由 `tp2_verify_post_merge_wave/L31` 标注（2026-05-09）。
+
+---
+
 > **目标**：在新机器上完整复现 Step-3.5-Flash-FP8 tp=4 推理，达到 TTFT≈86ms、TPOT≈13ms、4/4 输出连贯。
 > **验证基准**：V06 Exp2（2026-04-22）、V07（2026-04-25）全 PASS。
 > **适用平台**：8× AMD MI350X (gfx950)，ROCm，Python 3.12。

@@ -1,5 +1,20 @@
 # teammate-8 / #601 — FP8 GEMM dispatch & gfx942/gfx950 FP8 tuning 覆盖
 
+> # 🔴 历史 progress disclaimer（2026-05-09 by wave `tp2_verify_post_merge_wave` L27 加注）
+>
+> 本 progress 中**结构性内容（量化范围 / dispatch 路径 / tuning CSV 覆盖矩阵 / FP8 fmoe key 缺口分析）由代码读取得出，仍有效**；但 §7.1 H6 量化推导部分依赖 RESULTS.md "gfx942 vs gfx950 TTFT gap 量级" 已被翻转：
+>
+> - §7.1 "**H6 已确认**：bf16_tuned_gemm.csv runtime 仅含 glm5 的 779 条 gfx950 entries... prefill TTFT 主要 gap 来源" — H6 "确认" 量级建立在 RESULTS.md 中 "gfx950 vs gfx942 慢 2-3×" 对比之上，而该对比的 gfx942 列实为 Qwen/Qwen3-0.6B 误归属（L17c 实证）。决定性证据：`details/perf/15_perf_tp2_tp4_tp8_eval/logs/tp2_run2_full.log:47` `Model load done: Qwen/Qwen3-0.6B`。
+> - §7.4 综合表 "Gap H6 prefill TTFT 主要 / #601 prefill TTFT 次要 + decode TPOT 部分" — **量级 ranking 失去 anchor**；BF16/FP8 tuning miss 是真实代码事实，但 "解释 gfx950 vs gfx942 gap" 论断暂不可用。
+>
+> 真实 stepfun gfx942 tp=2 TTFT≈1665ms（L18 实测，2026-05-09），与原 "186ms" 差距 ~9× → gap 方向可能反转。
+>
+> 本 progress 原文保留作审计追溯，独立的 dispatch / tuning 覆盖事实仍可作为 follow-up tuning 工作的依据；但与 gfx942 比对的部分 verdict 暂不可用，需重跑 gfx942 stepfun MoE perf 才能重验。
+>
+> 详见同目录 `RESULTS.md` 顶部 🔴 BANNER + 附录-DISCLAIMER + wave `tp2_verify_post_merge_wave/progress/teammate-L17c-baseline-audit.md` / L18 / L20 / L24 / L26。
+
+---
+
 ## 1. Step-3.5-Flash-FP8 量化范围（来自 HF config）
 
 **配置文件**：`/root/.cache/huggingface/hub/models--stepfun-ai--Step-3.5-Flash-FP8/snapshots/6eebda59dd87ca5729648ec7cfed0becfceb273e/config.json`

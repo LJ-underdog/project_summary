@@ -16,7 +16,7 @@
 复现核心依赖：
 1. 三仓 pinned commit（ATOM `969d564` / aiter `f06cdcca5` / CK `defd7ad29`）
 2. HuggingFace 模型 snapshot（`stepfun-ai/Step-3.5-Flash-FP8` ~90 GB）
-3. **NEW-RC-3 working-tree patch**（aiter `fused_moe.py:881-886`，per_1x128 prefill ASM bypass，详见 §3.4 + §7.1）
+3. **NEW-RC-3 dispatch patch**（aiter `fused_moe.py:881-886`，per_1x128 prefill ASM bypass）— 已固化为 aiter commit `f06cdcca5`，§3.1 checkout 后自动包含，**无需**手工 apply；patch 来源 + 失效场景 + 历史 working-tree dirty 模式见 §3.4 + §7.1
 
 ---
 
@@ -61,7 +61,7 @@ rocm-smi --showmemuse      # 显存可用 ≥ 192 GB/卡（MI308X）
 | 仓库 | Commit | Branch on `origin` | 备注 |
 |---|---|---|---|
 | ATOM | **`969d564`** | `feat/step3p5-flash-support` | 含 tp=8 双层 fix（详见 `details/topics/18_fp8_tp8_root_cause_and_fix/`）|
-| AITER | **`f06cdcca5`** | `feat/step3p5-moe-swiglustep` | **不含** NEW-RC-3 dispatch patch，需手工应用 working-tree patch（§3.4 + §7.1）|
+| AITER | **`f06cdcca5`** | `feat/step3p5-moe-swiglustep` | **已含** NEW-RC-3 dispatch patch（commit message: `fix(moe): force per_1x128 fp8 blockscale to CK 2-stage on gfx942`，内容与 §3.4 内嵌 patch byte-id 一致）。如严格 checkout 此 commit，§3.4 无需手工 git apply；详见 §3.4 顶部的 NOTE。|
 | CK | `defd7ad29` | `feat/swiglustep-moe-no-quant`（aiter 子模块自带）| `swiglustep_and_mul` branches |
 
 ```bash
@@ -91,7 +91,9 @@ cd ..
 
 ```bash
 cd $HOME/aiter
-# 重要：在 setup.py develop 之前应用 NEW-RC-3 patch；详见 §3.4 / §7.1
+# 注意：如果 §3.1 严格 checkout 了 aiter `f06cdcca5`（或更新的 ancestor 含此 commit 的 HEAD），
+# NEW-RC-3 dispatch patch 已在 commit 中固化，此处直接 develop 即可，无需手工 git apply。
+# 仅当 aiter HEAD 早于 `f06cdcca5`（即旧 working-tree dirty 模式）时，才需先按 §3.4 / §7.1 手工应用 patch。
 python3 setup.py develop
 ```
 
@@ -119,11 +121,21 @@ hf auth login    # 或 export HF_TOKEN=hf_xxxxx
 
 > **cwd 必须不在 aiter 仓内**：运行 python 前 `cd /tmp`（或任意非 aiter repo 目录），否则 aiter 被识别为 namespace package 导致 import 失败。
 
-### 3.4 NEW-RC-3 working-tree patch（aiter / 必需）
+### 3.4 NEW-RC-3 dispatch patch（aiter — 已 commit 化）
 
-**作用**：commit `f06cdcca5` 的 `aiter/fused_moe.py:881-883` 启发式 `run_1stage = token > 32 and (inter_dim % 256 == 0)` 会把 per_1x128 prefill 路由到 ASM kernel `aiter.fmoe_g1u1`；该 ASM 签名**不带 block shape 参数**（gfx942 上对应的 `fmoe_fp8_blockscale_g1u1` 才带），数值会错（gibberish）。本 patch 强制 `run_1stage = False`，使 dispatch 走 CK 2-stage blockscale 路径（`module_moe_ck2stages_f8_f8_preshuffle_on_b16_{silu|swiglustep}_per_1x128_mulWeightStage2`）。
+> **🔴 NOTE（2026-05-09 更新 — 必读，与 §3.1 cross-link）**：
+>
+> aiter commit **`f06cdcca5`** 本身就是 NEW-RC-3 patch 的 commit 化（commit message: `fix(moe): force per_1x128 fp8 blockscale to CK 2-stage on gfx942`，diff 与下方 patch 内嵌 hunk byte-id 一致 —— 见 `git show f06cdcca5 -- aiter/fused_moe.py`）。
+>
+> - 如果 §3.1 严格 `git checkout f06cdcca5`（或后续 ancestor 链含此 commit 的 HEAD），本节 patch **已自动包含**：`git status` 不会显示 dirty，**无需** `git apply`，**无需** 因 patch 重新 `setup.py develop`（首次 develop 已含此 patch 编译产物）。
+> - 本节余下文字保留作 **历史参考 + 路径 explainer**（描述 patch 内容、root cause、当年为何 working-tree 而非 commit）。仅以下场景仍需手工 apply：
+>   - 你 checkout 了**早于** `f06cdcca5` 的 aiter HEAD（如 `0f8164017` / `c38d0c9e6` 等历史 baseline）
+>   - 你想在 fork 里 cherry-pick 这条修复到不同分支
+> - 闭环证据：tp2_verify_post_merge_wave/progress/teammate-L25-audit-commit-currency.md §1.2（实测 commit message + diff byte-id）+ teammate-L29-fix-REPRODUCE-CODE_CHANGES-toplevel.md。
 
-**Patch（单 hunk，3 行实质改动）**：
+**作用**：~~commit `f06cdcca5` 的~~ aiter `fused_moe.py:881-883` 历史启发式 `run_1stage = token > 32 and (inter_dim % 256 == 0)`（即上面 NOTE 提到的 "patch-之前的 base"）会把 per_1x128 prefill 路由到 ASM kernel `aiter.fmoe_g1u1`；该 ASM 签名**不带 block shape 参数**（gfx942 上对应的 `fmoe_fp8_blockscale_g1u1` 才带），数值会错（gibberish）。本 patch 强制 `run_1stage = False`，使 dispatch 走 CK 2-stage blockscale 路径（`module_moe_ck2stages_f8_f8_preshuffle_on_b16_{silu|swiglustep}_per_1x128_mulWeightStage2`）。**`f06cdcca5` 已把此 patch 化为 commit，§3.1 checkout 后自动生效**。
+
+**Patch（单 hunk，3 行实质改动 — 仅当 aiter HEAD 早于 `f06cdcca5` 时手工应用）**：
 
 ```diff
 --- a/aiter/fused_moe.py
@@ -138,16 +150,18 @@ hf auth login    # 或 export HF_TOKEN=hf_xxxxx
 +                run_1stage = False
 ```
 
-应用后 working-tree dirty（`git status` 在 aiter 仓显示 `modified: aiter/fused_moe.py`）。**必须重新 `python3 setup.py develop`** 让 patch 编译进 `.so`；只改 python 源码不重 develop = patch 未生效（aiter 是 C++ extension，部分 dispatch 通过 native module 暴露）。
+~~应用后 working-tree dirty（`git status` 在 aiter 仓显示 `modified: aiter/fused_moe.py`）。**必须重新 `python3 setup.py develop`** 让 patch 编译进 `.so`；只改 python 源码不重 develop = patch 未生效（aiter 是 C++ extension，部分 dispatch 通过 native module 暴露）。~~
+（**已过时** — 上述 working-tree dirty + 重 develop 流程对应 2026-04-28 时点，patch 当时未 commit。2026-04-30 起 patch 已 commit 化为 `f06cdcca5`，§3.1 严格 checkout 后无须重新 develop；保留原文本作历史参考。）
 
-> **Note — 为什么 patch 不直接 commit 到 aiter 仓**：
+> **Note — 为什么 patch 历史上是 working-tree dirty 而非 commit（已部分 superseded）**：
 >
 > 1. **Workaround 性质**：本 patch 用 `run_1stage = False` 覆盖原启发式（无条件禁用 1-stage ASM），仅适合 gfx942 + per_1x128 + 当前 dispatch 表的组合。直接 commit 会影响其他场景（gfx950 / 非 per_1x128 / 未来 ASM 修复后想再启用），不是 production-ready 的 upstream fix。
 > 2. **真正的上游 fix 路径**：在 dispatch 表中给 `(per_1x128, gfx942, prefill)` 单独提供 `fmoe_fp8_blockscale_g1u1` 入口（带 block shape 参数的 ASM），或重构 fallback 启发式。这条路径需要 ASM kernel 重写或 CK / AITER upstream 协调，不在本复现指南范围内。
-> 3. **本指南里的固化方式**：working-tree dirty + 重 `setup.py develop` 是最小可复现路径；用户复制 patch 文本 + `git apply` 即可，避免复现者去 fork aiter 维护 branch。
-> 4. **commit 替代方案**：如复现者愿意维护 fork，可在自己的 aiter fork 加一个 commit（不要 push 上游 origin）。本指南选不 commit 是降低 setup 摩擦。
+> 3. **本指南里的历史固化方式（superseded）**：working-tree dirty + 重 `setup.py develop` 是 2026-04-28 时点的最小可复现路径；用户复制 patch 文本 + `git apply` 即可，避免复现者去 fork aiter 维护 branch。
+> 4. **当前固化方式（2026-04-30 起）**：patch 已作为 commit `f06cdcca5` 进入 `feat/step3p5-moe-swiglustep` 分支历史（仍未 push 到 `origin/main`，仅在该 feat 分支上）；§3.1 严格 checkout 即可，无 working-tree dirty。
+> 5. **commit 替代方案**：如复现者愿意维护 fork，可在自己的 aiter fork 加一个 commit（不要 push 上游 origin）。
 >
-> 引用：`details/projects/14_migration_gfx942/MIGRATION_REPORT.md` §6.4 + §9.2（"aiter (commit `0f8164017`，含 NEW-RC-3 patch — 唯一 dirty 文件)"）。
+> 引用：`details/projects/14_migration_gfx942/MIGRATION_REPORT.md` §6.4 + §9.2（"aiter (commit `0f8164017`，含 NEW-RC-3 patch — 唯一 dirty 文件)" — 该描述对应 wave 14 进行时 2026-04-26 时点；当前实际 reproduce commit 见 §3.1 + 上方 🔴 NOTE）。
 
 ---
 
@@ -334,14 +348,19 @@ step35-flash-support 仓内未提供与 fp8-tp4-repro 等价的 throughput_bench
 | `Address already in use` (port 8016/7/8) / GPU 显存残留 | §7.9 |
 | `snapshot_download` 401 / 403 | §7.11 |
 | perf / correctness bench 跑出 Qwen3 风格 `<think>` 输出（应为 stepfun） | §7.13 |
+| aiter `moe_sorting` dispatch 默认 OPUS（旧 CK 路径需 env var 显式回退） | §7.14 |
 
 ### §7.1 AITER NEW-RC-3 patch（tp=8 dispatch miss / per_1x128 prefill 乱码）
 
 **症状**：tp=2/4/8 accuracy 测试 log 出现 `dispatch miss` / `no instance found` / `RuntimeError: ck::*`，或生成乱码（如 `小弟sets邪倾倒` 大段非中文非英文 gibberish）。
 
-**原因**：commit `f06cdcca5` 不含 `aiter/fused_moe.py:881-886` 的 NEW-RC-3 dispatch patch。原启发式 `run_1stage = token > 32 and (inter_dim % 256 == 0)` 把 per_1x128 prefill 路由到 ASM `aiter.fmoe_g1u1`；该 ASM 签名不带 block shape 参数，gfx942 上数值会错。tp=2 时 inter_dim=640、tp=8 时 inter_pad=256（`160` ceil 到 `256`）均满足 `% 256 == 0` 触发该 bug；tp=4 时 inter_pad=384（`% 256 != 0`）幸运绕过。
+**原因**：aiter `fused_moe.py:881-886` 的历史启发式 `run_1stage = token > 32 and (inter_dim % 256 == 0)` 把 per_1x128 prefill 路由到 ASM `aiter.fmoe_g1u1`；该 ASM 签名不带 block shape 参数，gfx942 上数值会错。tp=2 时 inter_dim=640、tp=8 时 inter_pad=256（`160` ceil 到 `256`）均满足 `% 256 == 0` 触发该 bug；tp=4 时 inter_pad=384（`% 256 != 0`）幸运绕过。该启发式已由 NEW-RC-3 patch 替换为 `run_1stage = False`；patch 已固化为 aiter commit **`f06cdcca5`**（详见 §3.4 顶部 NOTE）。
 
-**解决**：应用 §3.4 的 NEW-RC-3 patch（aiter/fused_moe.py:881-886 → `run_1stage = False`），并重新 `python3 setup.py develop` 让改动编译进 `.so`。详见 §3.4 + `details/projects/14_migration_gfx942/MIGRATION_REPORT.md` §6。
+**解决**：
+
+- 如果 §3.1 严格 `git checkout f06cdcca5`（或 ancestor 链含此 commit 的 HEAD）→ patch 已自动包含，无需手工动作；`Engine Core fully initialized` 后 4/4 prompt 应正常。
+- 仅当 aiter HEAD 早于 `f06cdcca5`（如 `0f8164017` / `c38d0c9e6`）时 → 按 §3.4 手工 apply patch + 重新 `python3 setup.py develop` 让改动编译进 `.so`。
+- 详见 §3.4 顶部 🔴 NOTE + `details/projects/14_migration_gfx942/MIGRATION_REPORT.md` §6（注：MIGRATION_REPORT.md 描述对应 wave 14 进行时 working-tree dirty 状态）。
 
 ### §7.3 `ValueError: ... block_n ... not divisible`
 
@@ -474,6 +493,31 @@ grep -m2 'Model load done' logs/<your_run>_full.log
 如果 raw log 上 `Model load done:` 字段是 `Qwen/Qwen3-0.6B`，本次 run 数据**全部作废**，必须加 `--model $STEP35_PATH` 重跑。
 
 **来源**：`fp8-tp4-repro / tp2_verify_post_merge_wave / progress/teammate-L17c-baseline-audit.md` §1.1（raw log `tp2_run2_full.log:47,50` 实证；perf-t1.md baseline 误归属为 stepfun，实际是 Qwen3-0.6B）+ `progress/teammate-L18-perf-rerun.md` §4.1（Run A 二次踩坑：未传 `--model` 即跑出 Qwen3 `<think>` 输出，Run B 加 `--model $STEP35_PATH` 后才跑对）。
+
+### §7.14 aiter `moe_sorting` dispatch 默认翻转（OPUS 现为默认；2026-05 主线行为）
+
+**KNOWN_FACT（不阻塞复现，但与 perf / dispatch 文档基线行为不同）**：
+
+aiter 自上游主线 commit **`acf1dbd3f use opus moe as default (#3011)`** 起（祖先链中位于 `f06cdcca5..315123ace` 之间），`moe_sorting` 子 op dispatch 默认从历史的 "OPUS opt-in"（旧 `_USE_OPUS_MOE_SORTING`）翻转为 **"CK opt-in"**（新 `_USE_CK_MOE_SORTING`，默认 `0` → `use_opus=True`）。当前 `aiter/fused_moe.py` 实测：
+
+```python
+# aiter/fused_moe.py:27 (实测 in-tree)
+_USE_CK_MOE_SORTING = os.environ.get("AITER_USE_CK_MOE_SORTING", "0") == "1"
+# aiter/fused_moe.py:123
+use_opus=not _USE_CK_MOE_SORTING,
+```
+
+**对复现的影响**：
+
+- **不影响**正确性：MoE 主体 fp8 blockscale GEMM dispatch（`module_moe_ck2stages_f8_f8_preshuffle_on_b16_*_per_1x128_mulWeightStage2`）路径不变；§6.1 PASS 判定 + §6.3 A1-A4 anchors 不变。
+- **影响 dispatch trace**：现在 `moe_sorting` 子 op 走 `moe_sorting_opus_*` kernel（而非历史的 `moe_sorting_ck_*`）。`details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md` + `details/research/19_kernel_dispatch_report/REPORT.md` + `details/perf/16_perf_gfx950_verified/RESULTS.md` 提到的 dispatch path 描述对应 OPUS opt-in 时期，与当前 in-tree 默认不同。
+- **如需复现历史 CK sorting 行为**：`export AITER_USE_CK_MOE_SORTING=1` 即可强制走旧路径。
+
+**来源**：`tp2_verify_post_merge_wave/progress/teammate-L25-audit-commit-currency.md` §2.3（grep 全 repo 0 处提及该翻转 + `git log f06cdcca5..315123ace` 确认含 `acf1dbd3f` + 在线实测 `aiter/fused_moe.py:27,123`）。
+
+---
+
+> **本节 last-verified**：2026-05-09（wave `tp2_verify_post_merge_wave` L29 收尾；commit currency 实测见 L25；perf coverage 审计见 L26）。
 
 ---
 

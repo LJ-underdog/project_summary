@@ -17,8 +17,10 @@
 | Repo | 分支 | 终点 commit | 主要改动 commit 数 | 备注 |
 |---|---|---|---|---|
 | ATOM | `feat/step3p5-flash-support` | **`969d564`** (含 tp=8 双层 fix) / `ccb64621` (路径 A 最低) / `acff926d` (中间态) | 7 | tp=8 双层 fix 在 `969d564` |
-| aiter | `feat/step3p5-moe-swiglustep` | `0f8164017` | 9 (含 1 revert) | NEW-RC-3 patch 仅 working-tree dirty，未上 commit |
+| aiter | `feat/step3p5-moe-swiglustep` | **`f06cdcca5`** (含 NEW-RC-3 commit 化) ／历史中间态 `0f8164017` | 10 (含 1 revert + NEW-RC-3 commit 化) | NEW-RC-3 patch 已上 commit (`f06cdcca5`)；X2+X2.5 verify-tool patch 仍 working-tree dirty（aiter/jit/core.py，详见 §2.2 末节） |
 | composable_kernel | `feat/swiglustep-moe-no-quant` | `defd7ad29` | 1 | 领先 `origin/develop` 1 commit |
+
+> **UPDATE 2026-04-30 / 2026-05-09 — aiter 行修订**：原表（`0f8164017` + "NEW-RC-3 patch 仅 working-tree dirty，未上 commit"）反映 wave 14 进行时（2026-04-26）状态。2026-04-30 NEW-RC-3 patch 已 commit 化为 aiter `f06cdcca5`（commit message: `fix(moe): force per_1x128 fp8 blockscale to CK 2-stage on gfx942`，diff 与原 working-tree patch byte-id 一致；仍在 `feat/step3p5-moe-swiglustep` 分支，未 push 到 `origin/main`）。当前 reproduce 锁定 commit 见 `REPRODUCE.md §3.1`。证据：`tp2_verify_post_merge_wave/progress/teammate-L25-audit-commit-currency.md` §1.2（`git show f06cdcca5` 实测 + ancestor 验证）。
 
 **git push 操作路径**：`/home/hanchang/junlin12_repos/{atom,aiter,composable_kernel}`（author: `Jun Lin <junlin12@amd.com>`）
 
@@ -55,11 +57,14 @@
 | `a2883ab37` | 2026-04-26 | **删除 buggy ASM kernel tuning 条目**：`glm5_bf16_tuned_gemm.csv` 移除触发 `bf16gemm_bf16_tn_256x256` (N=4096,K=2048) 的 entry，修复 tp=4 长序列 BOS bug（gfx950）；保留 `splitk_clean` variant | `details/topics/07_tp4_longseq_bos_fix.md`，原文 `code_changes_all_repos.md:545-586` |
 | `a2247989d` + `dd4257d8f` + `0f8164017` | 2026-04-26 | **stage1 NPerBlock=64 blockscale kernels** | 原文 `code_changes_all_repos.md:588-630` |
 
-**未上 commit 的 working-tree patch**：
+**aiter 仓 patch / commit 状态（按时间线）**：
 
-| Patch | 文件 / 行号 | 用途 | 详细叙述 |
-|---|---|---|---|
-| **NEW-RC-3 dispatch patch** | `aiter/fused_moe.py:881-886`（`run_1stage = False` 强制 CK 2-stage） | gfx942 tp=8 prefill 需 bypass `fmoe_fp8_blockscale_g1u1` ASM（gfx942 签名不带 block shape，会 dispatch miss → gibberish）。修改后 working-tree dirty，**不要 commit**；重新 `setup.py develop` 编译进 .so | `details/projects/14_migration_gfx942/MIGRATION_REPORT.md` §6（NEW-RC-3 详解） |
+> **UPDATE 2026-04-30 / 2026-05-09**：原"未上 commit 的 working-tree patch"节描述对应 wave 14（2026-04-26）状态。NEW-RC-3 dispatch patch 已 commit 化为 aiter `f06cdcca5`，现以下表区分"已 commit"vs"仍 working-tree dirty"。
+
+| Patch | 状态 | 文件 / 行号 | 用途 | 详细叙述 |
+|---|---|---|---|---|
+| **NEW-RC-3 dispatch patch** | **✅ 已 commit 为 `f06cdcca5`**（2026-04-30；`feat/step3p5-moe-swiglustep` 分支，未 push origin/main）| `aiter/fused_moe.py:881-886`（`run_1stage = False` 强制 CK 2-stage） | gfx942 tp=8 prefill 需 bypass `fmoe_fp8_blockscale_g1u1` ASM（gfx942 签名不带 block shape，会 dispatch miss → gibberish）。`git checkout f06cdcca5` 后已自动包含，无需手工 apply | `details/projects/14_migration_gfx942/MIGRATION_REPORT.md` §6（NEW-RC-3 详解；描述对应 working-tree dirty 时点）+ `REPRODUCE.md §3.4` 顶部 NOTE（当前 commit 化状态） |
+| **X2 + X2.5 verify-tool patch** | ⚠️ 仍 working-tree dirty（未 commit）| `aiter/jit/core.py`（+32 −7 行；`check_args` `Optional[aiter_tensor_t]` 分支 TypeError 修复）| aiter 自 `315123ace` HEAD 起，stepfun engine_init warmup 通过 `Optional[aiter_tensor_t]` annotation 检查 `moe_sorting_opus_fwd` 时撞 TypeError（pybind doc_str 暴露 `aiter_tensor_t`，caller 传 `torch.Tensor`，develop=True 转换在 check_args 之后）；本 patch 修复 wrapper。**非 reproduce 阻塞**（NEW-RC-3 + ATOM `969d564` 核心路径不触达），仅在用 `f06cdcca5` 之后更新 commit 跑内部 verify 工具时撞到 | `tp2_verify_post_merge_wave/progress/teammate-L14-x2.5-patch.md` + `imp_l14_x25.diff`（72 行 unified diff） |
 
 ### §2.3 composable_kernel repo
 
@@ -121,7 +126,7 @@
 | **NEW-RC-3**：per_1x128 prefill ASM bypass | working-tree patch | `aiter/fused_moe.py:881-886` 强制 `run_1stage=False` 走 CK 2-stage | `MIGRATION_REPORT.md` §6 |
 | **M2 padding**：tp=4 inter_dim 320→384 | 自动机制 | `_process_block_quant` padding，**无须新增改动** | `MIGRATION_REPORT.md` §7 |
 
-**净改动**：1 hunk × 3 行（仅 NEW-RC-3 patch，working-tree dirty 未推回 aiter 仓）。
+**净改动**：1 hunk × 3 行（NEW-RC-3 patch）。**状态更新（2026-04-30）**：该 patch 已 commit 化为 aiter `f06cdcca5`，不再是 working-tree dirty；`feat/step3p5-moe-swiglustep` 分支保留，未 push 到 `origin/main`。详见 §2.2 表 "aiter 仓 patch / commit 状态" + `REPRODUCE.md §3.4` 顶部 NOTE。
 
 ### §3.6 长序列 BOS bug（gfx950 tp=4 only）
 
@@ -147,7 +152,8 @@ ATOM:  ec8cbe87 (Step3p5 模型 + preshuffle fix)            ← 基础，其余
        └── 969d564  (tp=8 双层 fix; 依赖 acff926d)
 aiter: 6d70f7b54 (SwigluStep + CK bump) → 68fc7d48b (V1→V3) → 7ebae9afb (sliding) → 7312ea166 (allreduce)
        → c38d0c9e6 (FP8 guard) → a2883ab37 (delete buggy entry) → a2247989d/dd4257d8f/0f8164017 (NPerBlock=64)
-       + working-tree NEW-RC-3 patch (gfx942 only)
+       → f06cdcca5 (NEW-RC-3 commit 化, 2026-04-30 — fix: force per_1x128 fp8 blockscale to CK 2-stage on gfx942)
+       + working-tree X2/X2.5 verify-tool patch (aiter/jit/core.py, 非 reproduce 阻塞)
 CK:    defd7ad29 (swiglustep epilogue; aiter 6d70f7b54 引用)
 ```
 
@@ -178,7 +184,8 @@ byte-identical 闭环：M1 tp=2 ↔ M2 tp=4 P3 prompt 143/143 chars 完全一致
 | ATOM | `atom/model_engine/model_runner.py` | `ec8cbe87` |
 | ATOM | `atom/model_loader/loader.py` | `ec8cbe87` |
 | ATOM | `atom/model_ops/attentions/aiter_attention.py` | `7ebae9afb` (依赖) |
-| aiter | `aiter/fused_moe.py` | `68fc7d48b` / `c38d0c9e6` + working-tree NEW-RC-3 patch |
+| aiter | `aiter/fused_moe.py` | `68fc7d48b` / `c38d0c9e6` / **`f06cdcca5`** (NEW-RC-3 commit 化) |
+| aiter | `aiter/jit/core.py` | working-tree X2 / X2.5 verify-tool patch（非 reproduce 阻塞，仅在 `f06cdcca5` 之后更新 commit 跑 stepfun engine_init warmup 时撞 TypeError）|
 | aiter | `aiter/configs/model_configs/glm5_bf16_tuned_gemm.csv` | `a2883ab37` |
 | aiter | `aiter/dist/*` | `7312ea166` |
 | aiter | `aiter/jit/*` | `6d70f7b54` (codegen) |

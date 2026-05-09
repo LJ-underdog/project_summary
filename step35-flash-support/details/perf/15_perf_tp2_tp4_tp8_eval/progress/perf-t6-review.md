@@ -1,5 +1,15 @@
 # perf-T6 critical review — PERF_REPORT.md
 
+> **🔴 HISTORICAL DISCLAIMER（2026-05-09 by `tp2_verify_post_merge_wave` / L17c+L19b+L19d+L28）**
+>
+> 本 review 的 R1 "数值真实度抽查"表（Section 2）对 18 项核心数值标 ✓ "完全一致" — **仅 audit "数值与 raw log 一致"，未审 model 归属维度**。L17c/L19d 后续翻转：
+> - tp=2 raw log（`logs/tp2_run2_full.log:47,50`）实测 `Model load done: Qwen/Qwen3-0.6B`（非 stepfun-Flash-FP8）
+> - tp=4（`logs/tp4_run2_full.log:79` 等 8/8 行）/ tp=8 long（`logs/tp8_long_run2_full.log:144` 等 12/12 行）/ tp=8 起服（`logs/tp8_launch_full.log:144` 等 6/6 行）全部同源 `Qwen/Qwen3-0.6B`
+>
+> 因此本 review 的 ✓ 标签需作 partial PASS 解读：**数值与 raw log 字面一致 ✓，但数值的 model 归属错位 🔴**。下游若引用本 review 的 ✓ 结论作为 "stepfun perf baseline 已验证" 推断，结论失效。
+>
+> 详见本目录 `PERF_REPORT.md` 顶部 🔴 块 + `perf-t1.md / perf-t2.md / perf-t4.md / perf-t7.md` 各自顶部 🔴 块 + 附录 X，或 `todo.md` 顶部 🔴 banner 4 个 raw log 路径汇总。本顶部 disclaimer 仅作 entry-point hint，避免直接读 perf-t6-review 的 reader 错过翻转结论。
+
 > 项目：`fp8-tp4-repro / perf_tp_eval`
 > Review 日期：2026-04-29
 > Reviewer：perf-T6（critical reviewer）

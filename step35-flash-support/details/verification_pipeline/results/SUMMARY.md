@@ -1,5 +1,21 @@
 # Step-3.5-Flash 验证 Pipeline — 汇总结果
 
+> ### Verification status cross-ref（2026-05-09 update by `tp2_verify_post_merge_wave/L31`）
+>
+> 本 SUMMARY 覆盖 V01-V07 在 gfx950 (MI350X) 上的 25 个 P0 实验。后续 gfx942 (MI308X) 路径有
+> 独立 wave 复核：
+>
+> - **Correctness ✅**（gfx942 / X2+X2.5 patch 后）：`tp2_verify_post_merge_wave/L15`（NEW-RC-3 真实有效，
+>   3 重证据：dispatch grep 6 项与 baseline 完全一致 + 4-prompt sanity 4/4 命中 + P2 byte-identical 60 token_ids
+>   完全一致；唯一 noise = P1 finish_reason 微差但 25/25 prime 全命中，capability 不退化）
+> - **Performance reference ✅**：`tp2_verify_post_merge_wave/L18` (tp=2) + `L20` (tp=4 / tp=8)
+>   已写入顶层 [`step35-flash-support/REPRODUCE.md §6.2`](../../../REPRODUCE.md)（gfx942 stepfun-Flash-FP8
+>   三档 perf anchor）
+>
+> 详见对应 wave progress 文件（`/home/junlin12/project_fp8_tp4_repro/tp2_verify_post_merge_wave/progress/`）。
+
+---
+
 **验证日期**：2026-04-25
 **平台**：8× AMD MI350X (gfx950)，ROCm
 **验证范围**：V01-V07（7 个专题，25 个 P0 实验）

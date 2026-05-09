@@ -1,5 +1,21 @@
 # Step-3.5-Flash 全栈推理支持 — 三仓库代码修改全记录
 
+> ## ⚠️ DEPRECATED — 历史快照（截至 2026-04-29 / step35-flash-support 早期）
+>
+> **本文件已被顶层 [`step35-flash-support/CODE_CHANGES.md`](../../CODE_CHANGES.md) 取代**（保留原文作 historical reference）。
+>
+> 当前三仓 reproduce commit / changelog 请优先参阅：
+> - **代码改动总账**：[`step35-flash-support/CODE_CHANGES.md`](../../CODE_CHANGES.md)
+> - **复现指南**：[`step35-flash-support/REPRODUCE.md`](../../REPRODUCE.md)（§3.1 commit 表 + §3.4 NEW-RC-3 说明）
+>
+> 本文件下方表 §"概览"列出的 commit (ATOM `ccb64621/acff926d` / aiter `0f8164017` / CK `defd7ad29`) 是
+> 2026-04-26 wave 14 实施时点的状态；后续 ATOM 已升至 `969d564`（含 tp=8 双层 fix）、aiter NEW-RC-3
+> patch 已 commit 化为 `f06cdcca5`。
+>
+> 由 `tp2_verify_post_merge_wave/L31` 标注（2026-05-09）。
+
+---
+
 **编写日期**：2026-04-29
 **覆盖范围**：ATOM / aiter / composable_kernel
 **验证状态**：V01-V07 全 PASS（2026-04-26）

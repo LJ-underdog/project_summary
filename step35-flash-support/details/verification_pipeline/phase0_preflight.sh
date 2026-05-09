@@ -57,8 +57,16 @@ WORK_DIR="/home/hanchang/project_fp8_tp4/verification_pipeline"
 HF_HUB_DIR="${HOME}/.cache/huggingface/hub"
 
 # Required (or newer) commits
-REQUIRED_ATOM_COMMIT="ccb64621"
-REQUIRED_AITER_COMMIT="c38d0c9e6"
+# NOTE (updated 2026-05-09 by tp2_verify_post_merge_wave/L31):
+#   下界 anchor 从历史 commit (ATOM ccb64621 / aiter c38d0c9e6) 升级到当前
+#   step35-flash-support REPRODUCE.md §3.1 锁定 commit：
+#     ATOM  969d564     (含 tp=8 双层 fix；ancestor 包含 ccb64621)
+#     aiter f06cdcca5   (NEW-RC-3 patch commit 化；ancestor 包含 c38d0c9e6)
+#   旧值保留为下面注释行作 historical reference (gfx950 / 早期路径下界).
+# REQUIRED_ATOM_COMMIT="ccb64621"     # historical (V01-V07 gfx950 path)
+# REQUIRED_AITER_COMMIT="c38d0c9e6"   # historical (V01-V07 gfx950 path)
+REQUIRED_ATOM_COMMIT="969d564"
+REQUIRED_AITER_COMMIT="f06cdcca5"
 
 printf "%s%sPhase 0 PreFlight Check%s  (date: %s)\n" "$C_BOLD" "$C_BLUE" "$C_RESET" "$(date '+%Y-%m-%d %H:%M:%S')"
 printf "Working dir: %s\n" "$WORK_DIR"

@@ -89,7 +89,16 @@ total_lat = float(out["latency"])                # 来自 ATOM
 
 ### 2.1 命令
 
+> ⚠️ **勘误（tp2_verify_post_merge_wave / L17c+L19e+L24+L30 后置补注）**：
+> 下方原始命令**漏写 `--model $STEP35_PATH`**，与 `step35-flash-support/REPRODUCE.md §7.13 KNOWN_FACT`
+> 直接矛盾。ATOM `EngineArgs --model` 默认值 = `Qwen/Qwen3-0.6B`，未显式传 `--model`
+> 时，silent 覆盖脚本内 `_find_model_path()` / `STEP35_MODEL_PATH` 推断，实际加载 Qwen3 dense
+> 模型而非 stepfun-Flash MoE。本节 dry-run 数据本身只是脚本 ok 自证（input 才 256），
+> 但 reader **不可** copy-paste 此命令到正式 perf 测试 —— 必须按下方 §2.1.1 修订版命令。
+> 强制验证：跑完 `grep -m2 'Model load done' <full.log>` 必须为 stepfun snapshot 路径。
+
 ```bash
+# ⚠️ 历史命令（漏 --model；保留作 traceability，不要 copy-paste 到新跑）
 cd /tmp && \
 HF_HOME=/workspace/hf_cache \
 CUDA_VISIBLE_DEVICES=0,1 \
@@ -99,6 +108,23 @@ AITER_LOG_TUNED_CONFIG=1 \
   --tp 2 --input-tokens 256 --output-tokens 32 \
   --log-file /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/dry_run_tp2.log \
   > /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/dry_run_tp2_full.log 2>&1
+```
+
+### 2.1.1 修订版命令（reader 应使用此版；详 REPRODUCE.md §7.13）
+
+```bash
+# 必须先 export STEP35_PATH=stepfun-ai/Step-3.5-Flash-FP8（或本地 snapshot 绝对路径）
+cd /tmp && \
+HF_HOME=/workspace/hf_cache \
+CUDA_VISIBLE_DEVICES=0,1 \
+AITER_LOG_LEVEL=INFO \
+AITER_LOG_TUNED_CONFIG=1 \
+/opt/venv/bin/python /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/perf_bench.py \
+  --model $STEP35_PATH \
+  --tp 2 --input-tokens 256 --output-tokens 32 \
+  --log-file /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/dry_run_tp2.log \
+  > /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/dry_run_tp2_full.log 2>&1
+# ↑ --model $STEP35_PATH 不可省，详 step35-flash-support/REPRODUCE.md §7.13
 ```
 
 ### 2.2 结果：通过（exit_code=0）
@@ -161,8 +187,15 @@ $ pgrep -af perf_bench
 
 ### 5.1 命令模板（替换 tp / CUDA_VISIBLE_DEVICES）
 
+> ⚠️ **勘误（tp2_verify_post_merge_wave / L17c+L19e+L24+L30 后置补注）**：
+> 下方原始通用模板**漏写 `--model $STEP35_PATH`** —— 这是 perf wave 误归属（baseline 实跑
+> Qwen3-0.6B 而非 stepfun-Flash-FP8）的根本根源。perf-T1 / perf-T2 / perf-T4 / perf-T7 全部
+> 沿用此模板，导致 raw log `Model load done:` 字段全部为 `Qwen/Qwen3-0.6B`（实证：L17c §1.1
+> `tp2_run2_full.log:47,50` + L19d §4 `tp4_run2_full.log:79` / `tp8_long_run2_full.log:144`）。
+> reader **必须使用** §5.1.1 修订版模板。详 `step35-flash-support/REPRODUCE.md §7.13 KNOWN_FACT`。
+
 ```bash
-# 通用模板
+# ⚠️ 历史模板（漏 --model；保留作 traceability，不要 copy-paste 到新跑）
 cd /tmp && \
 HF_HOME=/workspace/hf_cache \
 CUDA_VISIBLE_DEVICES=<gpu_list> \
@@ -172,6 +205,25 @@ AITER_LOG_TUNED_CONFIG=1 \
   --tp <N> --input-tokens 10240 --output-tokens 1024 \
   --log-file /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/<run_id>.log \
   2>&1 | tee /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/<run_id>_full.log
+```
+
+### 5.1.1 修订版命令模板（reader 应使用此版；详 REPRODUCE.md §7.13）
+
+```bash
+# 必须先 export STEP35_PATH=stepfun-ai/Step-3.5-Flash-FP8（或本地 snapshot 绝对路径）
+cd /tmp && \
+HF_HOME=/workspace/hf_cache \
+CUDA_VISIBLE_DEVICES=<gpu_list> \
+AITER_LOG_LEVEL=INFO \
+AITER_LOG_TUNED_CONFIG=1 \
+/opt/venv/bin/python /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/perf_bench.py \
+  --model $STEP35_PATH \
+  --tp <N> --input-tokens 10240 --output-tokens 1024 \
+  --log-file /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/<run_id>.log \
+  2>&1 | tee /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/<run_id>_full.log
+# ↑ --model $STEP35_PATH 不可省，详 step35-flash-support/REPRODUCE.md §7.13
+# 强制验证：跑完 grep -m2 'Model load done' logs/<run_id>_full.log
+#           必须为 stepfun snapshot 路径；若为 Qwen3 则本次 run 数据全部作废
 ```
 
 ### 5.2 各 teammate 的具体值

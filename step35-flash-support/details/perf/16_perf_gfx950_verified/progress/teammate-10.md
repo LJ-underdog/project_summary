@@ -1,5 +1,19 @@
 # teammate-10 progress: #702 compute 占比估算
 
+> # 🔴 历史 progress disclaimer（2026-05-09 by wave `tp2_verify_post_merge_wave` L27 加注）
+>
+> 本 progress 中**模型参数 / GEMM FLOPs 分解 / 62 次 miss 的 (N,K) 分布 / MoE 走 CK fused_moe 而非 bf16_tuned_gemm 的代码确认**全部由 config + raw log + 代码读取得出，**仍有效**；但 §3 "TTFT gap 解释力分析" + §5 "H6 主要根因" 量化结论的 anchor 已失效：
+>
+> - §3 (line 73-77) "FP8 perf_bench tp=2 TTFT = 388 ms / tp=4 = 241 ms / **gfx942 baseline 显著更低**（参见 RESULTS.md），**TTFT gap 量级在 100~200 ms**" — anchor "gfx942 baseline 显著更低" 实为 Qwen/Qwen3-0.6B 误归属（L17c 实证：`details/perf/15_perf_tp2_tp4_tp8_eval/logs/tp2_run2_full.log:47` `Model load done: Qwen/Qwen3-0.6B`）。
+> - §3 "**bf16_tuned_gemm miss ... 在 tp=2 单独可贡献 ~87 ms TTFT 额外延迟**... 强烈支持 H6 是 TTFT gap 的主导根因" — 87ms / 43ms 数值由"gfx942 比 gfx950 快"反推得到，anchor 失效后**该量化结论不可用**。
+> - §5 "H6 可作为 TTFT gap 的**主要根因**" — verdict 暂不可用，需重跑 gfx942 stepfun MoE perf 后**重新计算 gap 方向与量级**。按真实 stepfun gfx942 tp=2 ≈ 1665ms（L18 实测）对照 gfx950 388ms，gap 方向甚至可能反转（gfx950 反而快）。
+>
+> 注：BF16 路径占 prefill GEMM FLOPs 46.1% 这个**独立 FLOPs 占比事实**仍有效，未来的 tuning 工作仍可作为 hot-path 优先级依据；但 "解释 gfx950 vs gfx942 gap" 因果 + 量化结论暂不可用。
+>
+> 本 progress 原文保留作审计追溯。详见同目录 `RESULTS.md` 顶部 🔴 BANNER + 附录-DISCLAIMER + wave `tp2_verify_post_merge_wave/progress/teammate-L17c-baseline-audit.md` / L18 / L20 / L24 / L26。
+
+---
+
 ## 任务
 估算 bf16_tuned_gemm miss（attention/dense/shared 层 BF16 GEMM）的实际 FLOPs 占比，与 MoE CK fused_moe FLOPs 对比，判断 H6 假设的实际影响范围。
 

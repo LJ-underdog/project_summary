@@ -1,5 +1,11 @@
 # perf-T5 progress
 
+> **🔴 HISTORICAL DISCLAIMER（2026-05-09 by `tp2_verify_post_merge_wave` / L17c+L19b+L19d+L28）**
+>
+> 本 progress 是 PERF_REPORT.md 撰写工作记录（writer 视角）。其中第 4 节"给 perf-T6 reviewer 的抽查建议"列出的 stable 数值（tp=2: TTFT=0.186 / TPOT=5.245；tp=4: TTFT=0.110 / TPOT=5.451；tp=8: TTFT=0.037 / TPOT=3.562）**全部来自 `Qwen/Qwen3-0.6B` 实跑（非任务目标 stepfun-Flash-FP8）**。raw log 实证 `Model load done: Qwen/Qwen3-0.6B`（详见 `progress/perf-t1.md / perf-t2.md / perf-t4.md / perf-t7.md` 各自顶部 🔴 块 + 附录 X，或本目录 `todo.md` 顶部 🔴 banner 4 个 raw log 路径汇总）。
+>
+> 本 progress **不逐行修**（二级 derivative — writer 工作记录，非源数据）；audit 链通过本目录 `PERF_REPORT.md` 顶部 🔴 块 + `perf-t1.md / perf-t2.md / perf-t4.md / perf-t7.md` 顶部各 🔴 块向上传播。本顶部 disclaimer 仅作 entry-point hint，避免直接读 perf-t5 的 reader 错过翻转结论。
+
 > 任务：`#P3-W` — 撰写 PERF_REPORT.md
 > WORK_DIR = `/home/junlin12/project_fp8_tp4_repro/perf_tp_eval`
 > 日期：2026-04-29

@@ -1,7 +1,16 @@
 # TEAM_CONFIG — perf_tp_eval
 
+> **🔴 BASELINE / WAVE STATUS DISCLOSURE（2026-05-09 by `tp2_verify_post_merge_wave` / L17c+L19b+L19d+L24+L25+L28）**
+>
+> 1. **本 TEAM_CONFIG 反映 wave 进行时（2026-04-29）状态**；当前 step35-flash-support reproduce 路径见**顶层 `step35-flash-support/REPRODUCE.md §3.1`**（commit 已升级为 ATOM `969d564` / aiter `f06cdcca5`，含本 wave 时点的 NEW-RC-3 patch commit 化）。
+> 2. **本 wave 实跑 model = `Qwen/Qwen3-0.6B`（dense, non-MoE），非任务目标 `stepfun-ai/Step-3.5-Flash-FP8`**：raw log `Model load done:` 字段实证（详见 `todo.md` 顶部 🔴 banner 4 个 raw log 路径汇总 + `PERF_REPORT.md` 顶部 🔴 块 + `progress/perf-t{1,2,4,7}.md` 各自顶部 🔴 块 + 附录 X）。根因 = perf 启动命令模板**全部漏写 `--model`**，ATOM EngineArgs default 抢先生效（详见 `step35-flash-support/REPRODUCE.md §7.13` KNOWN_FACT）。
+> 3. **本 wave perf 数据（tp=2 / tp=4 / tp=8 long / tp=8 起服 全 4 档）不可作 stepfun-Flash-FP8 perf anchor**。stepfun gfx942 三档真实 anchor 见 `step35-flash-support/REPRODUCE.md §6.2`（数据来自 `tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md` + `teammate-L20-perf-tp4-tp8.md`）。
+> 4. **下方 KNOWN_FACTS F1（三仓 commit）**反映 2026-04-29 状态；当前 reproduce commit 见 `step35-flash-support/REPRODUCE.md §3.1`。**F4（NEW-RC-3 working-tree dirty patch）**已 commit 化为 aiter `f06cdcca5`（详见 `step35-flash-support/REPRODUCE.md §3.4` + `tp2_verify_post_merge_wave/progress/teammate-L25-audit-commit-currency.md` §2.2-A-1/A-2）。
+>
+> 不删除原文（保留作 historical wave-internal record）；本 banner 加在顶部以避免后续 reader 误以为本 wave 已建立 stepfun perf baseline。
+
 > 子类实例（继承 `~/.claude/skills/agent-team/SKILL.md`）
-> 父任务：`fp8-tp4-repro`（已 CLOSED）
+> 父任务：`fp8-tp4-repro`（已 CLOSED — ⚠️ 见上方 🔴 banner 第 3 条：本 wave perf 数据已被 audit 翻转 model 归属）
 > 创建日期：2026-04-29
 
 ## PROJECT
