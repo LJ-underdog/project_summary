@@ -10,7 +10,8 @@
 
 `stepfun-ai/Step-3.5-Flash-FP8`（FP8 blockscale 量化权重）模型基于 ATOM 推理框架 + AITER kernel 库 + Composable Kernel 在 AMD MI308X (gfx942) 上端到端跑通。复现完成后预期：
 
-- **gfx942 (MI308X) FP8 tp=2/4/8 三档全部 PASS**（A1-A4 anchors，详见 §6）
+- **gfx942 (MI308X) FP8 tp=2/4/8 三档全部 PASS**（functional A1-A4 anchors，详见 §6.1 / §6.3）
+- **首次实测 stepfun-Flash-FP8 MoE perf 三档**（详见 §6.2；wave `tp2_verify_post_merge_wave` 产出，无历史 baseline 可对比 —— 旧 perf 数据归属勘误见 §6.2 注）
 
 复现核心依赖：
 1. 三仓 pinned commit（ATOM `969d564` / aiter `f06cdcca5` / CK `defd7ad29`）
@@ -282,22 +283,31 @@ step35-flash-support 仓内未提供与 fp8-tp4-repro 等价的 throughput_bench
 
 来源：`/home/junlin12/project_fp8_tp4_repro/reverify_wave/progress/teammate-reverify.md` §2.2 + `details/topics/12_reproduction_guide_fp8_tp4.md` §6.1。
 
-### 6.2 性能 anchors（gfx942 / MI308X / FP8）
+### 6.2 性能 anchors（gfx942 / MI308X / FP8 / stepfun-Flash-FP8 MoE）
 
-测试条件：`stepfun-ai/Step-3.5-Flash-FP8`；input ≈ 10240 tokens；output 由 eos 提前停（max_tokens=1024）；concurrency=1；temperature=0；method=A（复用 ATOM 内置 ttft/tpot 字段）。
+> **勘误背景**：本节原引用 `details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md` 数值（TTFT 0.186/0.110/0.071s 等）实际是 Qwen3-0.6B（dense, non-MoE）path —— ATOM `EngineArgs --model` default 陷阱（§7.13）导致 raw log 实跑 Qwen 而非 stepfun MoE。本表已替换为 wave `tp2_verify_post_merge_wave` 首次实测 stepfun-Flash-FP8 MoE 数据；原 Qwen 数值归属勘误参见 `details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md`（已由 wave L19b 标注归属）。
+
+测试条件：`stepfun-ai/Step-3.5-Flash-FP8`（**显式** `--model $STEP35_PATH` + `--kv_cache_dtype fp8`，避免 §7.13 陷阱）；input target 10240 → actual 10213 tokens；output 由 eos 提前停（max_tokens=1024，三档 actual output 不同：240 / 266 / 937）；concurrency=1；temperature=0；method=A（复用 ATOM 内置 ttft/tpot 字段）；脚本 `details/scripts/perf_correctness_bench.py`；runs=2 取 last as stable。
 
 | 配置 | TTFT | TPOT | total_latency | decode throughput | actual input/output | engine_init |
 |---|---|---|---|---|---|---|
-| FP8 tp=2 | **0.186 s** | **5.245 ms/tok** | 1.843 s | 190.66 tok/s | 10265 / 317 (eos) | 25.38 s |
-| FP8 tp=4 | **0.110 s** | **5.451 ms/tok** | 2.373 s | 183.44 tok/s | 10265 / 416 (eos) | 30.25 s |
-| FP8 tp=8 | **0.071 s** | **5.542 ms/tok** | 1.629 s | 180.43 tok/s | 10265 / 282 (eos) | 44.98 s |
+| FP8 tp=2 | **1665.1 ms** | **15.5 ms/tok** | 5.380 s | 64.3 tok/s | 10213 / 240 (eos) | 82.32 s |
+| FP8 tp=4 | **980.4 ms** | **14.5 ms/tok** | 4.816 s | 69.1 tok/s | 10213 / 266 (eos) | 125.72 s |
+| FP8 tp=8 | **747.1 ms** | **13.7 ms/tok** | 13.550 s | 73.1 tok/s | 10213 / 937 (eos) | 223.31 s |
 
-观察：
-- **TTFT** 随 tp 单调下降（0.186 → 0.110 → 0.071 s），tp=2 → tp=8 提速 2.62×，符合 prefill 算力扩展预期。
-- **TPOT** 随 tp 微升（5.245 → 5.451 → 5.542 ms/tok），decode batch=1 + all-reduce 通信 overhead 主导，tp=8 仅比 tp=2 慢 5.7%。
-- **engine_init** 随 worker 数线性增（25.38 → 30.25 → 44.98 s）。
+观察（首次实测 stepfun MoE，无历史 baseline 对比）：
+- **TTFT** 随 tp 单调下降（1665.1 → 980.4 → 747.1 ms），tp=2 → tp=8 提速 2.23×（次线性，prefill 阶段 weight × hidden 计算被 TP 切分，受 collective 通信开销影响）。
+- **TPOT** 随 tp 单调微降（15.5 → 14.5 → 13.7 ms/tok），tp=2 → tp=8 仅 11.6% 加速 —— decode 阶段 batch=1 + all-reduce 通信 overhead 主导，TP 扩展回报递减（典型 MoE expert routing + all-to-all 瓶颈）。
+- **decode throughput** 随 tp 单调上升（64.3 → 69.1 → 73.1 tok/s），tp=8 vs tp=2 仅 +13.7% 提升，与 TPOT 趋势一致。
+- **total_latency** 三档不可直接对比：tp=8 因 eos 时机不同导致 output_tokens=937（≈4× tp=4 的 266），故总时间反而增长；**单 token 延迟仍单调下降**才是 TP 扩展的正确读法。
+- **engine_init** 随 worker 数非线性增长（82.32 → 125.72 → 223.31 s），weight 加载并行化非线性 + per-worker IPC/CUDA context 初始化叠加。
 
-数据来源：`details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md` L23-L25（核心数字表）+ L490-L504 / L515-L529 / L540-L554（附录 A 原始 stable raw log），perf-T1 / perf-T2 / perf-T7 实测 Run 2。
+> **数值 vs 旧 Qwen3-0.6B 误归属表的量级差异**：stepfun-Flash-FP8 是 MoE（含 expert routing + per_1x128 fp8 blockscale dispatch），TTFT/TPOT 量级显著大于 Qwen3-0.6B dense path（~1665 ms vs ~186 ms TTFT 在 tp=2 档），这是模型路径本质差异（非 perf regression）。
+
+数据来源：
+- tp=2：`tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md` §2（Run B stable，stepfun_fp8_tp2_v2_full.log raw 实测，4 个 worker `Model load done:` 全部 stepfun snapshot）
+- tp=4 / tp=8：`tp2_verify_post_merge_wave/progress/teammate-L20-perf-tp4-tp8.md`（同脚本 + 显式 `--model $STEP35_PATH`，4/8 个 worker raw log 强制核对均 stepfun snapshot 路径）
+- baseline 误归属勘误：`tp2_verify_post_merge_wave/progress/teammate-L17c-baseline-audit.md` §1（raw log `tp2_run2_full.log:47,50` 实证 = Qwen3-0.6B）
 
 ### 6.3 PASS 判定（端到端 A1-A4）
 
