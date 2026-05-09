@@ -6,6 +6,8 @@
 > 红线遵守：未修改 ATOM/aiter/CK 任何源码；未动 perf_bench.py；未动其他 progress 文件
 > 新建文件：`logs/tp2_run1.log`、`logs/tp2_run1_full.log`、`logs/tp2_run2.log`、`logs/tp2_run2_full.log`、本文件
 
+> **🔴 BASELINE 误归属修正（2026-05-09 by tp2_verify_post_merge_wave / L17c+L19b）**：本文档原宣称的 baseline 数值（TTFT=186ms / TPOT=5.245ms / total=1.843s / decode_thru=190.66 tok/s）**实际是 Qwen/Qwen3-0.6B（dense, non-MoE）跑出来的，不是 stepfun-ai/Step-3.5-Flash-FP8**。raw log `logs/tp2_run2_full.log` 行 47/50 实测 `Model load done: Qwen/Qwen3-0.6B`；本节 §1 启动命令模板**漏写 `--model` 参数**，实际跑时显式传了 `--model Qwen/Qwen3-0.6B` 才会得到该 log，而非走 perf_bench.py:113 的 stepfun default。详见文末 **附录 X：baseline 误归属修正记录**。下游引用本文件 TTFT/TPOT 数值作为 stepfun baseline 的所有结论（含 PERF_REPORT.md tp=2 行、L17a-update-summary-repo.md §3）均**不成立**。stepfun-Flash-FP8 gfx942 tp=2 真实 baseline 见 `tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md`（首次实测 TTFT≈1665ms / TPOT≈15.5ms，可比性受 U1/U5/U8 漂移影响，不等同于历史 baseline）。
+
 ---
 
 ## 1. 启动命令
@@ -25,6 +27,8 @@ AITER_LOG_TUNED_CONFIG=1 \
   --log-file /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/tp2_run{N}.log \
   > /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/tp2_run{N}_full.log 2>&1
 ```
+
+> **🔴 命令记录不完整（2026-05-09 修正）**：上述命令模板**漏写了 `--model` 参数**。`raw log tp2_run2_full.log:47,50` 实测 `Model load done: Qwen/Qwen3-0.6B`，证明当时实际命令必带 `--model Qwen/Qwen3-0.6B`（否则按 `perf_bench.py:113` 的 default 应跑 `stepfun-ai/Step-3.5-Flash-FP8`）。本文记录的命令模板缺漏导致下游误以为 perf 数值是 stepfun baseline，应理解为 **Qwen3-0.6B baseline，不可作为 stepfun-Flash-FP8 的对照**。
 
 两次 run 之间 `sleep 5 && rocm-smi --showmemuse` 确认 VRAM=0 后再起。
 
@@ -84,15 +88,17 @@ Request 1 finished with reason eos. Input tokens: 10265, output tokens: 317, lat
 
 ## 3. 选定的 stable 数值
 
-| 指标 | 值 | 来源 |
-|---|---|---|
-| **TTFT** | **0.186 s** | `logs/tp2_run2.log:9` |
-| **TPOT** | **5.245 ms/token** | `logs/tp2_run2.log:10` |
-| total_latency | 1.843 s | `logs/tp2_run2.log:11` |
-| throughput_decode | 190.66 tokens/s | `logs/tp2_run2.log:12` |
-| actual input_tokens | 10265 (target 10240, 偏差 +25 在 ±32 tolerance 内 ✓) | `logs/tp2_run2.log:2` |
-| actual output_tokens | **317（不是 1024，eos 提前结束）** | `logs/tp2_run2.log:7` 与 `tp2_run2_full.log:142` |
-| engine_init_secs | 25.38 s（JIT 已 cache 后冷启动；perf-T0 dry-run 105s 是首次编译） | `logs/tp2_run2.log:4` |
+> **🔴 model 归属修正（2026-05-09）**：本节所有数值原文标为"stepfun-Flash-FP8 tp=2 baseline"，**实测 raw log 47/50 证明实际跑 model = Qwen/Qwen3-0.6B**（dense, non-MoE）。表中数值物理事实有效（log 行号引用真实），但 **model 字段标错**——应为 `Qwen/Qwen3-0.6B` 而非 stepfun。下游若把表中数值用作 stepfun MoE perf baseline 对照，**结论无效**。
+
+| 指标 | 值 | 来源 | model（修正后） |
+|---|---|---|---|
+| **TTFT** | **0.186 s** | `logs/tp2_run2.log:9` | **Qwen/Qwen3-0.6B**（非 stepfun）|
+| **TPOT** | **5.245 ms/token** | `logs/tp2_run2.log:10` | **Qwen/Qwen3-0.6B** |
+| total_latency | 1.843 s | `logs/tp2_run2.log:11` | **Qwen/Qwen3-0.6B** |
+| throughput_decode | 190.66 tokens/s | `logs/tp2_run2.log:12` | **Qwen/Qwen3-0.6B** |
+| actual input_tokens | 10265 (target 10240, 偏差 +25 在 ±32 tolerance 内 ✓) | `logs/tp2_run2.log:2` | **Qwen/Qwen3-0.6B** |
+| actual output_tokens | **317（不是 1024，eos 提前结束）** | `logs/tp2_run2.log:7` 与 `tp2_run2_full.log:142` | **Qwen/Qwen3-0.6B** |
+| engine_init_secs | 25.38 s（JIT 已 cache 后冷启动；perf-T0 dry-run 105s 是首次编译） | `logs/tp2_run2.log:4` | **Qwen/Qwen3-0.6B** |
 
 **为什么选 Run 2**：
 
@@ -129,6 +135,9 @@ ATOM 是 multi-process 架构（`tp2_run2_full.log:7-9,22,25,146-147`）：
 
 ### 4.3 三条独立证据 → V1/V2/V3 实际通过
 
+> **🔴 论证前提失效（2026-05-09 修正）**：以下 E1/E2/E3 论证都基于"本次跑的是 stepfun-Flash-FP8 走 fp8 MoE 路径"前提；但 raw log 行 47/50 实测 model = Qwen/Qwen3-0.6B（dense, **不走 MoE**），所以"V1/V2 grep=0 是 multi-process 限制 + JIT cache 反证 stepfun MoE 走 ck2stages per_1x128"的整套推论**对本次 run 不适用**——本次 run 根本没经过 fp8 MoE dispatch path。E1/E2/E3 仅证明 JIT cache 当时的状态（确实只有那几个 .so），不证明本次 run 命中了它们。dispatch 一致性这一论点在本文件无效；如需 stepfun fp8 MoE dispatch 的 dispatch 验证，应去查 `tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md`。
+
+
 | 证据 | 内容 | 推论 |
 |---|---|---|
 | E1 | JIT cache 中**只**存在 `module_moe_ck2stages_f8_f8_preshuffle_on_b16_silu_per_1x128_mulWeightStage2.so` 与 `module_moe_ck2stages_f8_f8_preshuffle_on_b16_swiglustep_per_1x128_mulWeightStage2.so`（`/workspace/aiter/aiter/jit/`），没有 `per_tensor` 等其它 fp8 ck2stages 变种 | tp=2 跑 fp8 MoE 时只能命中 `per_1x128` → **V1 实质通过** |
@@ -145,6 +154,9 @@ ATOM 是 multi-process 架构（`tp2_run2_full.log:7-9,22,25,146-147`）：
 ---
 
 ## 5. 与 M1 PASS 时 docs/baseline_tp2_result.md 对比
+
+> **🔴 章节论点失效（2026-05-09 修正）**：M1 PASS 走的是 stepfun-Flash-FP8 fp8 MoE path，本次 perf-T1 raw log 实跑 Qwen/Qwen3-0.6B（dense，无 MoE），两者**不在同一 dispatch path**；本节所谓"dispatch path 完全一致"的结论**不成立**。本节内容仅作历史档案保留。
+
 
 M1 baseline log（`docs/baseline_tp2_result.md:80-114`）记录的 tp=2 dispatch 关键行：
 
@@ -202,3 +214,69 @@ GPU[1]: GPU Memory Read/Write Activity (%): 0
 - `WORK_DIR/logs/tp2_run2.log`（13 行 [PERF] dump）
 - `WORK_DIR/logs/tp2_run2_full.log`（148 行 stdout/stderr）
 - `WORK_DIR/progress/perf-t1.md`（本文件）
+
+---
+
+## 附录 X：baseline 误归属修正记录（2026-05-09）
+
+### X.1 修正背景
+
+`tp2_verify_post_merge_wave/progress/teammate-L17a-update-summary-repo.md`（2026-05-09 audit）原引用本 perf-t1 §3 的 stable 数值表，**误把 `TTFT=186ms / TPOT=5.245ms / total=1.843s / decode_thru=190.66 tok/s` 认定为 stepfun-ai/Step-3.5-Flash-FP8 gfx942 tp=2 baseline**，并据此推荐 L18 perf rerun 的对比 anchor。
+
+`tp2_verify_post_merge_wave/progress/teammate-L17c-baseline-audit.md` 复审时实测 raw log，发现 baseline 实际是 Qwen/Qwen3-0.6B（非 stepfun），翻转 L17a 结论。
+
+### X.2 实测证据（决定性）
+
+raw log：`step35-flash-support/details/perf/15_perf_tp2_tp4_tp8_eval/logs/tp2_run2_full.log`
+
+| 行号 | 内容 |
+|---|---|
+| 47 | `[atom 03:05:44] Model load done: Qwen/Qwen3-0.6B` |
+| 48 | `Loading safetensors shards[Qwen/Qwen3-0.6B]: 0%...` |
+| 49 | `Loading safetensors shards[Qwen/Qwen3-0.6B]: 100%...` |
+| 50 | `[atom 03:05:44] Model load done: Qwen/Qwen3-0.6B`（第二个 ModelRunner ranks 同样输出 Qwen） |
+| 76-77 | `[atom 03:05:52] Model warmup done: Qwen/Qwen3-0.6B`（×2 ranks） |
+
+整份 log **零处** `Step-3.5` / `stepfun` 字符串。
+
+### X.3 旁证
+
+`tp2_run2_full.log:5`：`Engine kwargs: {... 'kv_cache_dtype': 'bf16', ...}` —— `kv_cache_dtype='bf16'` 与 stepfun-Flash-FP8 路径需要的 `'fp8'` 不一致（fp8 MoE 路径必须显式传 fp8）→ 旁证不是 fp8 MoE 路径。
+
+### X.4 根因
+
+| 因子 | 状态 |
+|---|---|
+| `perf_bench.py:113` default model | = `stepfun-ai/Step-3.5-Flash-FP8` |
+| 实际命令 | 必带显式 `--model Qwen/Qwen3-0.6B` 才能让 raw log 显示 Qwen |
+| 本文档命令模板（§1） | **漏写 `--model` 参数**，让读者误以为走 default = stepfun |
+
+### X.5 影响范围（本仓内已修正 / 未修正）
+
+| 文件 | 状态 |
+|---|---|
+| `progress/perf-t1.md`（本文件）顶部警告 + §1 / §3 / §4.3 / §5 修正 | **已修正** |
+| `PERF_REPORT.md` TL;DR + §2.1 tp=2 行 + §2.3 tp=2 列 + §5.3 表格 tp=2 行 | **已加修正注释** |
+| `progress/perf-t2.md`（tp=4） / `perf-t3.md` / `perf-t4.md` / `perf-t7.md` | **未在本任务范围审计**；建议追加同类型 audit（命令模板可能也漏 `--model`，结论同样可能是 Qwen 而非 stepfun）|
+| `logs/tp2_run2.log` / `tp2_run2_full.log`（raw log） | **未修改**（log 是事实记录） |
+
+### X.6 stepfun-Flash-FP8 gfx942 tp=2 真实 baseline 状态
+
+- 项目历史中**不存在** stepfun-Flash-FP8 + tp=2 + perf 模式的 baseline 数值
+- `tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md` 是 stepfun-Flash-FP8 gfx942 tp=2 (kv_cache_dtype=fp8) **首次实测**：TTFT≈1665ms / TPOT≈15.5ms / total≈5.38s / decode_thru≈64.3 tok/s（output 240 eos）
+- L18 数据**不能**与 perf-t1 §3 数值（Qwen3-0.6B）做对比；L18 数据本身受 U1（aiter commit 漂移）/ U5（perf 脚本差异）/ U8（kv_cache_dtype bf16→fp8）多重 confounder 影响，亦不等同于 stepfun-Flash-FP8 历史 baseline anchor
+
+### X.7 后续建议（写给 lead）
+
+1. **如确需建立 stepfun-Flash-FP8 真 baseline**：派 teammate 在 baseline 三仓 commit（aiter `0f8164017` / ATOM `acff926` / CK `defd7ad29`）+ perf_bench.py 显式 `--model stepfun-ai/Step-3.5-Flash-FP8 --kv_cache_dtype fp8` 重跑 tp=2/4/8
+2. **如不再追加**：在 PERF_REPORT.md 留 KNOWN_FACT "stepfun-Flash-FP8 gfx942 perf baseline = 不存在；perf-t1/2/4/7 数值实为 Qwen3-0.6B 误归属"
+3. **审计同源风险**：perf-t2.md (tp=4) / perf-t7.md (tp=8 long) 命令模板可能同样漏 `--model`，建议派 teammate 各自 grep raw log 第一行 `Model load done:` 验证
+
+### X.8 修正动作链（traceability）
+
+| 时间 | teammate | 动作 |
+|---|---|---|
+| 2026-05-09 | tp2_verify_post_merge_wave / L17a | 锁定 perf-t1 §3 数值为"stepfun gfx942 tp=2 baseline"（**误归属**） |
+| 2026-05-09 | tp2_verify_post_merge_wave / L17c | 实测 raw log 行 47/50 翻转 L17a 结论 |
+| 2026-05-09 | tp2_verify_post_merge_wave / L18 | 首次实测 stepfun-Flash-FP8 gfx942 tp=2 fp8（NEED-RERUN verdict） |
+| 2026-05-09 | tp2_verify_post_merge_wave / L19b | 把 L17c 翻转结论同步到本 project_summary repo（即本附录 + 顶部警告 + 各章节修正注释） |

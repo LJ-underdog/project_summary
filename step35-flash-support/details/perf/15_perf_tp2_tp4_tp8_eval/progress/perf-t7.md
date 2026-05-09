@@ -6,6 +6,8 @@
 > 红线遵守：未修改 ATOM/aiter/CK 任何源码；未动 `perf_bench.py`；未动其他 progress 文件；未动 PERF_REPORT.md
 > 新建文件：`logs/tp8_long_run1.log`、`logs/tp8_long_run1_full.log`、`logs/tp8_long_run2.log`、`logs/tp8_long_run2_full.log`、本文件
 
+> **🔴 BASELINE 误归属修正（2026-05-09 by tp2_verify_post_merge_wave / L17c+L19b+L19d）**：本文档原宣称的 tp=8 long-prompt 数值（TTFT=71ms / TPOT=5.542ms / total=1.629s / decode_thru=180.43 tok/s / engine_init=44.98s）**实际是 Qwen/Qwen3-0.6B（dense, non-MoE）跑出来的，不是 stepfun-ai/Step-3.5-Flash-FP8**。raw log `logs/tp8_long_run1_full.log:144,146,149,151,153,155` 与 `logs/tp8_long_run2_full.log:144,146,148,150,152,154` 全部实测 `Model load done: Qwen/Qwen3-0.6B`；本节 §2 启动命令模板**漏写 `--model` 参数**（与 perf-t1.md / perf-t2.md / perf-t4.md 同源），实际命令显式传了 `--model Qwen/Qwen3-0.6B` 才会得到该 log。详见文末 **附录 X：baseline 误归属修正记录**。下游引用：(a) §6 JIT cache 间接证据 → V1/V2/V3 实质 PASS / (b) §7 横向对比 tp=2/tp=4/tp=8 / (c) §10 给 lead 的"P1 缺口闭环" —— 全部基于"本次跑 stepfun fp8 MoE"前提，**对 Qwen3-0.6B dense path 不成立**（Qwen 非 MoE，根本不会 dispatch 到 fp8 ck2stages）。**PERF_REPORT.md §7 P1 缺口实际未闭环**（须由后续真正跑 stepfun tp=8 long 的 task 补齐）。
+
 ---
 
 ## 1. 任务背景
@@ -33,6 +35,8 @@ AITER_LOG_TUNED_CONFIG=1 \
   --log-file /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/tp8_long_run{N}.log \
   2>&1 | tee /home/junlin12/project_fp8_tp4_repro/perf_tp_eval/logs/tp8_long_run{N}_full.log
 ```
+
+> **🔴 命令记录不完整（2026-05-09 修正）**：上述命令模板**漏写了 `--model` 参数**（与 perf-t1.md / perf-t2.md / perf-t4.md §1 同形）。`raw log tp8_long_run2_full.log:144` 实测 `Model load done: Qwen/Qwen3-0.6B`，证明当时实际命令必带 `--model Qwen/Qwen3-0.6B`（否则按 `perf_bench.py:113` 的 default 应跑 `stepfun-ai/Step-3.5-Flash-FP8`）。本文记录的命令模板缺漏导致下游误以为 perf 数值是 stepfun tp=8 long baseline，应理解为 **Qwen3-0.6B baseline，不可作为 stepfun-Flash-FP8 在 tp=8 long-prompt 工况下的对照**。
 
 两次 run 之间执行 `sleep 6 && pgrep -af perf_bench && rocm-smi --showmemuse`，确认 8 卡 VRAM=0、无残留进程后再起。两次均自然退出（atom 输出 "All EngineCores shut down"），未触发任何 RuntimeError / Traceback / dispatch miss。
 
@@ -90,15 +94,17 @@ Request 1 finished with reason eos. Input tokens: 10265, output tokens: 282, lat
 
 ## 4. 选定的 stable 数值（Run 2）
 
-| 指标 | 值 | 来源 |
-|---|---|---|
-| **TTFT** | **0.071 s** | `logs/tp8_long_run2.log:9` |
-| **TPOT** | **5.542 ms/token** | `logs/tp8_long_run2.log:10` |
-| **total_latency** | **1.629 s** | `logs/tp8_long_run2.log:11` |
-| **throughput_decode** | **180.43 tokens/s** | `logs/tp8_long_run2.log:12` |
-| actual_input_tokens | 10265（target 10240，偏差 +25 在 ±32 tolerance 内 ✓） | `logs/tp8_long_run2.log:2` |
-| actual_output_tokens | **282（不是 1024，eos 提前结束，与 tp=2/tp=4 同因）** | `logs/tp8_long_run2.log:7` |
-| engine_init_secs | 44.98 s（vs perf-T4 short case 的 45.82 s，几乎相同；JIT cache 已暖，与 tp=2/tp=4 同代际差异符合预期） | `logs/tp8_long_run2.log:4` |
+> **🔴 model 归属修正（2026-05-09）**：本表所有数值来自跑 **Qwen/Qwen3-0.6B**（dense, non-MoE）的 `tp8_long_run2.log`，**非 stepfun-ai/Step-3.5-Flash-FP8**。`tp8_long_run2_full.log:144` 实测 `Model load done: Qwen/Qwen3-0.6B`；`tp8_long_run2_full.log:5` Engine kwargs `kv_cache_dtype='bf16'`（非 stepfun fp8 路径需要的 `'fp8'`）。本表数据**不可作为 stepfun-Flash-FP8 在 tp=8 long-prompt 上的 baseline 对照**。
+
+| 指标 | 值 | 来源 | model（实测） |
+|---|---|---|---|
+| **TTFT** | **0.071 s** | `logs/tp8_long_run2.log:9` | **Qwen/Qwen3-0.6B**（非 stepfun） |
+| **TPOT** | **5.542 ms/token** | `logs/tp8_long_run2.log:10` | **Qwen/Qwen3-0.6B**（非 stepfun） |
+| **total_latency** | **1.629 s** | `logs/tp8_long_run2.log:11` | **Qwen/Qwen3-0.6B**（非 stepfun） |
+| **throughput_decode** | **180.43 tokens/s** | `logs/tp8_long_run2.log:12` | **Qwen/Qwen3-0.6B**（非 stepfun） |
+| actual_input_tokens | 10265（target 10240，偏差 +25 在 ±32 tolerance 内 ✓） | `logs/tp8_long_run2.log:2` | **Qwen/Qwen3-0.6B**（非 stepfun） |
+| actual_output_tokens | **282（不是 1024，eos 提前结束，与 tp=2/tp=4 同因）** | `logs/tp8_long_run2.log:7` | **Qwen/Qwen3-0.6B**（非 stepfun） |
+| engine_init_secs | 44.98 s（vs perf-T4 short case 的 45.82 s，几乎相同；JIT cache 已暖，与 tp=2/tp=4 同代际差异符合预期） | `logs/tp8_long_run2.log:4` | **Qwen/Qwen3-0.6B**（非 stepfun） |
 
 **为什么选 Run 2**：
 1. Run 1 已完整跑过一次 generate（10265 input + 253 output），CUDAGraph capture / RCCL warm 路径全部触发；Run 2 是真正的 steady state。
@@ -149,6 +155,9 @@ You can specify `device_id` in `init_process_group` to mute this warning.
 
 ## 6. JIT cache 间接证据（V1/V2 实质闭环）
 
+> **⚠️ 章节论点失效（2026-05-09）**：本节论证基于"tp=8 fp8 MoE forward 必走 ck2stages per_1x128"前提。L19d 实证本次实跑 = Qwen/Qwen3-0.6B（dense, non-MoE），**根本不会触发 MoE forward**；JIT cache 中的 ck2stages MoE module 是历史 stepfun 任务编译的产物，与本次 dispatch 无因果关系。E1/E2/E3 推断（V1/V2/V3 实质 PASS）对本次 run **不适用**。
+
+
 跑完 Run 2 后 `ls /workspace/aiter/aiter/jit/ | grep -E "module_moe|fmoe"`：
 
 ```
@@ -172,6 +181,9 @@ module_moe_sorting.so
 ---
 
 ## 7. 横向对比 tp=2 / tp=4 / tp=8
+
+> **🔴 横向对比 model 归属修正（2026-05-09）**：本节横向对比基于"tp=2 / tp=4 / tp=8 三档都是 stepfun-Flash-FP8 fp8 MoE 路径"前提。L19d + L17c 实证 perf-t1.md / perf-t2.md / 本文件三档实跑都是 **Qwen/Qwen3-0.6B dense path**，**对 stepfun MoE 性能扩展性结论完全无效**。下面 TTFT 单调下降（2.62× 提速）/ TPOT 微增（5.7%）/ decode throughput 下降 等观察仅描述 Qwen3-0.6B dense 在 tp 维度的 scaling，**不可外推到 stepfun MoE**。"P1 缺口闭环"主张失效（PERF_REPORT.md §7 的 stepfun tp=8 缺口实际未闭环）。
+
 
 数据来自 `progress/perf-t1.md:89-95`、`progress/perf-t2.md:89-95` 与本文件 §4：
 
@@ -255,3 +267,69 @@ GPU[7]: GPU Memory Allocated (VRAM%): 0
 - [x] 仅新建 logs/tp8_long_run{1,2}{,_full}.log + 本 progress
 - [x] 中文 + file:line 引用
 - [x] 跑完 8 卡 VRAM 全归零，无残留进程
+
+---
+
+## 附录 X：baseline 误归属修正记录（2026-05-09 by L19d）
+
+### X.1 修正背景
+
+L17a 在 tp2_verify_post_merge_wave 中将 perf-t1.md tp=2 数据当作 stepfun-Flash-FP8 baseline 引用；L17c 翻转该结论（实证 = Qwen/Qwen3-0.6B）；L19b 同步到 PERF_REPORT.md + perf-t1.md，并标注 tp=4 / tp=8 long / tp=8 short 同源风险待审计。L19d 扩展 audit 到 perf-t2.md（tp=4）+ perf-t4.md（tp=8 short launch）+ 本文件（tp=8 long），实证全部同源误标。本附录是 L19d audit 的本文件部分。
+
+### X.2 实测证据（决定性）
+
+raw log `logs/tp8_long_run1_full.log`：
+- 行 144：`[atom 03:44:39] Model load done: Qwen/Qwen3-0.6B`
+- 行 146/149/151/153/155：同上（8 个 ModelRunner 子进程全部输出 Qwen，前 6 行已确认）
+
+raw log `logs/tp8_long_run2_full.log`：
+- 行 144：`[atom 03:45:59] Model load done: Qwen/Qwen3-0.6B`
+- 行 146/148/150/152/154：同上
+
+全 log 零处 `stepfun` / `Step-3.5` / `Step-3.5-Flash-FP8` 字样。
+
+### X.3 旁证
+
+`tp8_long_run2_full.log:5` Engine kwargs 摘录：
+```
+'kv_cache_dtype': 'bf16'
+```
+与 stepfun-Flash-FP8 fp8 路径需要的 `'fp8'` 不一致 → 进一步证实跑的不是 fp8 MoE 路径。
+
+### X.4 根因
+
+| 项 | 状态 |
+|---|---|
+| `perf_bench.py:113` default model | `stepfun-ai/Step-3.5-Flash-FP8` |
+| 本文 §2 启动命令模板 | **漏写 `--model` 参数** |
+| raw log 实测 model | **Qwen/Qwen3-0.6B** |
+
+→ 命令必带显式 `--model Qwen/Qwen3-0.6B`，但文档命令模板未记录该参数；下游读者按模板默认推断为 stepfun（default），形成误归属。
+
+### X.5 影响范围
+
+| 文档段落 | 影响 |
+|---|---|
+| §2 启动命令 | 命令模板缺 `--model`（已加修正注释） |
+| §4 stable 数值表 | 全表数据为 Qwen3-0.6B，非 stepfun（已加 model 列 + 修正块） |
+| §5 V1/V2/V3 + W 验证 | grep=0 解释仍成立（multi-process stderr 限制是事实），但"实质 PASS"语义对 Qwen run 不适用（V3 fmoe_g1u1=0 / W=0 trivial 成立，因为 dense path 本身不会触发 MoE 相关 dispatch）|
+| §6 JIT cache 间接证据 | E1/E2/E3 论证基于 stepfun MoE 前提失效（已加修正块）|
+| §7 横向对比 tp=2/tp=4/tp=8 | 三档全 Qwen，scaling 结论不可外推 stepfun MoE（已加修正块）|
+| §8 VRAM 8 卡回收 | 不变（与 model 选择无关） |
+| §9 已知风险 | C1（grep=0）依旧；C2（output=282 eos）依旧（Qwen 也会 eos）；其余无变化 |
+| §10 给 lead 的"P1 缺口闭环" | **失效**：PERF_REPORT.md §7 P1 缺口（stepfun tp=8 long-prompt 数据）实际**未闭环**，须由后续真正跑 stepfun tp=8 long 的 task 补齐 |
+
+### X.6 stepfun gfx942 tp=8 long-prompt 真实 baseline 状态
+
+- 项目历史中**不存在** stepfun-Flash-FP8 在 tp=8 long-prompt（10240/1024）工况下的 perf baseline 数据（本文件原以为是的，实为 Qwen3-0.6B；perf-T4 short 同源误标）
+- PERF_REPORT.md §7 P1 缺口的 stepfun tp=8 long 数据**实际未产生**
+- 如未来需要 stepfun tp=8 long perf baseline，须显式带 `--model stepfun-ai/Step-3.5-Flash-FP8 --kv_cache_dtype fp8`，不能依赖 `perf_bench.py:113` default
+
+### X.7 traceability 链
+
+| 步骤 | 来源 |
+|---|---|
+| L17a 锁定误归属数值 | `tp2_verify_post_merge_wave/progress/teammate-L17a-update-summary-repo.md` |
+| L17c 实证翻转（tp=2） | `tp2_verify_post_merge_wave/progress/teammate-L17c-baseline-audit.md` §1.1 |
+| L19b 同步修 PERF_REPORT.md + perf-t1.md（tp=2） | `tp2_verify_post_merge_wave/progress/teammate-L19b-summary-repo-fix.md` |
+| L19d 扩展 audit 到 tp=4 / tp=8 + 修本文件 | `tp2_verify_post_merge_wave/progress/teammate-L19d-tp-extension-audit.md` |

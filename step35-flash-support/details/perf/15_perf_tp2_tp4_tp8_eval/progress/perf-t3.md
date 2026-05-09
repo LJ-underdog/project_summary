@@ -371,3 +371,11 @@ flowchart TD
 - [x] 所有结论标注 file:line
 - [x] 推断 vs 结论分开（**【未验证假设】** 标签出现 4 处：Q2 kernel list 覆盖、Q4 EP 切分推断、Q6 IF 链路数、Q6 RCCL）
 - [x] ROCm 硬件相关结论引自 `/tmp/rocm-ref/rocm-ref/topics/`
+
+---
+
+## 13. ✅ audit 通过 by L19d / 2026-05-09
+
+L19d 在 tp2_verify_post_merge_wave 中扩展 baseline 误归属 audit 到 tp=4 / tp=8 系列 perf 报告。本文件（perf-T3）**不引用任何 raw log**，是纯静态可行性评估（基于 ATOM / aiter / CK 源码 + tuned_fmoe.csv + ROCm doc 推断 stepfun tp=8 dispatch path）；与 perf-T1 / perf-T2 / perf-T4 / perf-T7 的"raw log 实跑数据"性质不同，**不存在 model 归属误标问题**。
+
+需要标注的下游影响：本文 §1-§10 的 stepfun tp=8 inter=256 padding / dispatch path / NEW-RC-3 patch / weight_block / 8-GPU 拓扑结论**仍然有效**（基于代码分析），但 **perf-T4 §4.3 / §5.2 引用本文 §1 / §2 / §3 作为"实测验证"的论证失效**（perf-T4 实跑 = Qwen，未触发 stepfun MoE dispatch；本文预测仍未经 stepfun 实测验证）。详见 `perf-t4.md` 附录 X.5。

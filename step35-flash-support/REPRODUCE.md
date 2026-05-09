@@ -323,6 +323,7 @@ step35-flash-support 仓内未提供与 fp8-tp4-repro 等价的 throughput_bench
 | `HIP out of memory` / `BadAlloc` | §7.8 |
 | `Address already in use` (port 8016/7/8) / GPU 显存残留 | §7.9 |
 | `snapshot_download` 401 / 403 | §7.11 |
+| perf / correctness bench 跑出 Qwen3 风格 `<think>` 输出（应为 stepfun） | §7.13 |
 
 ### §7.1 AITER NEW-RC-3 patch（tp=8 dispatch miss / per_1x128 prefill 乱码）
 
@@ -433,6 +434,36 @@ rm -rf /root/.cache/atom/*
 rm -f $HOME/aiter/aiter/jit/module_moe_ck2stages_*.so
 rm -rf $HOME/aiter/aiter/jit/build/module_moe_ck2stages_*
 ```
+
+### §7.13 ATOM `EngineArgs --model` default = `Qwen/Qwen3-0.6B` 陷阱（perf / correctness bench 必读）
+
+**症状**：用 `details/perf/15_perf_tp2_tp4_tp8_eval/perf_bench.py` / `details/scripts/perf_correctness_bench.py` / 任何基于 ATOM EngineArgs 的脚本跑 perf 或 correctness，未显式传 `--model`，结果生成的输出是 Qwen3 思考模板（`<think>\nOkay, let's see ...`），perf 数值看上去"成功"但与 stepfun-Flash MoE 路径完全无关。
+
+**原因**：ATOM `EngineArgs.add_cli_args` 给 `--model` 注册了 default = `Qwen/Qwen3-0.6B`。脚本里的 `if not getattr(args, "model", None): args.model = _find_model_path()` 永远进不去（`args.model` 总是 truthy），STEP35_MODEL_PATH / `_find_model_path()` 推断逻辑被 silent 覆盖，实际加载的就是 Qwen3-0.6B dense 模型，跟目标 `stepfun-ai/Step-3.5-Flash-FP8` MoE 路径毫无关系。
+
+**解决**：调用任何 ATOM-based perf / correctness bench 脚本时，**必须显式**在命令行传 `--model $STEP35_PATH`：
+
+```bash
+STEP35_PATH=$HF_HOME/hub/models--stepfun-ai--Step-3.5-Flash-FP8/snapshots/<sha>
+# perf bench
+/opt/venv/bin/python details/perf/15_perf_tp2_tp4_tp8_eval/perf_bench.py \
+  --model $STEP35_PATH --tp 2 --kv_cache_dtype fp8 ...
+# correctness bench
+/opt/venv/bin/python details/scripts/perf_correctness_bench.py \
+  --model $STEP35_PATH --tp 2 --kv_cache_dtype fp8 ...
+```
+
+**强制验证**：跑完后 grep raw log 第一行 `Model load done:`，必须显式核对：
+
+```bash
+grep -m2 'Model load done' logs/<your_run>_full.log
+# 期望：[atom HH:MM:SS] Model load done: /workspace/hf_cache/.../models--stepfun-ai--Step-3.5-Flash-FP8/snapshots/...
+# 反例：[atom HH:MM:SS] Model load done: Qwen/Qwen3-0.6B   ← 触发本陷阱，数据无效
+```
+
+如果 raw log 上 `Model load done:` 字段是 `Qwen/Qwen3-0.6B`，本次 run 数据**全部作废**，必须加 `--model $STEP35_PATH` 重跑。
+
+**来源**：`fp8-tp4-repro / tp2_verify_post_merge_wave / progress/teammate-L17c-baseline-audit.md` §1.1（raw log `tp2_run2_full.log:47,50` 实证；perf-t1.md baseline 误归属为 stepfun，实际是 Qwen3-0.6B）+ `progress/teammate-L18-perf-rerun.md` §4.1（Run A 二次踩坑：未传 `--model` 即跑出 Qwen3 `<think>` 输出，Run B 加 `--model $STEP35_PATH` 后才跑对）。
 
 ---
 

@@ -6,6 +6,8 @@
 > 输入来源：`progress/perf-t0.md`（脚本）/ `perf-t1.md`（tp=2）/ `perf-t2.md`（tp=4）/ `perf-t3.md`（tp=8 静态）/ `perf-t4.md`（tp=8 实测）
 > 红线声明：未改 ATOM / aiter / CK / perf_bench.py 任何源码，仅新建本文件 + `progress/perf-t5.md`
 
+> **🔴 BASELINE 误归属修正（2026-05-09 by tp2_verify_post_merge_wave / L17c+L19b）**：本报告 tp=2 行（TTFT=0.186s / TPOT=5.245ms/tok / total=1.843s / decode=190.66 tok/s）**实际是 Qwen/Qwen3-0.6B（dense, non-MoE）跑出来的，不是 stepfun-Flash-FP8**。raw log `logs/tp2_run2_full.log:47,50` 实测 `Model load done: Qwen/Qwen3-0.6B`；`progress/perf-t1.md` §1 命令模板漏写 `--model` 参数，实际命令显式传了 `--model Qwen/Qwen3-0.6B`。详见 `progress/perf-t1.md` 文末 **附录 X：baseline 误归属修正记录**。**stepfun-Flash-FP8 gfx942 tp=2 真实 baseline 不存在**（项目历史中从未产生）；首次实测见 `tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md`（TTFT≈1665ms / TPOT≈15.5ms，注意受 U1/U5/U8 漂移因子影响，不等同历史 baseline anchor）。tp=4 / tp=8 long 行（perf-t2.md / perf-t7.md 来源）**未在本次 audit 范围**，可能存在同类型误归属，建议追加各自 raw log `Model load done:` 行核验。
+
 ---
 
 ## TL;DR
@@ -20,10 +22,10 @@
 
 | tp | TTFT | TPOT | total_latency | decode throughput | actual input/output | engine_init | 备注 |
 |---|---|---|---|---|---|---|---|
-| **2** | **0.186 s** | **5.245 ms/tok** | 1.843 s | 190.66 tok/s | 10265 / 317 (eos) | 25.38 s | 长 prompt perf 基线（`logs/tp2_run2.log:1-12`） |
-| **4** | **0.110 s** | **5.451 ms/tok** | 2.373 s | 183.44 tok/s | 10265 / 416 (eos) | 30.25 s | 长 prompt perf 基线（`logs/tp4_run2.log:1-12`） |
-| **8 (long)** | **0.071 s** | **5.542 ms/tok** | 1.629 s | 180.43 tok/s | 10265 / 282 (eos) | 44.98 s | **长 prompt perf 基线（perf-T7 补完，§7 P1 闭环）**（`logs/tp8_long_run2.log:1-12`） |
-| 8 (起服) | 0.037 s | 3.562 ms/tok | 0.262 s | 280.72 tok/s | 269 / 64 (max_tokens) | 45.82 s | 仅起服测试（short prompt 256/64），不可与上方 long-prompt 行直接比（`logs/tp8_launch.log:1-13`） |
+| **2** | **0.186 s** | **5.245 ms/tok** | 1.843 s | 190.66 tok/s | 10265 / 317 (eos) | 25.38 s | 🔴 **实为 Qwen/Qwen3-0.6B 数据（非 stepfun）**，详见顶部 BASELINE 修正 + `progress/perf-t1.md` 附录 X（`logs/tp2_run2.log:1-12`） |
+| **4** | **0.110 s** | **5.451 ms/tok** | 2.373 s | 183.44 tok/s | 10265 / 416 (eos) | 30.25 s | 长 prompt perf 基线 ⚠️ 未审计 model 归属，可能与 tp=2 同源误归属（`logs/tp4_run2.log:1-12`） |
+| **8 (long)** | **0.071 s** | **5.542 ms/tok** | 1.629 s | 180.43 tok/s | 10265 / 282 (eos) | 44.98 s | 长 prompt perf 基线（perf-T7 补完，§7 P1 闭环）⚠️ 未审计 model 归属，可能与 tp=2 同源误归属（`logs/tp8_long_run2.log:1-12`） |
+| 8 (起服) | 0.037 s | 3.562 ms/tok | 0.262 s | 280.72 tok/s | 269 / 64 (max_tokens) | 45.82 s | 仅起服测试（short prompt 256/64），不可与上方 long-prompt 行直接比 ⚠️ 同上未审计 model 归属（`logs/tp8_launch.log:1-13`） |
 
 引用：`progress/perf-t1.md:87-95` / `progress/perf-t2.md:87-95` / `progress/perf-t4.md:200-212` / `progress/perf-t7.md:91-101`
 
@@ -41,8 +43,10 @@
 | temperature | 0（确定性） | 同上 |
 | tp 集合 | {2, 4, 8} | 同上 |
 | tp=8 范围 | **仅起服 + 1 轮 generate 输出语义合理**，不验 PASS / 不验 byte-identical | `TEAM_CONFIG.md:24` |
-| 模型 | `stepfun-ai/Step-3.5-Flash-FP8` | `TEAM_CONFIG.md:19` |
+| 模型 | `stepfun-ai/Step-3.5-Flash-FP8`（**任务目标**）| `TEAM_CONFIG.md:19` |
 | 三仓 commit | ATOM `acff926` / aiter `0f8164017` / CK `defd7ad29` | `TEAM_CONFIG.md:16-18`，KNOWN_FACTS F1 |
+
+> **🔴 实测 model ≠ 任务目标 model（2026-05-09 修正）**：tp=2 raw log 实测 `Model load done: Qwen/Qwen3-0.6B`（`logs/tp2_run2_full.log:47,50`），与上表 `任务目标` model（stepfun-Flash-FP8）不一致。tp=4 / tp=8 long 未审计，可能同样存在偏差。详见顶部 BASELINE 修正 + `progress/perf-t1.md` 附录 X。
 
 引用：`TEAM_CONFIG.md:21-25`
 
@@ -127,6 +131,8 @@ total_lat = float(out["latency"])                # 来自 ATOM
 
 ## §2 tp=2 / tp=4 性能数据
 
+> **🔴 §2 整体 model 归属修正（2026-05-09）**：tp=2 列实测 raw log 行 47/50 = `Qwen/Qwen3-0.6B`（dense），**不是 stepfun-Flash-FP8 fp8 MoE**。tp=4 列未审，可能同样误归属（perf-t2.md 命令模板可能也漏 `--model`）。本节"tp=2 vs tp=4 trade-off 分析"（§2.2）+"M1/M2 dispatch path 对照"（§2.3）的所有结论**前提失效**——M1/M2 走的是 stepfun-Flash-FP8 fp8 MoE preshuffle ck2stages path，而本次 perf-T1 raw log 是 Qwen3-0.6B dense path，不在同一 dispatch 集合。
+
 ### 2.1 完整数据表
 
 | 指标 | tp=2（Run 2） | tp=4（Run 2） | 差异 |
@@ -159,6 +165,8 @@ total_lat = float(out["latency"])                # 来自 ATOM
 引用：`progress/perf-t2.md:107-115` 初步对比；本节由 perf-T5 整理
 
 ### 2.3 与 docs/baseline_tp{2,4}_result.md M1/M2 PASS 时 dispatch path 一致性确认
+
+> **🔴 章节论点失效（2026-05-09 修正）**：本节论证"perf-T1 / perf-T2 dispatch path 与 M1 / M2 byte-identical PASS 时完全一致"，但 perf-T1 raw log 实测 model = Qwen/Qwen3-0.6B（dense, **不走 MoE**），M1 PASS 走 stepfun-Flash-FP8 fp8 MoE，两者**根本不在同一 dispatch path**；本节结论**不成立**。本节作为历史档案保留，下游不应继续引用。
 
 M1（tp=2）+ M2（tp=4）已 PASS byte-identical 143/143，dispatch path 已知（KNOWN_FACTS F4-F6 + `MIGRATION_REPORT.md §10.3`）。本任务 perf-T1/T2 通过三条间接证据（无新 module 编译 + JIT cache 仅 ck2stages per_1x128 silu/swiglustep + 0 处 fmoe_g1u1）锁定与 M1/M2 完全相同的 dispatch path：
 
@@ -334,12 +342,14 @@ flowchart LR
 
 ### 5.3 TTFT / TPOT 对比表（含可比性提示）
 
+> **🔴 表格 model 归属修正（2026-05-09）**：tp=2 行实为 Qwen/Qwen3-0.6B（非 stepfun）；tp=4 / tp=8 long 未审计但**可能同源误归属**。三 tp 横向比较前提"同 model + 同 dispatch path"在 tp=2 已实证失效，下游若做"TTFT 随 tp 单调下降"等结论需先 audit tp=4/tp=8 的 raw log model 字段。
+
 | tp | input | output | TTFT (s) | TPOT (ms/tok) | total (s) | decode tput (tok/s) | engine_init (s) | 可与 tp=2/4 比？ |
 |---|---|---|---|---|---|---|---|---|
-| 2 | 10265 | 317 | **0.186** | **5.245** | 1.843 | 190.66 | 25.38 | 基准 |
-| 4 | 10265 | 416 | **0.110** | **5.451** | 2.373 | 183.44 | 30.25 | ✓ |
-| **8 (long)** | **10265** | **282** | **0.071** | **5.542** | 1.629 | 180.43 | 44.98 | **✓ 长 prompt 同口径，可与 tp=2/4 直接比**（perf-T7 补完） |
-| 8 (起服) | 269 | 64 | 0.037 | 3.562 | 0.262 | 280.72 | 45.82 | ✗ 短 prompt 起服冒烟，不可与上方 long-prompt 行比 |
+| 2 | 10265 | 317 | **0.186** | **5.245** | 1.843 | 190.66 | 25.38 | 🔴 实测 = Qwen/Qwen3-0.6B（非 stepfun）|
+| 4 | 10265 | 416 | **0.110** | **5.451** | 2.373 | 183.44 | 30.25 | ⚠️ 未审 model 归属 |
+| **8 (long)** | **10265** | **282** | **0.071** | **5.542** | 1.629 | 180.43 | 44.98 | ⚠️ 未审 model 归属（perf-T7 补完）|
+| 8 (起服) | 269 | 64 | 0.037 | 3.562 | 0.262 | 280.72 | 45.82 | ✗ 短 prompt 起服冒烟，不可与上方 long-prompt 行比；⚠️ 未审 model 归属 |
 
 **观察（基于 long-prompt 三 tp 同口径数据）**：
 - **TTFT** 随 tp 单调下降（0.186 → 0.110 → 0.071 s），tp=2 → tp=8 提速 2.62×，符合 prefill 算力扩展预期。
