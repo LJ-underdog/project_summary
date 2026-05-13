@@ -322,6 +322,8 @@ tuned_fmoe.csv 中 gfx942 (cu=80) 条目也不包含上述 4 个 Step-3.5-Flash 
 ```
 预期效果：MoE prefill/decode 各 layer 走调优 kernel，TTFT 和 TPOT 进一步下降。
 
+> **跨 wave cross-link（2026-05-13 反向加注）**：本节"OPT-1 fmoe csv tuning"在 stepfun-Flash-FP8 上的后续验证结果详见 [`details/perf/20_fp8_fmoe_tuning_wave2/RESULTS.md`](../20_fp8_fmoe_tuning_wave2/RESULTS.md) — 实证全 axis 证伪 + tp=2 multi-prompt 反向退化（disclaimer：本反向加注由 wave2 doc-impl 时追加，不修改 16 wave 原结论）。
+
 ---
 
 ## 七、遗留问题与建议
