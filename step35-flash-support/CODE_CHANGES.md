@@ -138,6 +138,17 @@
 - aiter `7ebae9afb`：sliding window mask off-by-one 修复
 - 详细叙述：`details/topics/03_sliding_window.md`
 
+### §3.8 vllm 集成 patch (Step-3.5-Flash-FP8 wave DOC-1)
+
+vllm v1 + AITER + ATOM plugin 集成路径 source-level patch, 与 §3.3 (SwigluStep aiter+CK+ATOM 三仓 wiring) 和 §3.7 (aiter SWA mask) 互补 — 这两条是 **vllm 端 + ATOM plugin 端** 集成路径上的新发现, 不在三仓内部 commit 范围。
+
+- **Patch A — vllm SwigluStep enum 加白**: `/opt/venv/lib/python3.12/site-packages/vllm/model_executor/layers/fused_moe/rocm_aiter_fused_moe.py` 加 `MoEActivation.SWIGLUSTEP=3` enum + `_supports_activation` 白名单 + dispatch elif 共 3 hunk +3 行; 让 vllm AITER backend 识别 layer 43-44 的 `ActivationType.SwigluStep` 并路由到 aiter CK swiglustep kernel (否则 dispatch 阶段 raise ValueError 或 oracle gate 剔除)。
+- **Patch B — ATOM SWA per-layer KV workspace**: `/home/junlin12/ATOM/atom/plugin/attention.py` 加 `swa_max_num_heads_kv` 字段 + per-layer GQA 最大 KV head collection loop, 2 hunk +14 行; 修复 stepfun 异质 q=48/k=4 (tp=2) 配置下 `swa_workspace` 用 model-wide `num_heads_kv` 算 shape → aiter `mha_varlen_fwd_kernels.cu:478` GQA assert raise → EngineCore crash。
+
+> **Caveat (§22 防 caveat-stripping)**: 本 §3.8 两 patch 解决的是**集成路径上的 dispatch fail / shape assert**, **不解决** wave G-3(i) NaN 问题。NaN root cause = vllm v1 inductor compile / cudagraph + ROCm fp8 互动 (T67/T71 双证), workaround = `--enforce-eager`; Patch B 在 tp=8 路径下**非必需** (T65 实证 revert + tp=8 不触发 GQA assert 也不解 NaN)。NaN root cause 详见 `details/integration/03_lessons.md` 教训 5。
+
+详细叙述: [`details/integration/README.md`](./details/integration/README.md) (含 4 doc 子集) + 顶层 entry [`INTEGRATION_PATCHES.md`](./INTEGRATION_PATCHES.md)。
+
 ---
 
 ## §4 跨 repo 修改关系图

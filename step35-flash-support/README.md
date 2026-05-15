@@ -217,6 +217,17 @@ graph TD
 |---|---|
 | [`details/scripts/perf_correctness_bench.py`](./details/scripts/perf_correctness_bench.py) | gfx950/gfx942 标准化 perf + correctness 联跑测试脚本（被 `details/perf/16_perf_gfx950_verified/` 引用）|
 
+### details/integration/ — vllm + ATOM 集成路径 source patch（4 项）
+
+> vllm v1 + AITER + ATOM 集成跑通 stepfun-Flash-FP8 时发现的 source-level patch 集; 顶层 entry 见 [`INTEGRATION_PATCHES.md`](./INTEGRATION_PATCHES.md)。
+
+| 文件 | 内容 |
+|---|---|
+| [`details/integration/README.md`](./details/integration/README.md) | 任务背景 / 2 patch 一览 / 共同 caveat / 文档地图 (= 原 00_overview.md) |
+| [`details/integration/01_patch_swiglustep.md`](./details/integration/01_patch_swiglustep.md) | Patch A (vllm SwigluStep) 完整证据链: 业务背景 / 3 hunk diff / 验证 / Caveat / Timeline |
+| [`details/integration/02_patch_swa_perlayer.md`](./details/integration/02_patch_swa_perlayer.md) | Patch B (ATOM SWA per-layer KV) 完整证据链: 异质 GQA + 5 .bak / Caveat (与 NaN 解耦 + tp=8 非必需) |
+| [`details/integration/03_lessons.md`](./details/integration/03_lessons.md) | 跨 patch 教训 5 条: self-report / dispatch ≠ 数值 / caveat-stripping / .bak audit / NaN P0 真因 |
+
 ---
 
 ## 环境
