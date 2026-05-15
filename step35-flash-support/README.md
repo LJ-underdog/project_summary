@@ -178,6 +178,8 @@ graph TD
 |---|---|
 | [`details/perf/15_perf_tp2_tp4_tp8_eval/`](./details/perf/15_perf_tp2_tp4_tp8_eval/) | gfx942 上 TP=2/4/8 性能评估（含 tp=8 起服 evaluation；PERF_REPORT.md + logs/ + progress/）|
 | [`details/perf/16_perf_gfx950_verified/`](./details/perf/16_perf_gfx950_verified/) | gfx950 性能基线（统一脚本测；RESULTS.md + logs/ + progress/）|
+| [`details/perf/20_fp8_fmoe_tuning_wave2/`](./details/perf/20_fp8_fmoe_tuning_wave2/) | Wave 2 — FP8 fMoE Tuning (OPT-1) FAIL wave 总结（27 metric 0 改善 + 6 Promote；RESULTS.md + README.md）|
+| [`details/perf/21_nperblock64_4layer_joint_patch/`](./details/perf/21_nperblock64_4layer_joint_patch/) | NPerBlock=64 path 4 层 joint patch — bit-exact correctness + kernel-level 15.80% 快 + model-level PERF_NEUTRAL HIGH（gfx942 / MI308X；RESULTS.md + README.md）|
 
 ### details/issues/ — upstream issue draft（1 项）
 

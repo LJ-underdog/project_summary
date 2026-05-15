@@ -53,6 +53,8 @@
 | 17 | ATOM MoE tp=8 load crash（issue draft） | [`details/issues/17_atom_moe_tp8_load_crash/README.md`](./step35-flash-support/details/issues/17_atom_moe_tp8_load_crash/README.md) |
 | 18 | FP8 tp=8 root cause + 双层 fix | [`details/topics/18_fp8_tp8_root_cause_and_fix/README.md`](./step35-flash-support/details/topics/18_fp8_tp8_root_cause_and_fix/README.md) |
 | 19 | Kernel Dispatch 报告（gfx950） | [`details/research/19_kernel_dispatch_report/REPORT.md`](./step35-flash-support/details/research/19_kernel_dispatch_report/REPORT.md) |
+| 20 | Wave 2 — FP8 fMoE Tuning (OPT-1) FAIL 总结 | [`details/perf/20_fp8_fmoe_tuning_wave2/RESULTS.md`](./step35-flash-support/details/perf/20_fp8_fmoe_tuning_wave2/RESULTS.md) |
+| 21 | NPerBlock=64 path 4 层 joint patch（gfx942 / dual-superior） | [`details/perf/21_nperblock64_4layer_joint_patch/RESULTS.md`](./step35-flash-support/details/perf/21_nperblock64_4layer_joint_patch/RESULTS.md) |
 
 **跨 topic 资产**：[`details/verification_pipeline/`](./step35-flash-support/details/verification_pipeline/) — V01-V07 验证 pipeline（覆盖 01-07），含 `MASTER_PIPELINE.md` / `PIPELINE_REVIEW_FINAL.md` / `results/SUMMARY.md`。
 
