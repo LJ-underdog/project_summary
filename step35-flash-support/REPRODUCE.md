@@ -370,32 +370,36 @@ step35-flash-support 仓内未提供与 fp8-tp4-repro 等价的 throughput_bench
 #### nopad（TP inter=160）bug/fix 现状 → 见 NOPAD_TP_HANDOFF
 - nopad smalltile（inter=160, NPerBlock=32）的 **e2e 正确性 + cudagraph perf 实测见下方 §6.2-纯TP-nopad**（2026-06-03 首次，已闭合 NOPAD_TP_HANDOFF §4.1「TP e2e 验证缺失」缺口）；÷8 b_scale bug 根因、stage1 镜像 bug（仍未修，须 quant 层）、host 广播 fix 等细节，**见 `NOPAD_TP_HANDOFF.md`**（当前散见 W8_resume/progress/teammate-19b stage2-fix、-22/-23 stage1、-24 e2e、-25 cudagraph、-30 EP/TP 考古、-56/-57 纯 TP e2e+perf）。
 
-### 6.2-纯TP-nopad 性能 + e2e anchor（纯 TP / inter=160 / nopad smalltile，2026-06-03 实测，**首次**）
+### 6.2-纯TP-nopad e2e + 三路径 cudagraph perf 对比（纯 TP nopad / 纯 TP pad / EP，2026-06-03 re-verify PASS）
 
-> 🟢 **闭合 `NOPAD_TP_HANDOFF.md` §4.1「TP e2e 验证缺失」缺口**：以往 inter=160 nopad fix **仅 op-isolate 验证**，e2e 层从未触发（2026-05-28 起 e2e 误用 EP=inter1280，nopad 路径失覆盖）。本节是**史上首次**在真实纯 TP nopad e2e 上验证 fix 真执行 + 实测 perf。来源：W8_resume teammate-56（e2e）/ teammate-57（cudagraph perf），GPU 实测。
+> 🟢 **闭合 `NOPAD_TP_HANDOFF.md` §4.1「TP e2e 验证缺失」缺口 + 三路径完整对比定稿**：以往 inter=160 nopad fix **仅 op-isolate 验证**，e2e 层从未触发（2026-05-28 起 e2e 误用 EP=inter1280，nopad 路径失覆盖）。本节首次在真实纯 TP nopad e2e 验证 fix 真执行，并给出**同 commit、同 cudagraph 口径**下纯 TP nopad / 纯 TP pad / EP **三路径**完整 perf + 准确度对比。来源：W8_resume teammate-56（nopad e2e）/ -57/-59/-60（re-verify）/ -54（EP fresh run），GPU 实测。
 >
-> **栈**：ATOM `0526446`（e18b467 + SWA 补丁）+ aiter `360ebdb66`（stage2 ÷8 fix 禁广播）+ ck `e90ecddea`；stepfun Step-3.5-Flash-FP8 @ `6eebda59`；gfx942 TP8。
+> **栈（三路径同一栈）**：ATOM `0526446`（e18b467 + SWA 补丁）+ aiter `360ebdb66`（stage2 ÷8 fix 禁广播）+ ck `e90ecddea`；stepfun Step-3.5-Flash-FP8 @ `6eebda59`；gfx942 TP8。
+>
+> **统一口径**：三路径全部 **cudagraph（非 eager）**；同 bench `perf_correctness_bench.py`，input 10213 / output 256 / gpu-util 0.5 / runs 2 / TP8 / batch=1 / measure-A。
 
-**① e2e 正确性（T56，enforce-eager）**：`simple_inference` **无 `--enable-expert-parallel`** + `ATOM_FP8_MOE_DISABLE_PAD=1` → **4/4 prompt 连贯**。运行时插桩 definitively 坐实 **`inter_dim=160` + `_w4_nopad=True` + stage2-fix broadcast DISABLED 三者真执行**（fix 确实跑在 inter=160 nopad 路径上，非 op-isolate 层）。
+**① e2e 正确性（纯 TP nopad，T56，enforce-eager 路径校验）**：`simple_inference` **无 `--enable-expert-parallel`** + `ATOM_FP8_MOE_DISABLE_PAD=1` → **4/4 prompt 连贯**。运行时插桩 definitively 坐实 **`inter_dim=160` + `_w4_nopad=True` + stage2-fix broadcast DISABLED 三者真执行**（fix 确实跑在 inter=160 nopad 路径上，非 op-isolate 层）。
 
-**② cudagraph perf（T57，非 eager）**：`perf_correctness_bench.py` 无 EP + `DISABLE_PAD=1` + `--enable-cudagraph`（**无 enforce-eager**），input 10213 / output 256 / gpu-util 0.5 / runs 2：
+**② 三路径 cudagraph perf + 准确度对比（T60 re-verify PASS）**：
 
-| 口径（**纯 TP, cudagraph, nopad inter=160, TP8, batch=1**） | 值 |
-|---|---|
-| prefill TTFT | **599.3 ms** |
-| decode TPOT | **14.2 ms/tok** |
-| decode throughput | **70.4 tok/s** |
-| 稳定性 | cv 0.0%（runs=2）、正确性 PASS、cudagraph 真捕获（0.41s）、两轮无显存泄漏 |
+| 路径 | inter_dim | `_w4_nopad` | EP | TTFT (ms) | TPOT (ms/tok) | decode tput (tok/s) | 准确度 | perf 来源 |
+|---|---|---|---|---|---|---|---|---|
+| **纯 TP nopad** | 160 | True | False | **594.0** | **14.2** | **70.6** | 4/4 连贯 + bench PASS | 本 session 重验（=T57 599/14.2/70.4）|
+| **纯 TP pad** | 160→256 | False | False | **681.4** | **13.3** | **75.0** | 4/4 连贯 + bench PASS | 本 session 重验（=T59 671/13.3/75.2）|
+| **EP** | 1280 | False | True | **562.9** | **13.5** | **74.2** | 4/4 连贯 | **T54 fresh run**（同 commit 0526446）|
 
-🔴 **口径区分（以下三组数字均不可直接比）**：
-- **vs §6.2 纯 TP anchor**（eager + **pad-256**，tp8 ~747 ms / 13.7 ms）：同为纯 TP，但本节 = **cudagraph + nopad inter=160** → **eager vs cudagraph + pad vs nopad 双重差异，不可直接比**。
-- **vs §6.2-EP / `details/perf/22_*.md`**（**EP** inter=1280 + cudagraph，TTFT ~560–571 / TPOT ~13.5）：**不同 parallelism（EP vs 纯 TP）**，不可比。
-- ⏳ **纯 TP pad-256 cudagraph perf 正在补测（Phase B）**：同口径（cudagraph + 纯 TP）下 **pad-256 vs nopad-160** 的对照（真正衡量 nopad 省掉 padding 的开销）待该数据齐后定稿。
+> **路径钉死（非臆测）**：每路径的 `inter_dim` / `_w4_nopad` / EP 由运行时插桩 + dispatch shape 实测坐实（T56 nopad / T59 pad / T60 三路径）。nopad 与 pad 的 ÷8 b_scale fix 在各自路径正确执行（nopad 禁广播触发；pad inter 对齐到 256 不触发 smalltile）。
 
-| 同口径对照（纯 TP + cudagraph） | TTFT | TPOT | decode tput |
-|---|---|---|---|
-| nopad inter=160（本节，已测） | **599.3 ms** | **14.2 ms/tok** | **70.4 tok/s** |
-| pad-256（Phase B，**待测**） | _待测_ | _待测_ | _待测_ |
+**③ 趋势解读**：
+- **prefill TTFT**：EP（562.9）< 纯 TP nopad（594.0）< 纯 TP pad（681.4）。EP inter=1280 不分片、prefill MoE GEMM 形态最规整 → TTFT 最低；纯 TP pad 把 inter 160→256 填充、prefill 多算 padding → TTFT 最高。
+- **decode TPOT / 吞吐**：纯 TP pad（13.3 / 75.0）最优 > EP（13.5 / 74.2）> 纯 TP nopad（14.2 / 70.6）最差。pad 走标准对齐 kernel、decode 效率最高；nopad smalltile（NPerBlock=32）decode 阶段 kernel 效率偏低 → TPOT 最大、吞吐最低。
+- **一句话**：nopad **prefill 快、decode 慢/吞吐低**；pad **prefill 慢、decode 优/吞吐高**；EP **TTFT 最低、TPOT/吞吐居中**。差异源于各 MoE kernel 特性（smalltile vs 标准对齐 vs 不分片），**非 perf regression**。
+
+🔴 **口径区分（勿混读）**：
+- 三路径**同一 commit `0526446` + 同 cudagraph bench 口径**，故彼此**可比**（这正是本表价值）。
+- **vs §6.2 纯 TP eager anchor**（eager + pad-256，tp8 ~747 / 13.7）：本节全部 **cudagraph**，**eager vs cudagraph 不可直接比**；§6.2 是 cudagraph 不可用时代的历史 anchor。
+- **vs §6.2-EP / `details/perf/22_*.md`** 旧 EP 表（gpu-mem/max-len/input 不同档）：口径不同，**勿与本表 EP 行混读**。
+- **EP 行 perf 来源 = T54 fresh run**：EP 在**同 session 重跑触发容器 HIP 显存碎片 OOM**（**非泄漏、非正确性问题**——EP 路径本 session 已重验正确性 4/4）。需复现 EP perf 建议 **fresh 容器**或把 **EP 放首跑**（避免前序路径碎片化显存）。
 
 ### 6.3 PASS 判定（端到端 A1-A4）
 
