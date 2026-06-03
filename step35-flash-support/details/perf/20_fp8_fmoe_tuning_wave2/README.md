@@ -28,6 +28,7 @@
    - 一句话：`torch.float8_e4m3fnuz` not `e4m3fn`，否则 dispatch KeyError 或走错路径
 2. **救命级 #2 — 上游 aiter bug**：multi-prompt + tp≥4 + fp8 ck2stages 必崩 → `RESULTS.md §4`
    - 一句话：`/workspace/aiter/aiter/fused_moe.py:1646` `apply_act_and_mul` shape 不兼容；np≥4 + tp≥4 必触发；跑 multi-prompt 前先 verify bug 是否 fix
+   - ⚠️ **疑已修(audit teammate-38)**：aiter 有 commit `94de2e8c6 fix(fused_moe): reshape out before copy in apply_act_and_mul else branch`，方向正对本 bug。**跑前务必 re-verify**(`git log --oneline -- aiter/aiter/fused_moe.py | grep -i apply_act` 确认当前 HEAD 是否已含该 fix);若已修则本救命级不再适用。
 3. **救命级 #3 — FP8 byte-drift verification anti-pattern** → `RESULTS.md §5`
    - 一句话：fp8 累加顺序变 → bf16 低位飘 → softmax 边界翻；**不要**用 byte-equal 作 fp8-vs-fp8 verification；改用 cos-sim / 启发式 PASS / bf16 reference 距离
 

@@ -499,6 +499,7 @@ CK working tree  = 105+/15- in gridwise_moe_gemm_blockscale.hpp ✅
 - 本 atomic story 仅修了 verify fixture (`scripts/correctness_compare_v2.py`)
 - aiter `fused_moe.py` 内 `fc_scale_blkn` 的 production dispatch path **未改 / 未验证**
 - 真实 vLLM serve / production fmoe 调用栈是否走 `ck_moe_stage1` 直接路径 = 未验证
+- 🔴 **W8 张力(见 §11 顶部 cross-link)**:A2 的"production 加 dispatch-aware 广播"方向与 W8(NPerBlock=32 nopad)实测"host 广播 stale 应禁"相反;**追 A2 前必先与 `W8_resume/NOPAD_TP_HANDOFF.md` 对账广播契约**。
 
 **C4. aiter HEAD 漂移**
 - TEAM_CONFIG.md 标 `315123ace`，实际 HEAD `f06cdcca5`（**ancestor**, 109 commits 老）
@@ -583,6 +584,8 @@ CK working tree  = 105+/15- in gridwise_moe_gemm_blockscale.hpp ✅
 ---
 
 ## 11. Production Verdict + 适用边界
+
+> 🔴 **W8 cross-link / 广播方向张力(audit teammate-38,2026-06-03)**:本 entry 的 fix 方向 = **加 per-NPerBlock 广播**(caller `w1_quant_blk_n` dispatch-aware;A2 deferred = 把该广播搬进 production `aiter/fused_moe.py` `fc_scale_blkn`)。**W8 wave(NPerBlock=32 / tp=8 / inter=160 nopad)实测结论相反**:host 广播函数 `_maybe_broadcast_w{1,2}_scale_for_smalltile` 契约 **stale**(广播出 per-expert stride 512 而 CK e90ecddea kernel 用 stride 64 → 读 floor(e/8) 的 ÷8 b_scale bug)→ W8 的 fix = **禁广播**(详 `/home/junlin12/W8_resume/NOPAD_TP_HANDOFF.md` + `proposed_fix_159x_IMPL.md`)。二者 NPerBlock(64 vs 32)/tp(4 vs 8)/inter(320 vs 160)不同路径,**未必矛盾**,但 **追 §C3 的 A2 production 广播改造前,必须先与 W8 NOPAD_TP_HANDOFF 对账**,确认 broadcast 契约对 NPerBlock=64 path 是否同样 stale —— 否则可能重蹈 W8 已证伪的 stale 广播契约。
 
 ### 11.1 Production verdict
 

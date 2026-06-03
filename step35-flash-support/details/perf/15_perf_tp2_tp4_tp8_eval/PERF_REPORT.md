@@ -12,8 +12,10 @@
 
 ## TL;DR
 
+> 🔴🔴 **全文数值 = Qwen/Qwen3-0.6B(dense, non-MoE)误归属,不是 stepfun-Flash-FP8**(L17c/L19d 实证,详顶部 BASELINE 修正 + REPRODUCE.md §7.13 KNOWN_FACT)。**stepfun 真 perf anchor 见 `REPRODUCE.md §6.2`(纯 TP:tp8 TTFT≈747ms / TPOT≈13.7ms)**。本报告系 **pure-TP-pad-256 路径**(EP=False,inter=160→pad 256;2026-04-29,预 nopad)——tp8 inter=160 的 **nopad(DISABLE_PAD=1)替代路径**见 `/home/junlin12/W8_resume/NOPAD_TP_HANDOFF.md`。下方数字仅作历史/方法学参考,**勿当 stepfun 真值引用**。
+
 1. **tp=2 / tp=4 / tp=8 long-prompt baseline 完成**：input=10240 / output=1024（实际 eos 提前），concurrency=1，temperature=0；所选 stable 数值取自 Run 2。tp=8 long-prompt 数据由 perf-T7 补完，§7 P1 闭环。
-2. **tp=8 起服 + 1 轮 generate 实测 PASS**（perf-T4，short prompt 256/64）；tp=8 long-prompt 实测 PASS（perf-T7，10240/1024，TTFT=0.071s / TPOT=5.542 ms/tok）。
+2. **tp=8 起服 + 1 轮 generate 实测 PASS**（perf-T4，short prompt 256/64）；tp=8 long-prompt 实测 PASS（perf-T7，10240/1024，TTFT=0.071s / TPOT=5.542 ms/tok）。🔴 **此处 0.071s/5.542ms 实为 Qwen3-0.6B(L19d 实证 12/12 行 `Model load done: Qwen/Qwen3-0.6B`),非 stepfun;stepfun tp8 真值见 REPRODUCE §6.2(TTFT≈747ms)。**
 3. **dispatch path 三 tp 完全一致**：均走 `module_moe_ck2stages_f8_f8_preshuffle_on_b16_{silu|swiglustep}_per_1x128_mulWeightStage2.so`；ATOM padding 把 inter_per_rank 自动从 (640 / 320 / 160) 处理到 (640 / 384 / 256)。
 4. **NEW-RC-3 patch（`aiter/fused_moe.py:881-886` `run_1stage=False`）在 tp=8 同样生效**（hardcoded、tp 无关）；JIT cache 跑前/跑后无任何新 module = 直接证据（perf-T4 + perf-T7 双重确认）。
 5. **未来工作**（P1 已闭环）：多 prompt correctness、ignore_eos 满载 1024 token、CUDAGraph 调优、MFU 估算、长 context（32k+）评估，详见 §7。

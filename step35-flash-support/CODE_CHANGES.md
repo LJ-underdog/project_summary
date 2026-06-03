@@ -56,6 +56,7 @@
 | `c38d0c9e6` | 2026-04-24 | **FP8 blockscale 排除 V1→V3 强制的 guard**（FP8 tp=2 dispatch 修复）| `details/topics/05_fp8_inference.md`，原文 `code_changes_all_repos.md:518-543` |
 | `a2883ab37` | 2026-04-26 | **删除 buggy ASM kernel tuning 条目**：`glm5_bf16_tuned_gemm.csv` 移除触发 `bf16gemm_bf16_tn_256x256` (N=4096,K=2048) 的 entry，修复 tp=4 长序列 BOS bug（gfx950）；保留 `splitk_clean` variant | `details/topics/07_tp4_longseq_bos_fix.md`，原文 `code_changes_all_repos.md:545-586` |
 | `a2247989d` + `dd4257d8f` + `0f8164017` | 2026-04-26 | **stage1 NPerBlock=64 blockscale kernels** | 原文 `code_changes_all_repos.md:588-630` |
+| **`360ebdb66`** | 2026-05（W8）| **W8 nopad B2 ÷8 b_scale fix（host）**：`aiter/ops/moe_op.py::_maybe_broadcast_w2_scale_for_smalltile` **早返回禁用广播**（host 广播契约 stale：把 w2_scale 广播成 per-expert stride 512，与 CK e90ecddea kernel 用的 stride 64 不匹配 → kernel 对所有 expert 读 floor(e/8) 的 scale）。纯 Python，**无 CK submodule bump**（CK 一直正确，pin `e90ecddea`）；仅 `inter<256` 小 tile 路径生效，pad 路径零影响。🟡 **仅 op-isolate（inter=160 真实 dump）验证（T21 ACCEPT：per-expert load=self、sink cos 0.11→1.00）；🔴 e2e(TP) 未验证；🔴 stage1 镜像 bug 未修（须 quant 层 gate/up 分离量化）**。⚠️ hash 以 lead push 记录/远端 `feat/step3p5-moe-swiglustep` 为准（本地 `git log` 可能未拉到）。详见 [`details/TP8_THREE_BUGS.md`](./details/TP8_THREE_BUGS.md) B2 + `NOPAD_TP_HANDOFF.md` |
 
 **aiter 仓 patch / commit 状态（按时间线）**：
 
@@ -87,6 +88,7 @@
 | FP8 align bug（tp=8 base）| ATOM `acff926d` | `align = block_n` 无条件 | `code_changes_all_repos.md:267-293` |
 | FP8 tp=8 双层 fix（gfx942 必需）| ATOM `969d564` | early-return + `.zero_()` 初始化 | `details/topics/18_fp8_tp8_root_cause_and_fix/TP8_ROOT_CAUSE_AND_FIX.md` |
 | FP8 stage1 NPerBlock=64 kernels | aiter `a2247989d/dd4257d8f/0f8164017` | 新增 blockscale kernel variant | `code_changes_all_repos.md:588-630` |
+| **nopad B2 ÷8 b_scale fix（纯 TP inter=160）** | aiter **`360ebdb66`**（host，无 CK bump）| `moe_op.py::_maybe_broadcast_w2_scale_for_smalltile` 早返回禁广播（仅 inter<256 生效，pad 零影响）| `details/TP8_THREE_BUGS.md` B2 + `NOPAD_TP_HANDOFF.md`（🟡 op-isolate 验证 / 🔴 e2e-TP 未验 / 🔴 stage1 未修）|
 
 ### §3.2 MoE Pipeline
 

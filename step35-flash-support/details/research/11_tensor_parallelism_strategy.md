@@ -1,7 +1,9 @@
 # Transformer 张量并行（TP）策略：从原理到每个算子
 
 > 本文档由 agent team 调研 ATOM 代码后整理，所有结论均附代码文件路径 + 行号。
-> 代码基准：`/home/hanchang/ATOM/atom/`，模型：Step-3.5-Flash（MoE + GQA）。
+> 代码基准：`/home/junlin12/ATOM/atom/`（路径勘误 teammate-38:原 `/home/hanchang/ATOM`），模型：Step-3.5-Flash（MoE + GQA）。
+>
+> 🔵 **EP-vs-TP 补注(audit teammate-38,2026-06-03)**:本文讲**纯 TP**(沿 inter/head 切)。Step-3.5-Flash MoE 另有 **EP(expert-parallel,`--enable-expert-parallel`)** 替代:按 expert 切、**inter 维不切=1280**(纯 TP tp8 则 inter=1280/8=160)。EP-vs-TP 直接决定 nopad(inter=160 smalltile)是否触发(EP 下不触发),是本项目最大 perf 配置混淆源 —— 详 `details/perf/22_ep_*.md` + `details/perf/README.md` 决策树 + `AUDIT_GROUND_TRUTH.md §A2`。
 
 ---
 

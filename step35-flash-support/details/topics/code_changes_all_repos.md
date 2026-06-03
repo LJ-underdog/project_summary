@@ -13,6 +13,11 @@
 > patch 已 commit 化为 `f06cdcca5`。
 >
 > 由 `tp2_verify_post_merge_wave/L31` 标注（2026-05-09）。
+>
+> 🔴 **W8 wave 补注（2026-06-03 / teammate-39）**：上述 commit 仍**不含** W8 wave 的 **nopad ÷8 b_scale fix（B2）**：
+> - **aiter `360ebdb66`**（`feat/step3p5-moe-swiglustep`）—— `moe_op.py::_maybe_broadcast_w2_scale_for_smalltile` 早返回禁广播（修 stage2 ÷8）；
+> - **CK `e90ecddea`**（gridwise kernel 基线，host fix 据其契约）。
+> 该 fix **仅 op-isolate(inter=160) 验证过、未在 TP e2e 验证**（之前 e2e 误用 EP），**stage1 镜像 bug 未修**。完整状态见 [`../../../W8_resume/NOPAD_TP_HANDOFF.md`](../../../W8_resume/NOPAD_TP_HANDOFF.md)；三-bug 辨析见 [`../TP8_THREE_BUGS.md`](../TP8_THREE_BUGS.md)。
 
 ---
 

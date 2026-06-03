@@ -3,6 +3,8 @@
 > 本文档由 agent team 调研结论写成，所有结论均有代码行号或实验数据支撑。
 > 数据来源：teammate-1 ~ teammate-9 的 progress 文件。
 > **重要说明**：本文包含一处对之前结论的重大修正——"必须 per_1x64"在代码层面不成立。
+>
+> 🔵 **下游实现 cross-link(audit teammate-38,2026-06-03)**:本 deep-dive 的去 padding 路径(缩小 NPerBlock + 保持 ScaleBlockN=128 / 不重量化)已落地 → `details/perf/21_*`(NPerBlock=64,tp4)+ W8 wave(NPerBlock=32,tp8,见 `W8_resume/NOPAD_TP_HANDOFF.md`)。落地新发现:① **host 广播契约 stale → ÷8 b_scale bug**(W8 禁广播 fix);② **EP 下 inter=1280 不触发 nopad**(本文假设纯 TP inter 分片;EP-vs-TP 见 `details/perf/22_ep_*.md`)。本文 padding 公式/blockscale 原理仍为权威 single-source(其余文档引本文)。
 
 ---
 

@@ -47,6 +47,12 @@
 
 NaN workaround: `--enforce-eager` (HTTP serve) 或 `enforce_eager=True` (Python LLM API), 严格实证消除 NaN, 性能 2-5x 慢 (关闭 cudagraph + inductor fusion)。详见 `USER_REPORT.md` §"用户立即可用的 fix workaround"。
 
+> 🔴 **cudagraph 失效模式辨析（2026-06-03 / teammate-39）**：本 doc 的 cudagraph 问题是 **B3b — vllm v1 inductor compile / cudagraph → NaN（vllm-direct 路径）**。它**不同于** W8 wave 在 **ATOM 原生路径**发现的 **B3a — custom-allreduce IPC 崩（`hipIpcGetMemHandle invalid argument` @ allocate_kv_cache barrier，pad 也崩）**。两者是**不同路径、不同失效模式**，历史上都导向 `enforce_eager` 但原因不同：
+> - **vllm-direct（本 doc）**：inductor/cudagraph 致 NaN → `enforce_eager`（2-5x 慢）。
+> - **ATOM 原生**：custom-allreduce 默认**关**（quick-reduce NONE），cudagraph **可直接用**，去 `--enforce-eager` 即可（W8 teammate-26）；仅 custom-allreduce ON 路径才撞 B3a。
+> - 口径提示：本 doc 的 "2-5x 慢" 与 W8 `../perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md` 的 "cudagraph vs eager ~7.8-8.2×" 是**不同路径/配置**的测量，不可直接比。
+> - 三-bug 全貌见 [`../TP8_THREE_BUGS.md`](../TP8_THREE_BUGS.md)；cudagraph 根因调研见 W8 `teammate-25/26`。
+
 > **§22 防 caveat-stripping**: 本节及各 doc Caveat 节的"patch 不解决 NaN"标注**不可在任何下游引用 / 综合 / review 阶段被 strip 掉**。详细反模式分析见 `03_lessons.md` 教训 3。
 
 ---

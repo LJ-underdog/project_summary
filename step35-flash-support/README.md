@@ -30,6 +30,35 @@
 
 ---
 
+## EP vs TP / nopad / TP8 三-bug（重要导航）
+
+> **务必先分清并行模式**：MoE 的 `inter_dim` 路径由 **纯 TP** 还是 **EP（expert-parallel）** 决定，二者 perf 与 bug 触发完全不同，**不可混读**。
+
+- **纯 TP**（无 `--enable-expert-parallel`）：`inter_dim` 沿 TP 分片 = 1280/8 = **160**（`<256`）→ 触发 nopad smalltile 路径（NPerBlock=32）。
+- **EP**（`--enable-expert-parallel`）：experts 分片，`inter_dim` **不分片 = 1280**（`≥256`）→ nopad 不触发，`ATOM_FP8_MOE_DISABLE_PAD` 是 **no-op**。
+
+```mermaid
+flowchart TD
+    A["MoE 路径 / inter_dim 由并行模式决定"] --> B{"--enable-expert-parallel ?"}
+    B -->|"否 = 纯 TP"| C["inter_dim = 1280 / TP<br/>tp8 → 160 (<256)<br/>→ 触发 nopad smalltile (NPerBlock=32)"]
+    B -->|"是 = EP"| D["inter_dim = 1280 (不分片, ≥256)<br/>→ nopad 不触发<br/>DISABLE_PAD = no-op, nopad≡pad"]
+    C --> E["perf anchor: REPRODUCE §6.2 (纯 TP)<br/>⚠️ B2 ÷8 b_scale bug 活在此路径<br/>(fix=360ebdb66 禁广播; 仅 op-isolate 验证, e2e-TP 未验)"]
+    D --> F["perf anchor: REPRODUCE §6.2-EP + perf/22<br/>EP 精度=看着连贯, 非严格数值验证"]
+    style C fill:#FF9800,color:#fff
+    style D fill:#9E9E9E,color:#fff
+    style E fill:#FFE0B2
+    style F fill:#ECEFF1
+```
+
+| 想了解 | 去读 |
+|---|---|
+| **TP8 / cudagraph 三-bug 辨析**（B1 weight-load / B2 ÷8 b_scale / B3a cudagraph IPC / B3b cudagraph NaN）| [`details/TP8_THREE_BUGS.md`](./details/TP8_THREE_BUGS.md) |
+| nopad（纯 TP inter=160）÷8 bug/fix 全貌 + 接手 plan | `NOPAD_TP_HANDOFF.md`（W8_resume 协调文档）|
+| 纯 TP perf anchor | [`REPRODUCE.md §6.2`](./REPRODUCE.md) |
+| EP perf + cudagraph + EP 引入时间线 | [`REPRODUCE.md §6.2-EP`](./REPRODUCE.md) + [`details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md`](./details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md) |
+
+---
+
 ## 时间线与任务依赖
 
 ```mermaid
@@ -44,7 +73,11 @@ graph LR
     F --> G["⑦ tp=4 长序列 BOS fix<br/>Apr 26<br/>aiter ASM kernel entry 删除"]
     F --> H["⑧ FP8 tp=8 双层 fix<br/>Apr 28<br/>ATOM 969d564"]
     H --> I["⑨ gfx942 迁移<br/>Apr 28<br/>NEW-RC-1/2/3 + M2 padding"]
+    I --> J["⑩ perf eval + tuning<br/>May<br/>perf15/16 + perf20(FAIL) + perf21 NPerBlock=64"]
+    J --> K["⑪ nopad ÷8 fix + EP/TP 辨析<br/>May–Jun (W8)<br/>B2 fix 360ebdb66 (op-isolate 验证, e2e-TP 待验)<br/>+ EP 致 e2e 失覆盖 (05-28)"]
 
+    style J fill:#FF9800,color:#fff
+    style K fill:#FF9800,color:#fff
     style A fill:#4CAF50,color:#fff
     style B fill:#4CAF50,color:#fff
     style C fill:#4CAF50,color:#fff
@@ -61,6 +94,8 @@ graph LR
 - ⑥（FP8 tp=4）依赖 ④（weight padding 方案）和 ⑤（blockscale dispatch 理解）
 - ⑦（tp=4 长序列 BOS fix）由 ⑥ 引入新 testcase 后暴露
 - ⑧（FP8 tp=8 双层 fix）+ ⑨（gfx942 迁移）扩展硬件 / TP 维度
+- ⑩（May perf）功能打通后做 perf eval/tuning（perf15/16 + perf20 FAIL 留档 + perf21 NPerBlock=64 joint patch）
+- ⑪（May–Jun，W8）nopad 纯 TP inter=160 的 B2 ÷8 b_scale fix（`360ebdb66` 禁广播，**仅 op-isolate 验证、e2e-TP 待验**）+ EP/TP 路径辨析（2026-05-28 起 e2e 误用 EP 致 nopad 失覆盖）；详见 [`details/TP8_THREE_BUGS.md`](./details/TP8_THREE_BUGS.md) + `NOPAD_TP_HANDOFF.md`
 
 ---
 
@@ -86,15 +121,12 @@ graph LR
 
 详见 `REPRODUCE.md` §6 anchors + `details/projects/14_migration_gfx942/MIGRATION_REPORT.md`。
 
-### gfx942 stepfun-Flash-FP8 MoE perf 三档 anchor（2026-05-09 实测，wave `tp2_verify_post_merge_wave`）
+### gfx942 stepfun-Flash-FP8 MoE perf anchor
 
-| TP | TTFT | TPOT | decode 吞吐 | engine_init |
-|---|---|---|---|---|
-| tp=2 | **1665.1 ms** | **15.5 ms/tok** | 64.3 tok/s | 82.32 s |
-| tp=4 | **980.4 ms** | **14.5 ms/tok** | 69.1 tok/s | 125.72 s |
-| tp=8 | **747.1 ms** | **13.7 ms/tok** | 73.1 tok/s | 223.31 s |
-
-来源：[`REPRODUCE.md §6.2`](./REPRODUCE.md)（含 5 条观察 + 量级提示）；wave 原始 progress：`tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md`（tp=2）+ `teammate-L20-perf-tp4-tp8.md`（tp=4/8）。
+> **数值单一源（去重）**：三档 perf 数值统一维护在 **[`REPRODUCE.md §6.2`](./REPRODUCE.md)**（纯 TP anchor，2026-05-09 实测，含 5 条观察 + 量级提示 + 数据来源），本 README 不再复制。
+>
+> - **纯 TP**（`--enable-expert-parallel` 未启用，inter 沿 TP 分片：tp2→640/tp4→320/tp8→**160**）：见 REPRODUCE §6.2。简述趋势：TTFT 随 TP 单调下降、TPOT 微降、decode 吞吐微升（TP 扩展回报递减）。
+> - **EP**（`--enable-expert-parallel`，inter=1280 不分片）：另一组数字，见 REPRODUCE §6.2-EP + `details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md`。**EP 与纯 TP 不同 parallelism 路径，不可直接比**。
 
 > **KNOWN_FACT — "gfx942 stepfun 历史 perf baseline" 不存在**：旧 `details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md` 引用的 TTFT≈186 ms / TPOT≈5.245 ms 等数据实际为 **Qwen3-0.6B (dense, non-MoE)** path（`EngineArgs --model` default 陷阱 silent 抢占；详见 `REPRODUCE.md §7.13`）。当前三档为首次正确实测 stepfun MoE 数据，无历史可对比。`details/perf/15_perf_tp2_tp4_tp8_eval/` 已由 wave L19b 加误归属警告，`REPRODUCE.md §7.13` 已加 KNOWN_FACT entry（L19e）。
 
@@ -172,14 +204,15 @@ graph TD
 | [`details/research/11_tensor_parallelism_strategy.md`](./details/research/11_tensor_parallelism_strategy.md) | 张量并行策略：原理 + 每个算子 TP 行为（ATOM 实现）|
 | [`details/research/19_kernel_dispatch_report/`](./details/research/19_kernel_dispatch_report/) | Step-3.5-Flash-FP8 kernel dispatch 路径报告（gfx950 tp=2/4 实测验证）|
 
-### details/perf/ — 性能 eval（2 项）
+### details/perf/ — 性能 eval（5 项）
 
 | 文件 | 内容 |
 |---|---|
 | [`details/perf/15_perf_tp2_tp4_tp8_eval/`](./details/perf/15_perf_tp2_tp4_tp8_eval/) | gfx942 上 TP=2/4/8 性能评估（含 tp=8 起服 evaluation；PERF_REPORT.md + logs/ + progress/）|
 | [`details/perf/16_perf_gfx950_verified/`](./details/perf/16_perf_gfx950_verified/) | gfx950 性能基线（统一脚本测；RESULTS.md + logs/ + progress/）|
 | [`details/perf/20_fp8_fmoe_tuning_wave2/`](./details/perf/20_fp8_fmoe_tuning_wave2/) | Wave 2 — FP8 fMoE Tuning (OPT-1) FAIL wave 总结（27 metric 0 改善 + 6 Promote；RESULTS.md + README.md）|
-| [`details/perf/21_nperblock64_4layer_joint_patch/`](./details/perf/21_nperblock64_4layer_joint_patch/) | NPerBlock=64 path 4 层 joint patch — bit-exact correctness + kernel-level 15.80% 快 + model-level PERF_NEUTRAL HIGH（gfx942 / MI308X；RESULTS.md + README.md）|
+| [`details/perf/21_nperblock64_4layer_joint_patch/`](./details/perf/21_nperblock64_4layer_joint_patch/) | NPerBlock=64 path 4 层 joint patch — bit-exact correctness + kernel-level 15.80% 快 + model-level PERF_NEUTRAL HIGH（gfx942 / MI308X；RESULTS.md + README.md）。⚠️ **与 W8 nopad 修法相反**：本 entry = 改 kernel(ceil(2N,NPerBlock) 布局)+保留 per-NPerBlock 广播；W8 生产修法(B2)= **禁用广播**。perf/21 production 路径自标 **DEFERRED/未验证**。引用前对账 [`details/TP8_THREE_BUGS.md`](./details/TP8_THREE_BUGS.md) B2 + `NOPAD_TP_HANDOFF.md`。|
+| [`details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md`](./details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md) | **EP（expert-parallel）**下 cudagraph perf + accuracy（2026-06-03 实测；TP8/batch=1/cudagraph ON）。🔴 EP（inter=1280）≠ 纯 TP（inter=160）路径，**不可与 perf/15 或 REPRODUCE §6.2 纯 TP anchor 混读**；EP 下 `ATOM_FP8_MOE_DISABLE_PAD` 是 no-op（B2 不触发）。详见 REPRODUCE §6.2-EP |
 
 ### details/issues/ — upstream issue draft（1 项）
 

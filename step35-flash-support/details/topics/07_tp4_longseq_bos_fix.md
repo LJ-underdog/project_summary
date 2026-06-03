@@ -30,6 +30,7 @@
 - **TP**：4（tp=2 / tp=8 不触发）。
 - **输入 token 数**：≥ 8209 tokens（精确阈值见 §4-§5）。
 - **配置**：`gpu-memory-utilization=0.7`、`max-num-batched-tokens=16384`、`max-num-seqs=4`、`enforce-eager`、`kv_cache_dtype=bf16`。
+  > 注（2026-06-03 / teammate-39）：本节 `enforce-eager` 仅为该 longseq-BOS bug 的复现配置（且 §4.1 H2 已证 enforce_eager **不是**本 bug 根因）；与 cudagraph 当前可用性无关，cudagraph 失效模式/可用条件见 [`../TP8_THREE_BUGS.md`](../TP8_THREE_BUGS.md)（B3a/B3b）。
 - **执行命令**（来自 teammate-1）：
   ```
   cd /tmp && MODEL=stepfun-ai/Step-3.5-Flash TP=4 GMU=0.7 MAX_TOKENS=10 \

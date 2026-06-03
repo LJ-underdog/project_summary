@@ -8,7 +8,7 @@
 
 > # 🔴 BASELINE 失效声明（2026-05-09 由 wave `tp2_verify_post_merge_wave` 加注）
 >
-> **本报告 §二（gfx942 参考数据）/ §三（H5 验证） / §四（对比分析） / §四-A / §四-B / §五（H1-H6 假设）/ §六（gfx950 内部对比）所引用的 "gfx942 perf_bench.py tp=2 TTFT=186ms / TPOT=5.2ms / tp=4 TTFT=110ms / TPOT=5.5ms" 已被实证为 Qwen/Qwen3-0.6B（dense, non-MoE）误归属，并非 stepfun-ai/Step-3.5-Flash-FP8 的实测值。**
+> **本报告 §二（gfx942 参考数据）/ §三（H5 验证） / §四（对比分析） / §四-A / §七-B / §五（H1-H6 假设）/ §六（gfx950 内部对比）所引用的 "gfx942 perf_bench.py tp=2 TTFT=186ms / TPOT=5.2ms / tp=4 TTFT=110ms / TPOT=5.5ms" 已被实证为 Qwen/Qwen3-0.6B（dense, non-MoE）误归属，并非 stepfun-ai/Step-3.5-Flash-FP8 的实测值。**
 >
 > - 决定性证据：`details/perf/15_perf_tp2_tp4_tp8_eval/logs/tp2_run2_full.log:47,50` `Model load done: Qwen/Qwen3-0.6B`（含 tp4_run2_full.log:79 同源 8/8 行 + tp8_long_run2_full.log:144 同源 12/12 行 + tp8_launch_full.log:144 同源 6/6 行）
 > - 实证 wave：L17c (`progress/teammate-L17c-baseline-audit.md`) → L18 (`teammate-L18-perf-rerun.md`) → L20 (`teammate-L20-perf-tp4-tp8.md`) → L24 (`teammate-L24-audit-data-residue.md`) → L26 (`teammate-L26-audit-perf-coverage.md`)
@@ -134,7 +134,7 @@
 | ID | 状态 ⚠️ 失效 | 假设 | 验证方法 / 结论 ⚠️ 论证基础失效 |
 |----|------|------|---------------|
 | H1 | ~~✅ **已排除**~~ ⚠️ unreliable | ~~aiter dirty patch 差异（run_1stage=False）~~ | ~~#403/#404 实测：patch 生效（日志确认走 2-stage），但 TTFT 变化 tp=2 -1.0% / tp=4 +2.9%，均在噪声范围内。MoE 1-stage vs 2-stage 不是 prefill 瓶颈。~~ ⚠️ 排除论断需重审 |
-| **H6** | ~~🔴 **成立（强证据）**~~ ⚠️ INVALIDATED-PENDING-RECOMPUTE | **bf16_tuned_gemm.csv 对 Step-3.5-Flash 形状覆盖为零** | ~~见下方 §四 H6 详细分析~~ ⚠️ "解释 100~200ms TTFT gap" 量级推算 anchor 已失效 |
+| **H6** | ~~🔴 **成立（强证据）**~~ ⚠️ INVALIDATED-PENDING-RECOMPUTE | **bf16_tuned_gemm.csv 对 Step-3.5-Flash 形状覆盖为零** | ~~见下方 §七-A H6 详细分析~~ ⚠️ "解释 100~200ms TTFT gap" 量级推算 anchor 已失效 |
 | H2 | ⬜ **未验证** | **gfx950 CK kernel 调优不足**（MoE/attention kernel tuning） | 检查 `aiter/configs/tuned_fmoe.csv` 中 gfx950 条目数量；对比 gfx942 覆盖度 |
 | H3 | ⬜ **未验证** | **ATOM/JIT cache 差异** | 在 gfx950 不清 cache 重跑，对比结果 |
 | H4 | ⬜ **未验证** | **GPU 硬件状态** | `rocm-smi` 检查 GPU 0-3 健康；对比单卡 gemm 基准 |
@@ -157,7 +157,9 @@
 
 ---
 
-## 四、根因全景（#701/#702 确认，2026-04-29）
+## 七、根因全景（#701/#702 确认，2026-04-29）
+
+> 编号勘误(audit teammate-38):原为重复的 `## 四`(与 §四对比分析撞号),改为 §七;子节 §四-A/§七-B 同步改 §七-A/§七-B。
 
 > ⚠️ **本章 H6 量化推导失去 anchor（顶部 🔴 BANNER）**：§"TTFT gap 解释力"（line 156-168 附近）所引 "FP8 perf_bench tp=2 TTFT = 388ms / gfx942 baseline 显著更低，TTFT gap 100~200ms" 中 "gfx942 baseline" 实为 Qwen3-0.6B → "BF16 miss 解释 ~87ms gap" 推算 anchor 失效。代码读取部分（46.1% FLOPs / 62 次 miss / aiter dispatch 路径分析）**仍有效**，但 "解释 gap 量级" 论断 strikethrough。
 
@@ -217,7 +219,7 @@
 
 ---
 
-## 四-A、H6 根因分析 — bf16_tuned_gemm.csv 覆盖率严重不足
+## 七-A、H6 根因分析 — bf16_tuned_gemm.csv 覆盖率严重不足
 
 > 来源：teammate-7 #501 调查（2026-04-29）
 > 代码：`aiter/tuned_gemm.py:38-193`，`aiter/jit/core.py:178-296`
@@ -277,7 +279,7 @@ gfx942 机器可能在其本地 `/workspace/aiter/aiter/configs/` 下有额外�
 
 ---
 
-## 四-B、FP8 fmoe tuning Gap（#601 新发现）
+## 七-B、FP8 fmoe tuning Gap（#601 新发现）
 
 > 来源：teammate-8 #601 调查（2026-04-29）
 > 代码：`aiter/fused_moe.py:780-867`，`aiter/jit/core.py:70-160`
@@ -322,11 +324,11 @@ tuned_fmoe.csv 中 gfx942 (cu=80) 条目也不包含上述 4 个 Step-3.5-Flash 
 ```
 预期效果：MoE prefill/decode 各 layer 走调优 kernel，TTFT 和 TPOT 进一步下降。
 
-> **跨 wave cross-link（2026-05-13 反向加注 / 硬件 axis 澄清）**：相关 wave 详见 [`details/perf/20_fp8_fmoe_tuning_wave2/RESULTS.md`](../20_fp8_fmoe_tuning_wave2/RESULTS.md)。**硬件覆盖差异**：本节 §四-B 的 fix path 是为 **gfx950** 补 csv（L317）；wave2 测的是 **gfx942** 上 stepfun-Flash-FP8 的 OPT-1 axis（aiter `tuned_fmoe.csv` 加 stepfun-specific entry），结论 = gfx942 上全 axis 证伪 + tp=2 multi-prompt 反向退化。**未触及** §四-B 的 gfx950 fix path 推荐 — gfx950 上是否同样无效未实证。Disclaimer：本反向加注由 wave2 doc-impl 时追加，不修改 16 wave 原结论。
+> **跨 wave cross-link（2026-05-13 反向加注 / 硬件 axis 澄清）**：相关 wave 详见 [`details/perf/20_fp8_fmoe_tuning_wave2/RESULTS.md`](../20_fp8_fmoe_tuning_wave2/RESULTS.md)。**硬件覆盖差异**：本节 §七-B 的 fix path 是为 **gfx950** 补 csv（L317）；wave2 测的是 **gfx942** 上 stepfun-Flash-FP8 的 OPT-1 axis（aiter `tuned_fmoe.csv` 加 stepfun-specific entry），结论 = gfx942 上全 axis 证伪 + tp=2 multi-prompt 反向退化。**未触及** §七-B 的 gfx950 fix path 推荐 — gfx950 上是否同样无效未实证。Disclaimer：本反向加注由 wave2 doc-impl 时追加，不修改 16 wave 原结论。
 
 ---
 
-## 七、遗留问题与建议
+## 八、遗留问题与建议
 
 ### 已排除
 - **H1**（2026-04-29）：run_1stage=False patch 无效，MoE kernel 选择不是瓶颈
@@ -378,7 +380,7 @@ tuned_fmoe.csv 中 gfx942 (cu=80) 条目也不包含上述 4 个 Step-3.5-Flash 
 
 ---
 
-## 八、附：测试命令（可在 gfx942 复用）
+## 九、附：测试命令（可在 gfx942 复用）
 
 ```bash
 # FP8 tp=2（gfx942 上替换 CUDA_VISIBLE_DEVICES 和 MODEL_PATH）

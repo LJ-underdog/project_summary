@@ -9,6 +9,11 @@
 
 ---
 
+> 🔴 **范围澄清（2026-06-03 补注 / teammate-39）**：本文档只覆盖 **TP8 三个独立 bug 中的 B1（weight-load crash + fp8 scale `torch.ones()` init silent corruption）**，fix = ATOM `969d564`。它 **不**涵盖后续 W8 wave 发现的另两个 bug，勿据本文认为 "tp8 已彻底解决"：
+> - **B2 — nopad ÷8 b_scale bug**（aiter host `_maybe_broadcast_w2_scale_for_smalltile` 广播契约 stale，仅**纯 TP nopad inter=160** 触发，EP/pad 不触发；fix=aiter 禁广播 `360ebdb66`）→ 详 [`../../../../W8_resume/NOPAD_TP_HANDOFF.md`](../../../../W8_resume/NOPAD_TP_HANDOFF.md)。
+> - **B3 — cudagraph 崩**（B3a custom-allreduce IPC `hipIpcGetMemHandle` / B3b vllm v1 inductor NaN，**与 B1 无关**）。
+> - 三者辨析见 [`../../TP8_THREE_BUGS.md`](../../TP8_THREE_BUGS.md)（三-bug 表 + EP/TP 决策树）。
+
 ## 1. TL;DR
 
 - **Bug**：tp=8 时 fp8 MoE 权重加载在 `_load_w13` / `_load_w2` 的 `narrow()` 上崩溃；早返回绕开后，trailing rank 的 fp32 scale tensor 保持 `torch.ones()` 初值 1.0，导致下游 fp8 dequant `bf16 = fp8 * 1.0` 错算 → 4/4 prompt 输出乱码。
@@ -27,6 +32,8 @@
 | **双层 fix**（commit `969d564` / 24L 净增）| ✅ load OK / 输出 coherent / A3 byte-id 锚点保持（`final_tp2.{log,json}`）| ✅ 同上（`final_tp4.{log,json}`，starts=[0,3,6,9] 全 < D=10 → zero-fix 不 trigger）| ✅ load OK + 4/4 prompt **coherent**，与 tp=2/4 同质量（`final_tp8.{log,json}`，例：`"Hmm, the user asked me to introduce myself..."`）|
 
 > tp=2/4 在双层 fix 下 zero-fix 分支不触发（D=10，starts 全 < D），等价于 early-return-only 行为，无回归（`fix_wave/progress/teammate-4.md` §V1 + `fix_wave/progress/teammate-8.md` §3）。
+
+> 🔴 **路径标注（2026-06-03 补注 / teammate-39）**：本矩阵的 tp=8 测试均为 **纯 TP + pad 路径**（`ATOM_FP8_MOE_DISABLE_PAD` 未设 → inter 1280/8=160 被 pad 到 256，**不触发 nopad smalltile**），故**不会撞 B2 ÷8 b_scale bug**，"coherent" 结论对 pad 路径成立。**nopad inter=160（DISABLE_PAD=1）路径的 ÷8 bug 是另一回事**，见 [`../../../../W8_resume/NOPAD_TP_HANDOFF.md`](../../../../W8_resume/NOPAD_TP_HANDOFF.md)（B2）。
 
 ---
 

@@ -155,7 +155,20 @@ def build_long_prompt(tokenizer, target_tokens: int, tolerance: int = 32):
 
 
 def _check_correctness(output_text: str, output_token_ids=None) -> dict:
-    """正确性检查，返回结果字典。"""
+    """正确性检查，返回结果字典。
+
+    [HOOK for OPT-6 / wave2 P4 — stub only]
+    本函数保持启发式 char/word/BOS 检测；wave2 P0-2=β 决策下，**不**在本脚本实施
+    bf16 reference cos-sim（cos-sim 路径在 perf_correctness_bench.py 不存在，详见
+    cos_sim_path_survey.md）。GOAL 已降级为 fp8-vs-fp8 byte-equal + 启发式 PASS。
+    若未来需接入 cos-sim，应在主流程 `_check_correctness(text_out)` 调用之后追加：
+        # cos_sim = _check_cos_sim_vs_bf16_ref(text_out, output_token_ids,
+        #                                       args.bf16_ref_path,
+        #                                       layer_indices=[N1,N2,N3,N4])
+        # corr.update(cos_sim)
+    本函数本身保持启发式 char/word/BOS 检测不变；cos-sim 是 *additive*，不替换
+    _check_correctness 的现有契约。详 wave2 proposed_fix_B01.md §4。
+    """
     text = output_text or ""
     word_count = len(text.split())
     char_count = len(text)
@@ -210,6 +223,16 @@ def main():
     parser.add_argument("--log-file",      type=str, default=None)
     parser.add_argument("--measure-method", type=str, default="A", choices=["A", "B"])
     parser.add_argument("--temperature",   type=float, default=0.0)
+    parser.add_argument("--ignore-eos",    action="store_true", default=False,
+                        help="忽略 eos token，让 output 跑满 max_tokens（用于 TPOT 样本量提升）。"
+                             "默认 False = 保持原 eos 提前停行为。")
+    parser.add_argument("--num-prompts",   type=int, default=1,
+                        help="每轮测量 batch 大小（同 prompt 复制 N 份）。"
+                             "N>1 用于多 sample TPOT 噪声估算。默认 1 = 保持现状。")
+    parser.add_argument("--enable-cudagraph", action="store_true", default=False,
+                        help="开启 ATOM CUDAGraph capture（覆盖 --level 默认 0 → 3，"
+                             "并尊重 --cudagraph-capture-sizes ATOM CLI flag）。"
+                             "默认 False = 保持现 eager-mode 行为。")
     args = parser.parse_args()
 
     # ─── 设置 ATOM 必要参数 ────────────────────────────────────────
@@ -217,10 +240,37 @@ def main():
     if not getattr(args, "model", None):
         args.model = _find_model_path()
     args.trust_remote_code = True
-    args.cudagraph_capture_sizes = str([1])   # 字符串形式，与 EngineArgs 契约一致
+    # P2 (wave2 OPT-6): max_num_seqs 必须 ≥ batch 大小（args.num_prompts）
     args.max_num_batched_tokens = 16384
-    args.max_num_seqs = 1
-    args.level = 0
+    args.max_num_seqs = max(1, args.num_prompts)
+
+    # P1-3 sanity (wave2 §11.3 candidate A auto-bump): num_prompts × input_tokens 若超过
+    # max_num_batched_tokens，ATOM scheduler 会拆 chunk / 拒绝调度 → decode batch 不再
+    # 恒定 = N，CUDAGraph capture sizes 全 miss，TPOT/TTFT 测量失真。auto-bump 上限以
+    # 容纳全 batch prefill 一次入队，并保留 1024 token 余量。
+    _required_batched = args.num_prompts * args.input_tokens
+    if _required_batched > args.max_num_batched_tokens:
+        _bumped = _required_batched + 1024
+        print(f"[bench][P1-3] auto-bump max_num_batched_tokens "
+              f"{args.max_num_batched_tokens} → {_bumped} "
+              f"(num_prompts={args.num_prompts} × input_tokens={args.input_tokens} "
+              f"= {_required_batched})")
+        args.max_num_batched_tokens = _bumped
+        # 注意：max_model_len 也需相应放大，否则单 prompt 长度仍受 16384 限制
+        if getattr(args, "max_model_len", 0) < args.input_tokens + 1024:
+            args.max_model_len = args.input_tokens + 1024
+
+    # P3 (wave2 OPT-6): cudagraph 路径默认 eager (level=0)，与 baseline anchor 兼容；
+    #     用户显式 --enable-cudagraph 才开启 cudagraph capture，并尊重 ATOM EngineArgs
+    #     `--cudagraph-capture-sizes` CLI flag (default `[1,2,4,8,16,32,48,64,128,256]`,
+    #     arg_utils.py:43+115)。删除原 hardcoded `args.cudagraph_capture_sizes = str([1])`。
+    if args.enable_cudagraph:
+        args.level = 3
+        # 不显式覆盖 args.cudagraph_capture_sizes — 由 ATOM CLI default 或用户
+        # --cudagraph-capture-sizes 决定
+    else:
+        args.level = 0
+        # eager-mode 下 cudagraph_capture_sizes 不生效，但保留 CLI 值（不强制覆盖）
 
     # ─── 日志文件 ────────────────────────────────────────────────────
     log_fh = None
@@ -255,7 +305,9 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     _emit("[1/4] Building prompt ...", log_fh)
     chat_prompt, n_input_actual = build_long_prompt(tokenizer, args.input_tokens)
+    chat_prompts = [chat_prompt] * args.num_prompts          # P2 (wave2 OPT-6): 复制 N 份
     _emit(f"[1/4] Actual input tokens: {n_input_actual}", log_fh)
+    _emit(f"[1/4] Num prompts (batch): {args.num_prompts}", log_fh)
 
     # ─── Engine ─────────────────────────────────────────────────────
     _emit("[2/4] Initializing ATOM engine ...", log_fh)
@@ -266,46 +318,70 @@ def main():
     _emit(f"[2/4] Engine init: {engine_init_s:.2f}s", log_fh)
 
     sp_warm = SamplingParams(temperature=args.temperature, max_tokens=4)
-    sp_meas = SamplingParams(temperature=args.temperature, max_tokens=args.output_tokens)
+    sp_meas = SamplingParams(
+        temperature=args.temperature,
+        max_tokens=args.output_tokens,
+        ignore_eos=args.ignore_eos,   # P1 (wave2 OPT-6): 用户开启时 output 强制跑到 max_tokens
+    )
 
     def _run_one(label):
+        # P2 (wave2 OPT-6): 用 chat_prompts (length = args.num_prompts)
         if args.measure_method == "A":
-            _ = llm.generate([chat_prompt], sp_warm)  # warmup 在首轮前已跑，此处保留供后续轮次
+            _ = llm.generate(chat_prompts, sp_warm)  # warmup 在首轮前已跑，此处保留供后续轮次
             t0 = time.perf_counter()
-            outputs = llm.generate([chat_prompt], sp_meas)
+            outputs = llm.generate(chat_prompts, sp_meas)
             wall = time.perf_counter() - t0
-            out = outputs[0]
-            ttft     = float(out.get("ttft",   0.0))
-            tpot_s   = float(out.get("tpot",   0.0))
-            n_out    = int(out.get("num_tokens_output", 0))
-            n_in     = int(out.get("num_tokens_input", n_input_actual))
-            total_s  = float(out.get("latency", wall))
-            text_out = out.get("text", "") or ""
+
+            # P2: 聚合 N 个 prompt 的 ttft/tpot
+            ttfts   = [float(o.get("ttft", 0.0)) for o in outputs]
+            tpots_s = [float(o.get("tpot", 0.0)) for o in outputs]
+            n_outs  = [int(o.get("num_tokens_output", 0)) for o in outputs]
+            n_in    = int(outputs[0].get("num_tokens_input", n_input_actual))
+            total_s = float(outputs[0].get("latency", wall))
+            text_out = outputs[0].get("text", "") or ""
+
+            ttft   = sum(ttfts) / len(ttfts)            # mean
+            tpot_s = sum(tpots_s) / len(tpots_s)
+            n_out  = sum(n_outs) // len(n_outs)         # mean rounded
         else:  # method B
             sp1 = SamplingParams(temperature=args.temperature, max_tokens=1)
-            _ = llm.generate([chat_prompt], sp_warm)
+            _ = llm.generate(chat_prompts, sp_warm)
             t0 = time.perf_counter()
-            out1 = llm.generate([chat_prompt], sp1)
+            out1 = llm.generate(chat_prompts, sp1)
             ttft = time.perf_counter() - t0
             t0 = time.perf_counter()
-            outputs = llm.generate([chat_prompt], sp_meas)
+            outputs = llm.generate(chat_prompts, sp_meas)
             total_s = time.perf_counter() - t0
-            out = outputs[0]
-            n_out   = int(out.get("num_tokens_output", 0))
-            n_in    = int(out.get("num_tokens_input", n_input_actual))
-            tpot_s  = (total_s - ttft) / max(1, n_out - 1)
-            text_out = out.get("text", "") or ""
+
+            n_outs = [int(o.get("num_tokens_output", 0)) for o in outputs]
+            n_out  = sum(n_outs) // len(n_outs)
+            n_in   = int(outputs[0].get("num_tokens_input", n_input_actual))
+            tpot_s = (total_s - ttft) / max(1, n_out - 1)
+            text_out = outputs[0].get("text", "") or ""
+            ttfts   = [ttft] * args.num_prompts          # method B 没有 per-prompt ttft，复制（R3 标记 cv 假象）
+            tpots_s = [tpot_s] * args.num_prompts
+
+        # P2: per-prompt cv (std/mean) — 只在 N>=2 时有意义
+        if args.num_prompts >= 2:
+            import statistics
+            ttft_cv = statistics.stdev(ttfts) / max(1e-9, statistics.mean(ttfts))
+            tpot_cv = statistics.stdev(tpots_s) / max(1e-9, statistics.mean(tpots_s))
+        else:
+            ttft_cv = 0.0
+            tpot_cv = 0.0
 
         tpot_ms  = tpot_s * 1000.0
         decode_th = (n_out - 1) / max(1e-9, total_s - ttft) if n_out > 1 else 0.0
-        _emit(f"  {label}: TTFT={ttft*1000:.1f}ms  TPOT={tpot_ms:.1f}ms  "
+        _emit(f"  {label}: N={args.num_prompts}  "
+              f"TTFT={ttft*1000:.1f}ms (cv={ttft_cv:.1%})  "
+              f"TPOT={tpot_ms:.1f}ms (cv={tpot_cv:.1%})  "
               f"total={total_s:.2f}s  out_tokens={n_out}  "
               f"decode_throughput={decode_th:.1f}tok/s", log_fh)
-        return ttft, tpot_s, total_s, n_out, n_in, text_out
+        return ttft, tpot_s, total_s, n_out, n_in, text_out, ttft_cv, tpot_cv
 
     # ─── Warmup ──────────────────────────────────────────────────────
     _emit("[3/4] Warmup ...", log_fh)
-    _ = llm.generate([chat_prompt], sp_warm)
+    _ = llm.generate(chat_prompts, sp_warm)  # P2 (wave2 OPT-6): 用 chat_prompts (N copies)
     _emit("[3/4] Warmup done.", log_fh)
 
     # ─── Measurement ─────────────────────────────────────────────────
@@ -323,8 +399,8 @@ def main():
         except Exception as e:
             _emit(f"llm.close() error: {e!r}", log_fh)
 
-    # 取最后一轮（稳态）
-    ttft_s, tpot_s, total_s, n_out, n_in, text_out = results[-1]
+    # 取最后一轮（稳态）— P2 (wave2 OPT-6): 增加 ttft_cv / tpot_cv 字段
+    ttft_s, tpot_s, total_s, n_out, n_in, text_out, ttft_cv, tpot_cv = results[-1]
 
     # ─── 正确性检查 ───────────────────────────────────────────────────
     corr = _check_correctness(text_out)
@@ -342,8 +418,8 @@ def main():
     _emit(f"aiter commit:      {aiter_hash}", log_fh)
     _emit(f"Input tokens:      {n_in}", log_fh)
     _emit(f"Output tokens:     {n_out}", log_fh)
-    _emit(f"TTFT (stable):     {ttft_s*1000:.1f} ms", log_fh)
-    _emit(f"TPOT (stable):     {tpot_s*1000:.1f} ms/token", log_fh)
+    _emit(f"TTFT (stable):     {ttft_s*1000:.1f} ms (per-prompt cv={ttft_cv:.1%}, N={args.num_prompts})", log_fh)
+    _emit(f"TPOT (stable):     {tpot_s*1000:.1f} ms/token (per-prompt cv={tpot_cv:.1%}, N={args.num_prompts})", log_fh)
     _emit(f"Total lat (stable):{total_s:.3f} s", log_fh)
     _emit(f"Decode throughput: {(n_out-1)/max(1e-9,total_s-ttft_s):.1f} tok/s", log_fh)
     _emit(f"Engine init:       {engine_init_s:.2f} s", log_fh)

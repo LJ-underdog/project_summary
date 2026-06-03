@@ -3,6 +3,8 @@
 > 状态：**已审查定稿**（teammate-6 撰写，teammate-7 严格审查，Lead 更新）
 > 数据来源：`progress/teammate-1.md` ~ `progress/teammate-7.md`
 > 关键结论已修正：见第 5 节
+>
+> 🔵 **下游实现 cross-link(audit teammate-38,2026-06-03)**:本调研(2026-04 nopad 理论:缩小 NPerBlock 去 padding)已落地:**tp=4 inter=320 NPerBlock=64** → `details/perf/21_nperblock64_4layer_joint_patch/`;**tp=8 inter=160 NPerBlock=32** → W8 wave `/home/junlin12/W8_resume/NOPAD_TP_HANDOFF.md`。落地中**新发现两点本调研未覆盖**:① **host 广播契约 stale 致 ÷8 b_scale bug**(W8:`_maybe_broadcast_w2_scale_for_smalltile` 广播 stride 512 vs kernel 64 → 禁广播 fix);② **EP-vs-TP gate**:本调研假设纯 TP(inter 沿 TP 分片到 160);**EP(`--enable-expert-parallel`)下 inter 不分片=1280≥256,nopad 路径根本不触发**(详 `details/perf/22_ep_*.md`)。
 
 ---
 
@@ -15,14 +17,14 @@ Step-3.5-Flash 在 tp=4 时，每个 rank 的 MoE `intermediate_size_per_partiti
 ## 2. 当前 Padding 方案（已验证基线）
 
 - 配置：`inter_dim=320`（tp=4），padding 到 `384 = 3 × 128`，CK `NPerBlock=128`，`ScaleBlockN=ScaleBlockK=128`。
-- ATOM padding 入口：`/home/hanchang/ATOM/atom/model_ops/moe.py`
+- ATOM padding 入口：`/home/junlin12/ATOM/atom/model_ops/moe.py`（路径勘误 teammate-38:原 `/home/hanchang/ATOM` 已迁;当前 padding/nopad gate 见 `moe.py:1736-1771`）
   - `Fp8MoEMethod._process_block_quant`（L1709-1749）只 pad **weight**（`torch.zeros` 填充，L1727 / L1736），**不 pad scale**。
   - `align = 64 if inter ≤ 192 else block_n`（L1721）。
   - `create_weights` 中 `padded_inter = ceil(intermediate_size_per_partition / block_n) * block_n`（L1554-1571），ValueError 校验在 L1576-1581（`padded_inter % block_n != 0`，因 ceil 对齐永远不触发）；tp_size>1 额外校验 `padded_inter % block_k != 0`（L1582-1588）。
   - scale 张量按 `ceil(intermediate_size_per_partition / 128)` 分配（L1636），与 padding 后 weight 的 `ceil(384/128)=3` 一致。
 - 数学约束：per_1x128 weight quant 要求每 N 维 block 共享一个 scale，`ScaleBlockN=128`；CK kernel grid 按 `ceil(N / NPerBlock)` 调度，host 必须保证 weight storage 至少覆盖 `ceil(N / NPerBlock) * NPerBlock` 才不越界。
 - 数值正确性依赖：FP8 e4m3fnuz 的 zero × scale = 0，padding 区域计算结果不影响输出；并且 `ceil(320/128) == ceil(384/128) == 3`，scale tensor 与 padded weight 自然 shape-compatible（来源：teammate-1 § Q6.1，关键发现 #3）。
-- 已验证里程碑：FP8 tp=4 V06 Exp2 实测 TTFT=86ms / TPOT=13ms / gmu=0.7（MEMORY.md）。
+- 已验证里程碑：FP8 tp=4 V06 Exp2 实测 TTFT=86ms / TPOT=13ms / gmu=0.7（MEMORY.md）。⚠️ **caveat(teammate-38)**:86ms 是**短 prompt(~20 tok)**场景(见 `details/perf/16_*/RESULTS.md §八`),**非 10k 长输入**;长输入 tp=4 真值见 REPRODUCE §6.2(≈980ms),勿混用。
 
 ---
 
@@ -113,7 +115,7 @@ if(arg.N % NPerBlock != 0 || arg.K % KPerBlock != 0)
 ### 3.5 per_1x64 量化侧可行性（来自 teammate-5 § Q1-Q4）
 
 #### Step-3.5-Flash-FP8 checkpoint 的量化配置
-- 配置：`/root/.cache/huggingface/hub/models--stepfun-ai--Step-3.5-Flash-FP8/.../config.json:313-321`：
+- 配置：`/workspace/hf_cache/models--stepfun-ai--Step-3.5-Flash-FP8/snapshots/6eebda59.../config.json:313-321`（路径勘误 teammate-38:原 `/root/.cache/huggingface/hub`）：
   - `weight_block_size: [128, 128]`、`activation_scheme: dynamic`、`fmt: e4m3`。
 - safetensors 已经按 [128,128] block_size 离线量化，weight_scale_inv 张量随 checkpoint 发布。
 - StepFun **未发布** per_1x64 版本。

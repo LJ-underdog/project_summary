@@ -10,7 +10,7 @@
 
 ### 1.1 模型配置
 
-来源：`/root/.cache/huggingface/hub/models--stepfun-ai--Step-3.5-Flash-FP8/snapshots/6eebda59.../config.json`
+来源：`/workspace/hf_cache/models--stepfun-ai--Step-3.5-Flash-FP8/snapshots/6eebda59.../config.json`（路径勘误 teammate-38:原 `/root/.cache/huggingface/hub`）
 
 | 字段 | 值 |
 |------|----|
@@ -47,7 +47,7 @@ tp=8: inter=160, align=128, inter_pad=256, waste=37.5%
 
 ### 2.1 `_process_block_quant` 的 align 规则
 
-来源：`/home/hanchang/ATOM/atom/model_ops/moe.py`
+来源：`/home/junlin12/ATOM/atom/model_ops/moe.py`（路径勘误 teammate-38:原 `/home/hanchang/ATOM`）
 
 ```python
 # L1709  def _process_block_quant(self, layer: nn.Module) -> None:

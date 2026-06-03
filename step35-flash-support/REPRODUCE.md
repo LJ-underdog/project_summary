@@ -1,7 +1,7 @@
 # Step-3.5-Flash 全栈推理 — 复现指南（gfx942 / MI308X / FP8）
 
 > **范围**：本指南覆盖 step35-flash-support 项目在 **AMD MI308X (gfx942)** 上以 **FP8 blockscale** 量化权重端到端复现 `stepfun-ai/Step-3.5-Flash-FP8` 模型推理的完整步骤，含 tp=2/4/8 三档 tensor parallel。
-> **来源整合**：以 `details/projects/14_migration_gfx942/MIGRATION_REPORT.md`（gfx942 迁移报告）为主路径参考；`details/topics/18_fp8_tp8_root_cause_and_fix/`（tp=8 双层 fix）为 tp=8 路径来源；`details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md` 为性能数据来源。
+> **来源整合**：以 `details/projects/14_migration_gfx942/MIGRATION_REPORT.md`（gfx942 迁移报告）为主路径参考；`details/topics/18_fp8_tp8_root_cause_and_fix/`（tp=8 双层 fix）为 tp=8 路径来源；**§6.2 性能数据来源 = wave `tp2_verify_post_merge_wave`（首次正确实测 stepfun MoE）**。⚠️ `details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md` 的 TTFT≈186ms 等数值是 **Qwen3-0.6B（dense, non-MoE）误归属**（§6.2 注 + §7.13），**不是** stepfun perf 源。
 > **gfx950 路径**：本指南只保留 gfx942 复现路径。如需 gfx950 (MI350X) / BF16 路径，参见 §8 延伸索引指向的 `details/topics/12_reproduction_guide_fp8_tp4.md` 与 `details/perf/16_perf_gfx950_verified/`（保留作历史参考）。
 
 ---
@@ -133,7 +133,7 @@ hf auth login    # 或 export HF_TOKEN=hf_xxxxx
 >   - 你想在 fork 里 cherry-pick 这条修复到不同分支
 > - 闭环证据：tp2_verify_post_merge_wave/progress/teammate-L25-audit-commit-currency.md §1.2（实测 commit message + diff byte-id）+ teammate-L29-fix-REPRODUCE-CODE_CHANGES-toplevel.md。
 
-**作用**：~~commit `f06cdcca5` 的~~ aiter `fused_moe.py:881-883` 历史启发式 `run_1stage = token > 32 and (inter_dim % 256 == 0)`（即上面 NOTE 提到的 "patch-之前的 base"）会把 per_1x128 prefill 路由到 ASM kernel `aiter.fmoe_g1u1`；该 ASM 签名**不带 block shape 参数**（gfx942 上对应的 `fmoe_fp8_blockscale_g1u1` 才带），数值会错（gibberish）。本 patch 强制 `run_1stage = False`，使 dispatch 走 CK 2-stage blockscale 路径（`module_moe_ck2stages_f8_f8_preshuffle_on_b16_{silu|swiglustep}_per_1x128_mulWeightStage2`）。**`f06cdcca5` 已把此 patch 化为 commit，§3.1 checkout 后自动生效**。
+**作用**：aiter `fused_moe.py:881-883` 历史启发式 `run_1stage = token > 32 and (inter_dim % 256 == 0)` 会把 per_1x128 prefill 路由到 ASM kernel `aiter.fmoe_g1u1`（签名**不带 block shape 参数**，gfx942 上数值会错 / gibberish）。本 patch 强制 `run_1stage = False`，使 dispatch 走 CK 2-stage blockscale 路径。**已固化为 aiter commit `f06cdcca5`，§3.1 严格 checkout 后自动生效，无需手工 apply / 无需重 develop。**
 
 **Patch（单 hunk，3 行实质改动 — 仅当 aiter HEAD 早于 `f06cdcca5` 时手工应用）**：
 
@@ -150,18 +150,9 @@ hf auth login    # 或 export HF_TOKEN=hf_xxxxx
 +                run_1stage = False
 ```
 
-~~应用后 working-tree dirty（`git status` 在 aiter 仓显示 `modified: aiter/fused_moe.py`）。**必须重新 `python3 setup.py develop`** 让 patch 编译进 `.so`；只改 python 源码不重 develop = patch 未生效（aiter 是 C++ extension，部分 dispatch 通过 native module 暴露）。~~
-（**已过时** — 上述 working-tree dirty + 重 develop 流程对应 2026-04-28 时点，patch 当时未 commit。2026-04-30 起 patch 已 commit 化为 `f06cdcca5`，§3.1 严格 checkout 后无须重新 develop；保留原文本作历史参考。）
+（仅当 aiter HEAD 早于 `f06cdcca5`（如 `0f8164017`）才需手工 `git apply` 上方 diff + 重 `python3 setup.py develop`。）
 
-> **Note — 为什么 patch 历史上是 working-tree dirty 而非 commit（已部分 superseded）**：
->
-> 1. **Workaround 性质**：本 patch 用 `run_1stage = False` 覆盖原启发式（无条件禁用 1-stage ASM），仅适合 gfx942 + per_1x128 + 当前 dispatch 表的组合。直接 commit 会影响其他场景（gfx950 / 非 per_1x128 / 未来 ASM 修复后想再启用），不是 production-ready 的 upstream fix。
-> 2. **真正的上游 fix 路径**：在 dispatch 表中给 `(per_1x128, gfx942, prefill)` 单独提供 `fmoe_fp8_blockscale_g1u1` 入口（带 block shape 参数的 ASM），或重构 fallback 启发式。这条路径需要 ASM kernel 重写或 CK / AITER upstream 协调，不在本复现指南范围内。
-> 3. **本指南里的历史固化方式（superseded）**：working-tree dirty + 重 `setup.py develop` 是 2026-04-28 时点的最小可复现路径；用户复制 patch 文本 + `git apply` 即可，避免复现者去 fork aiter 维护 branch。
-> 4. **当前固化方式（2026-04-30 起）**：patch 已作为 commit `f06cdcca5` 进入 `feat/step3p5-moe-swiglustep` 分支历史（仍未 push 到 `origin/main`，仅在该 feat 分支上）；§3.1 严格 checkout 即可，无 working-tree dirty。
-> 5. **commit 替代方案**：如复现者愿意维护 fork，可在自己的 aiter fork 加一个 commit（不要 push 上游 origin）。
->
-> 引用：`details/projects/14_migration_gfx942/MIGRATION_REPORT.md` §6.4 + §9.2（"aiter (commit `0f8164017`，含 NEW-RC-3 patch — 唯一 dirty 文件)" — 该描述对应 wave 14 进行时 2026-04-26 时点；当前实际 reproduce commit 见 §3.1 + 上方 🔴 NOTE）。
+> **历史背景（可跳过）**：此 patch 2026-04-28 引入时是 working-tree dirty，2026-04-30 起 commit 化为 `f06cdcca5`（`feat/step3p5-moe-swiglustep` 分支，未 push `origin/main`）。它是 gfx942 + per_1x128 的 workaround（无条件禁 1-stage ASM），非 production-ready upstream fix；真正上游修法 = dispatch 表给 `(per_1x128,gfx942,prefill)` 单列带 block-shape 的 ASM 入口（不在本指南范围）。引用：`details/projects/14_migration_gfx942/MIGRATION_REPORT.md` §6.4/§9.2（描述对应 wave 14 时点的 working-tree dirty 状态）。
 
 ---
 
@@ -324,6 +315,22 @@ step35-flash-support 仓内未提供与 fp8-tp4-repro 等价的 throughput_bench
 - tp=2：`tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md` §2（Run B stable，stepfun_fp8_tp2_v2_full.log raw 实测，4 个 worker `Model load done:` 全部 stepfun snapshot）
 - tp=4 / tp=8：`tp2_verify_post_merge_wave/progress/teammate-L20-perf-tp4-tp8.md`（同脚本 + 显式 `--model $STEP35_PATH`，4/8 个 worker raw log 强制核对均 stepfun snapshot 路径）
 - baseline 误归属勘误：`tp2_verify_post_merge_wave/progress/teammate-L17c-baseline-audit.md` §1（raw log `tp2_run2_full.log:47,50` 实证 = Qwen3-0.6B）
+
+#### EP vs 纯 TP 速查（读 §6.2 / §6.2-EP 前必看）
+
+> 两节 anchor 是**不同 parallelism 路径**，下表帮你定位「哪组数字属于哪条路径、哪条触发 nopad」。详细辨析见 [`details/TP8_THREE_BUGS.md`](./details/TP8_THREE_BUGS.md)。
+
+| 维度 | 纯 TP（§6.2） | EP / expert-parallel（§6.2-EP） |
+|---|---|---|
+| 启用方式 | 无 `--enable-expert-parallel`（默认） | `--enable-expert-parallel` |
+| `inter_dim`（tp=8） | 1280/8 = **160**（沿 TP 分片，`<256`） | **1280**（不分片，`≥256`） |
+| nopad smalltile | **触发**（NPerBlock=32） | **不触发** |
+| `ATOM_FP8_MOE_DISABLE_PAD` | 有效（nopad/pad 不同路径） | **no-op**（nopad≡pad，微差=噪声） |
+| B2 ÷8 b_scale bug | **活在此路径**（fix=`360ebdb66`，仅 op-isolate 验证，e2e-TP 待验） | 不受 B2 影响（inter=1280 对齐） |
+| perf anchor | §6.2（2026-05-09，纯 TP） | §6.2-EP + `perf/22`（2026-06-03，EP） |
+| 精度验证 | op-isolate（inter=160）；e2e-TP 待补 | e2e「看着连贯」，非严格数值验证 |
+
+🔴 **两组 perf 数字不可直接比**（不同路径 + 不同口径 gpu-mem/max-len/input 档）。
 
 ### 6.2-EP 性能 anchors（EP / expert-parallel，2026-06-03 实测）
 
@@ -553,7 +560,7 @@ use_opus=not _USE_CK_MOE_SORTING,
 
 ---
 
-> **本节 last-verified**：2026-05-09（wave `tp2_verify_post_merge_wave` L29 收尾；commit currency 实测见 L25；perf coverage 审计见 L26）。
+> **本节 last-verified**：§7.1–§7.14 + §6.2 纯 TP anchor = **2026-05-09**（wave `tp2_verify_post_merge_wave` L29 收尾；commit currency 见 L25；perf coverage 审计见 L26）。**§6.2-EP / cudagraph / EP 引入时间线 / nopad 指针 = 2026-06-03**（W8_resume wave teammate-24/25/26/27/28/29/30）。
 
 ---
 
@@ -584,7 +591,9 @@ use_opus=not _USE_CK_MOE_SORTING,
 | 想了解什么 | 去读 |
 |---|---|
 | **gfx950 → gfx942 (MI308X) 迁移完整报告（本指南主路径源）** | `details/projects/14_migration_gfx942/MIGRATION_REPORT.md` |
-| **gfx942 上 TP=2/4/8 perf 数据（本指南 §6.2 来源）** | `details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md` |
+| **gfx942 纯 TP perf 数据（§6.2 来源 = `tp2_verify_post_merge_wave`）** | §6.2 本文内（数值权威源）；wave progress `teammate-L18/L20` |
+| EP perf + cudagraph（§6.2-EP 来源）| `details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md` |
+| ⚠️ `perf/15_*/PERF_REPORT.md`（**TTFT≈186ms 是 Qwen3-0.6B 误归属，非 stepfun**；勿当 §6.2 源）| `details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md` |
 | gfx950 perf 基线（历史参考） | `details/perf/16_perf_gfx950_verified/RESULTS.md` |
 | ATOM tp=8 load crash issue draft | `details/issues/17_atom_moe_tp8_load_crash/README.md` |
 | **FP8 tp=8 双层 root cause + fix（ATOM `969d564`）** | `details/topics/18_fp8_tp8_root_cause_and_fix/TP8_ROOT_CAUSE_AND_FIX.md` |

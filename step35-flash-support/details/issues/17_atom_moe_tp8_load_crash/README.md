@@ -7,6 +7,8 @@
 
 ---
 
+> 📌 **去重指引（2026-06-03 / teammate-39）**：本崩溃（= **TP8 三-bug 中的 B1**：weight-load `narrow` size<0 + fp8 scale `ones`-init silent corruption）的**根因与 fix 全文权威版** = [`../../topics/18_fp8_tp8_root_cause_and_fix/TP8_ROOT_CAUSE_AND_FIX.md`](../../topics/18_fp8_tp8_root_cause_and_fix/TP8_ROOT_CAUSE_AND_FIX.md)（fix=ATOM `969d564`）。本目录是**对外 upstream issue 草稿**形态（`ATOM_ISSUE_DRAFT*.md` 保持自包含以便提交 GitHub），与另两 bug（B2 ÷8 / B3 cudagraph）的辨析见 [`../../TP8_THREE_BUGS.md`](../../TP8_THREE_BUGS.md)。
+
 ## 1. 这是什么
 
 ATOM 在 `stepfun-ai/Step-3.5-Flash-FP8` + `-tp 8` 下 **weight load 阶段确定性崩溃** 的 bug 报告草稿。根因位于 `atom/model_ops/moe.py`：`_load_w2`（line 2335-2364）与 `_load_w13`（line 2292-2333）使用基于 `ceil` 的切分，未对 trailing rank 上 `start >= D` 做兜底，导致传入 `torch.Tensor.narrow()` 的 `size` 参数为负。
@@ -38,7 +40,7 @@ ATOM 在 `stepfun-ai/Step-3.5-Flash-FP8` + `-tp 8` 下 **weight load 阶段确�
 
 | 前序 wave | 路径 | 与本 wave 的关系 |
 |---|---|---|
-| 15_perf_tp2_tp4_tp8_eval | `../../perf/15_perf_tp2_tp4_tp8_eval/` | 报 tp=8 PASS（短 prompt + cudagraph_capture_sizes=[1]）；本 wave §"Caveats #4" 标注该 PASS 与本崩溃**无法调和**，是开口 sub-question |
+| 15_perf_tp2_tp4_tp8_eval | `../../perf/15_perf_tp2_tp4_tp8_eval/` | ~~报 tp=8 PASS（短 prompt + cudagraph_capture_sizes=[1]）；本 wave §"Caveats #4" 标注该 PASS 与本崩溃**无法调和**~~ → **悬念已结案（见 §6.4 注）**：perf/15 的 tp=8 "PASS" 实为 **Qwen3-0.6B 误归属**，非 stepfun MoE |
 | 16_perf_gfx950_verified | `../../perf/16_perf_gfx950_verified/` | 与本 bug 无直接交集（cross-arch 数据） |
 | fp8-tp4-repro 主线 | （另一仓）| 主线已落 3 个 sibling fix（`aiter/fused_moe.py:881-886` / `atom/model_ops/moe.py:1709-1746` padding / `atom/model_ops/utils.py:79`）；本 wave 暴露的 `_load_w2/w13` 边界 case 是该家族中第四个、最上游的一个 |
 
@@ -70,7 +72,8 @@ ATOM 在 `stepfun-ai/Step-3.5-Flash-FP8` + `-tp 8` 下 **weight load 阶段确�
 1. `D = 10` 与 `inter_size = 1280` 均为**推断**（来自 `_load_w13` 注释 line 2306-2309 的例子 + 观测到的 rank 5/6/7 症状切分），未从模型 config / dump 直接提取。上游可在 `moe.py:2357` 前加 `print(name, loaded_weight.shape)` 自验。
 2. `_load_w13` 在本模型 + tp=8 下的崩溃**未独立观测**（`_load_w2` 先崩；论据基于代码结构完全相同）。
 3. 两个推测修复方案均未实施。
-4. perf wave tp=8 PASS 与本崩溃无法调和（见上文 §3 表）。
+4. ~~perf wave tp=8 PASS 与本崩溃无法调和（见上文 §3 表）。~~
+   - 🟢 **结案（2026-06-03 / teammate-39，据 `AUDIT_GROUND_TRUTH.md` §A1 + `REPRODUCE.md` §6.2/§7.13 勘误）**：perf/15 的 tp=8 "PASS" 数值实为 **Qwen3-0.6B（dense, 非 MoE）**——ATOM `EngineArgs --model` 默认 Qwen 陷阱（§7.13）导致 raw log 实跑 Qwen 而非 stepfun。Qwen dense 路径**根本不走 stepfun MoE `_load_w13/_load_w2` 切分**，故不触达本崩溃 → **"无法调和" 消解**（不是矛盾，是误归属）。真 stepfun MoE perf anchor 见 `REPRODUCE.md §6.2`（纯 TP）。
 
 ---
 
