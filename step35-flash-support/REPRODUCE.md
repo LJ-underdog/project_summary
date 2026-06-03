@@ -301,7 +301,9 @@ step35-flash-support 仓内未提供与 fp8-tp4-repro 等价的 throughput_bench
 
 > **勘误背景**：本节原引用 `details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md` 数值（TTFT 0.186/0.110/0.071s 等）实际是 Qwen3-0.6B（dense, non-MoE）path —— ATOM `EngineArgs --model` default 陷阱（§7.13）导致 raw log 实跑 Qwen 而非 stepfun MoE。本表已替换为 wave `tp2_verify_post_merge_wave` 首次实测 stepfun-Flash-FP8 MoE 数据；原 Qwen 数值归属勘误参见 `details/perf/15_perf_tp2_tp4_tp8_eval/PERF_REPORT.md`（已由 wave L19b 标注归属）。
 
-测试条件：`stepfun-ai/Step-3.5-Flash-FP8`（**显式** `--model $STEP35_PATH` + `--kv_cache_dtype fp8`，避免 §7.13 陷阱）；input target 10240 → actual 10213 tokens；output 由 eos 提前停（max_tokens=1024，三档 actual output 不同：240 / 266 / 937）；concurrency=1；temperature=0；method=A（复用 ATOM 内置 ttft/tpot 字段）；脚本 `details/scripts/perf_correctness_bench.py`；runs=2 取 last as stable。
+> 🔴 **配置标注（2026-06-03 补注，teammate-30 考古坐实）**：**下表 anchor 全部是纯 TP**（`--enable-expert-parallel` **未启用**，EP 引入前 2026-05-09 实测）。inter 沿 TP 分片：tp=2→inter_dim=640 / tp=4→320 / tp=8→**160**（见 §7.1 "tp=8 inter_pad=256"）。四重证据：perf 脚本无 EP arg、命令无 `--enable-expert-parallel`、ATOM `EngineArgs` 默认 `enable_expert_parallel=False`、§7.1 inter 分片 640/256；来源 wave 0 EP 命中。**EP（inter=1280）配置的 perf 是另一组数字，见下方「6.2-EP」小节，二者不同 parallelism 路径不可直接比。**
+
+测试条件（**纯 TP**）：`stepfun-ai/Step-3.5-Flash-FP8`（**显式** `--model $STEP35_PATH` + `--kv_cache_dtype fp8`，避免 §7.13 陷阱）；input target 10240 → actual 10213 tokens；output 由 eos 提前停（max_tokens=1024，三档 actual output 不同：240 / 266 / 937）；concurrency=1；temperature=0；method=A（复用 ATOM 内置 ttft/tpot 字段）；脚本 `details/scripts/perf_correctness_bench.py`；runs=2 取 last as stable。
 
 | 配置 | TTFT | TPOT | total_latency | decode throughput | actual input/output | engine_init |
 |---|---|---|---|---|---|---|
@@ -322,6 +324,40 @@ step35-flash-support 仓内未提供与 fp8-tp4-repro 等价的 throughput_bench
 - tp=2：`tp2_verify_post_merge_wave/progress/teammate-L18-perf-rerun.md` §2（Run B stable，stepfun_fp8_tp2_v2_full.log raw 实测，4 个 worker `Model load done:` 全部 stepfun snapshot）
 - tp=4 / tp=8：`tp2_verify_post_merge_wave/progress/teammate-L20-perf-tp4-tp8.md`（同脚本 + 显式 `--model $STEP35_PATH`，4/8 个 worker raw log 强制核对均 stepfun snapshot 路径）
 - baseline 误归属勘误：`tp2_verify_post_merge_wave/progress/teammate-L17c-baseline-audit.md` §1（raw log `tp2_run2_full.log:47,50` 实证 = Qwen3-0.6B）
+
+### 6.2-EP 性能 anchors（EP / expert-parallel，2026-06-03 实测）
+
+> 🔴 **铁律**：本小节全部是 **EP（`--enable-expert-parallel`，inter=1280 未沿 TP 分片）**，**不可**与上方 §6.2 纯 TP anchor 混读 —— 不同 parallelism 路径。来源：W8_resume wave teammate-27/28；完整记录 `details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md`。
+
+测试条件（**EP**）：`stepfun-ai/Step-3.5-Flash-FP8` + 显式 `--model $STEP35_PATH` + `--kv_cache_dtype fp8` + `--enable-expert-parallel`；TP8；**cudagraph ON（无 `--enforce-eager`）**，`cudagraph_capture_sizes=[1]`；单序列 batch=1；temperature=0；`ignore_eos`（口径干净）。
+
+| 口径（**全 EP, cudagraph, TP8, batch=1**） | 值 | 来源 |
+|---|---|---|
+| decode TPOT（短输出 256 步） | **~12.62 ms/tok** | teammate-27 |
+| decode throughput（同上） | **~77 tok/s** | teammate-27 |
+| cudagraph vs eager 加速 | **~7.8–8.2×**（eager TPOT ~99–104ms → ~12.62ms） | teammate-25/27 |
+| prefill TTFT（input 10213 tok） | **~560–571 ms** | teammate-28 |
+| decode TPOT（长输入档） | **~13.5 ms/tok** | teammate-28 |
+| decode throughput（长输入档） | **~74 tok/s** | teammate-28 |
+
+观察 / caveat：
+- **EP TPOT 13.5ms 与 §6.2 TP anchor 13.7ms 巧合性接近，但二者是不同路径（EP vs TP），不构成可比对照**；TTFT 560–571ms < TP anchor 747ms 是口径差异（gpu-mem-util / max-model-len / input 不同档），非可比 regression。
+- 🔴 **EP 下 "nopad vs pad" = 同一路径**：EP inter=1280 ≥ 256，`ATOM_FP8_MOE_DISABLE_PAD` 是 **no-op**（teammate-29 坐实）。T27/T28 progress 标注的 "nopad/pad" 微差（TTFT ~1.9%、TPOT 0.06%）**是 run-to-run 噪声，不可解读为 nopad/pad perf 对比**。上表是 **EP 整体 perf**。
+- **EP 精度（teammate-24）**：ATOM 原生 e2e（EP+cudagraph）4/4 连贯、非 Qwen、有自然 eos。**⚠️ 但未对 ground-truth/参考做严格数值验证**（"pad_parity" 是 EP-vs-EP 自比 = 无意义；EP inter=1280 对齐本就不受 ÷8 bug 影响）→ **EP 精度 = "看着连贯"，非严格验证**。
+
+#### cudagraph 现已可用（2026-06-03，teammate-26）
+- 早前 "TP8 cudagraph 崩" 的根因 = **custom-allreduce IPC 不兼容**（`hipIpcGetMemHandle invalid argument` @ `allocate_kv_cache` barrier），**非 nopad 特异（pad 也崩）**（详 teammate-25）。
+- **ATOM 原生 `simple_inference` / `EngineArgs.create_engine()` 默认全关 IPC-allreduce**（custom-allreduce OFF + quick-reduce NONE，走 RCCL）→ **去掉 `--enforce-eager` 即可用 cudagraph，无需改代码**。仅 custom-allreduce ON 的路径（vllm-direct/plugin）才需显式关。
+- 故 §5.x 若要跑 cudagraph perf：用 ATOM 原生栈、**不要**加 `--enforce-eager`（旧 workaround，已不必要）。
+
+#### EP 引入时间线（teammate-30）
+- 框架能力：ATOM `aaf83fa`（2025-08-12，default `enable_expert_parallel=False`）。
+- 本项目 serving：`start_vllm_v5.sh`（2026-05-14，首次 `--enable-expert-parallel` tp=8）。
+- 本项目 e2e / nopad wave：`dryrun_e2e_tp8.py` / V65B（2026-05-28，为修 `output_size=160 not divisible by block_n=128` 抄来 EP）。
+- → 自 2026-05-28 起 e2e 用 EP（inter=1280）→ **nopad（inter=160 TP）路径不再被 e2e 覆盖**；§6.2 纯 TP anchor（2026-05-09）是唯一覆盖过 inter 分片路径的数据。
+
+#### nopad（TP inter=160）bug/fix 现状 → 见 NOPAD_TP_HANDOFF
+- nopad smalltile（inter=160, NPerBlock=32）的 ÷8 b_scale bug、stage1/stage2 host 广播 fix、TP cudagraph 真实 perf 等细节，**见 `NOPAD_TP_HANDOFF.md`**（lead 整合中；当前散见 W8_resume/progress/teammate-19b stage2-fix、-22/-23 stage1、-24 e2e、-25 cudagraph、-30 EP/TP 考古）。本指南不重复 nopad 细节。
 
 ### 6.3 PASS 判定（端到端 A1-A4）
 
