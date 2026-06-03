@@ -31,7 +31,7 @@
 ### 1c. 🔴 EP 下 "nopad vs pad" = 同一路径，**不是** nopad/pad perf 对比（teammate-29 坐实）
 - T27/T28 的 progress 把两次 run 标了 "nopad" / "pad"，但 **EP 下 inter=1280 ≥ 256**，`ATOM_FP8_MOE_DISABLE_PAD` 是 **no-op** → 两次 run 走的是 **同一条 inter=1280 路径**。
 - 故 T27/T28 观察到的 "nopad vs pad" 微差（如 T28 TTFT 差 ~1.9%、T27 TPOT 差 0.06%）**是 run-to-run 噪声，不可解读为 nopad/pad 性能差异**。
-- **正确读法**：上述 1a/1b 数字是 **EP 配置的整体 perf**（与 pad/nopad 无关）。真正的 nopad（inter=160 TP）路径 perf 见 §4 / NOPAD_TP_HANDOFF。
+- **正确读法**：上述 1a/1b 数字是 **EP 配置的整体 perf**（与 pad/nopad 无关）。真正的 **纯 TP nopad（inter=160）路径 e2e + cudagraph perf**（TTFT 599.3 / TPOT 14.2 / 70.4 tok/s，2026-06-03 首次实测）见 **`REPRODUCE.md §6.2-纯TP-nopad`**（与本文 EP inter=1280 口径不同、不可混读）；bug/fix 细节见 `NOPAD_TP_HANDOFF.md`。
 
 ---
 
