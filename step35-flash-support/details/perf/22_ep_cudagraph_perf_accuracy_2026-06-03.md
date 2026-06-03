@@ -79,6 +79,54 @@
 
 ---
 
+## 6. EP 完整复现（脚本 + commit pin + 预期结果）
+
+> 让人能照着把 EP perf / e2e 跑出来。脚本在 `details/scripts/ep_*.sh`（顶部变量化路径，按你的环境改 MODEL/ATOM_DIR/BENCH）。
+
+### 6.1 Commit pin（3 仓 + 模型，照搬勿改）
+
+> ℹ️ 本节 = **nopad/EP（W8）复现** pin；**pad/通用 tp8 历史复现**（pre-nopad，ATOM `969d564` + aiter `f06cdcca5` + CK `defd7ad29`）见 `REPRODUCE.md §3.1`。两套各服务各路径、均保留。
+
+| 组件 | 版本 | 说明 |
+|---|---|---|
+| ATOM | `0526446`（branch `feat/step3p5-flash-support`，PR #641 + stepfun SWA per-layer kv-head fix）| nopad shared-expert 退化量化根治 + stage2 weight 预洗 + stepfun-Flash SWA per-layer kv-head workspace 修复（num_heads_kv 32→per-layer 4）。溯源：`0526446` = `e18b467`(PR #641 权威版) + stepfun SWA per-layer kv-head 补丁（原未提交，现已 commit 到 feat 顶）；更早本地 WIP `880dd46`（branch `w8-nopad-shared-expert-requant-fix`，未推 origin）已被取代 |
+| aiter | `feat/step3p5-moe-swiglustep`，含 stage2 ÷8 fix（远端 `360ebdb66` 禁广播；本地等价 `57983d2f4`）| |
+| ck（aiter submodule）| `e90ecddea` | nopad TP8 stage2 blockscale fix |
+| 模型 | `stepfun-ai/Step-3.5-Flash-FP8` snapshot `6eebda59dd87ca5729648ec7cfed0becfceb273e` | ~90GB，fp8 blockscale |
+
+### 6.2 env（两脚本一致）
+```
+HF_HOME / HF_HUB_CACHE = /workspace/hf_cache
+TORCHINDUCTOR_CACHE_DIR / TRITON_CACHE_DIR / TORCH_EXTENSIONS_DIR = /workspace/cache/*
+HIP_VISIBLE_DEVICES = 0,1,2,3,4,5,6,7
+unset AITER_QUICK_REDUCE_QUANTIZATION   # quick-reduce NONE/disabled
+# custom-allreduce 默认 OFF（ATOM 原生 simple_inference/EngineArgs 默认全关 IPC-allreduce）
+```
+EP 关键开关：`--enable-expert-parallel`（EP）；cudagraph = **去掉** `--enforce-eager`；`--tensor-parallel-size 8`（TP8）。
+
+### 6.3 两步命令
+```bash
+# 1) EP e2e correctness（cudagraph）
+bash details/scripts/ep_e2e_cudagraph.sh
+
+# 2) EP perf（prefill TTFT + decode TPOT，cudagraph）
+bash details/scripts/ep_perf_bench.sh
+```
+
+### 6.4 预期结果（引本文已有数字）
+- **e2e**（脚本 1）：Engine Core fully initialized + 44/44 shards + 4 段 Generated text，**4/4 连贯**（非 Qwen、有自然 eos）。
+- **perf**（脚本 2）：prefill **TTFT ~560–571ms**；decode **TPOT ~13.5ms/tok**（短输出档 ~12.62ms）；decode throughput ~74 tok/s；cudagraph vs eager 加速 **~7.8–8.2×**。
+
+### 6.5 🔴 R5 GPU 防泄漏注（必读）
+- TP8 cudagraph 有显存泄漏史。**判泄漏看内存趋势**（`rocm-smi --showmeminfo vram`），**非** `ps -p`（进程没了不等于显存回收）。
+- teardown **~3min settle** 回基线属正常，别误判残留。详 `details/TP8_THREE_BUGS.md` B3。
+
+### 6.6 caveat
+- **EP 下 nopad/pad = no-op 同路径**：inter=1280 ≥ 256，`ATOM_FP8_MOE_DISABLE_PAD` 设不设走同一路径（见 §1c / §4）。脚本里设它仅为显式，**不构成 nopad/pad 对比**。
+- **EP 精度未对参考严格验证** = "看着连贯"（见 §3）。如需 EP 精度定论须补 EP-vs-reference 数值对照。
+
+---
+
 ### 来源 progress（W8_resume/progress/）
 - teammate-24：EP e2e correctness（连贯，弱验证）+ R5 无泄漏
 - teammate-25：cudagraph IPC 根因调研（custom-allreduce，pad 也崩）

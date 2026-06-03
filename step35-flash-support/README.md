@@ -212,7 +212,7 @@ graph TD
 | [`details/perf/16_perf_gfx950_verified/`](./details/perf/16_perf_gfx950_verified/) | gfx950 性能基线（统一脚本测；RESULTS.md + logs/ + progress/）|
 | [`details/perf/20_fp8_fmoe_tuning_wave2/`](./details/perf/20_fp8_fmoe_tuning_wave2/) | Wave 2 — FP8 fMoE Tuning (OPT-1) FAIL wave 总结（27 metric 0 改善 + 6 Promote；RESULTS.md + README.md）|
 | [`details/perf/21_nperblock64_4layer_joint_patch/`](./details/perf/21_nperblock64_4layer_joint_patch/) | NPerBlock=64 path 4 层 joint patch — bit-exact correctness + kernel-level 15.80% 快 + model-level PERF_NEUTRAL HIGH（gfx942 / MI308X；RESULTS.md + README.md）。⚠️ **与 W8 nopad 修法相反**：本 entry = 改 kernel(ceil(2N,NPerBlock) 布局)+保留 per-NPerBlock 广播；W8 生产修法(B2)= **禁用广播**。perf/21 production 路径自标 **DEFERRED/未验证**。引用前对账 [`details/TP8_THREE_BUGS.md`](./details/TP8_THREE_BUGS.md) B2 + `NOPAD_TP_HANDOFF.md`。|
-| [`details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md`](./details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md) | **EP（expert-parallel）**下 cudagraph perf + accuracy（2026-06-03 实测；TP8/batch=1/cudagraph ON）。🔴 EP（inter=1280）≠ 纯 TP（inter=160）路径，**不可与 perf/15 或 REPRODUCE §6.2 纯 TP anchor 混读**；EP 下 `ATOM_FP8_MOE_DISABLE_PAD` 是 no-op（B2 不触发）。详见 REPRODUCE §6.2-EP |
+| [`details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md`](./details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md) | **EP（expert-parallel）**下 cudagraph perf + accuracy（2026-06-03 实测；TP8/batch=1/cudagraph ON）。🔴 EP（inter=1280）≠ 纯 TP（inter=160）路径，**不可与 perf/15 或 REPRODUCE §6.2 纯 TP anchor 混读**；EP 下 `ATOM_FP8_MOE_DISABLE_PAD` 是 no-op（B2 不触发）。**完整复现脚本 + commit pin 见 perf/22 §6 + `details/scripts/ep_e2e_cudagraph.sh` / `ep_perf_bench.sh`**；详见 REPRODUCE §6.2-EP |
 
 ### details/issues/ — upstream issue draft（1 项）
 
@@ -224,31 +224,34 @@ graph TD
 
 | 文件 | 内容 |
 |---|---|
-| [`details/projects/14_migration_gfx942/`](./details/projects/14_migration_gfx942/) | gfx950 → gfx942 (MI308X) 完整迁移项目；含 `MIGRATION_REPORT.md` (625 行) + `TEAM_CONFIG.md` + `progress/dc-t1-t5.md`；M1 tp=2 + M2 tp=4 PASS；NEW-RC-1/2/3 + M2 padding 四 root cause |
+| [`details/projects/14_migration_gfx942/`](./details/projects/14_migration_gfx942/) | gfx950 → gfx942 (MI308X) 完整迁移项目；含 `MIGRATION_REPORT.md` (625 行)；M1 tp=2 + M2 tp=4 PASS；NEW-RC-1/2/3 + M2 padding 四 root cause（过程文件 `TEAM_CONFIG.md` + `progress/dc-t1-t5.md` 已归档至 `details/_archive/projects/14_migration_gfx942/`）|
 
-### details/verification_pipeline/ — V01-V07 验证 pipeline
+### verification_pipeline — V01-V07 验证 pipeline（已归档）
 
-| 文件 | 内容 |
-|---|---|
-| [`details/verification_pipeline/MASTER_PIPELINE.md`](./details/verification_pipeline/MASTER_PIPELINE.md) | 7 个修复的验证执行计划 |
-| [`details/verification_pipeline/V01_moe.md`](./details/verification_pipeline/V01_moe.md) ~ `V07_longseq_bos.md` | 各 fix 的 unit 验证脚本与判定 |
-| [`details/verification_pipeline/REVIEW_A.md`](./details/verification_pipeline/REVIEW_A.md) / `REVIEW_B.md` / `REVIEW_C.md` / `PIPELINE_REVIEW_FINAL.md` | 三重交叉审核 + final review |
-| [`details/verification_pipeline/QUICKSTART.md`](./details/verification_pipeline/QUICKSTART.md) | 5 分钟入门 |
-| [`details/verification_pipeline/phase0_preflight.sh`](./details/verification_pipeline/phase0_preflight.sh) | 环境预检脚本（保留原位，未拆出 scripts/）|
-| [`details/verification_pipeline/results/`](./details/verification_pipeline/results/) | V01-V07 + phase0 实测结果汇总（`SUMMARY.md` + 单 V 子文件）|
-| [`details/verification_pipeline/TEAM_CONFIG_verification.md`](./details/verification_pipeline/TEAM_CONFIG_verification.md) / `NEXT_TASK_BRIEF.md` | 项目协调元文档 |
+> **已归档 → 见 [`details/_archive/verification_pipeline/`](./details/_archive/verification_pipeline/)**（含 `MASTER_PIPELINE.md` 验证执行计划、`V01_moe.md`~`V07_longseq_bos.md` 各 fix unit 验证、`REVIEW_A/B/C` + `PIPELINE_REVIEW_FINAL.md` 三重交叉审核、`QUICKSTART.md`、`phase0_preflight.sh`、`results/`（含 `SUMMARY.md`）、`TEAM_CONFIG_verification.md` / `NEXT_TASK_BRIEF.md`）。
 
 ### details/meta/ — 工作流元文档（1 项）
 
 | 文件 | 内容 |
 |---|---|
-| [`details/meta/13_recall_system_analysis.md`](./details/meta/13_recall_system_analysis.md) | Recall 工具实战指南 |
+| [`details/_archive/meta/13_recall_system_analysis.md`](./details/_archive/meta/13_recall_system_analysis.md) | Recall 工具实战指南（已归档至 `_archive/meta/`）|
 
 ### details/scripts/ — 复现脚本（1 项）
 
 | 文件 | 内容 |
 |---|---|
 | [`details/scripts/perf_correctness_bench.py`](./details/scripts/perf_correctness_bench.py) | gfx950/gfx942 标准化 perf + correctness 联跑测试脚本（被 `details/perf/16_perf_gfx950_verified/` 引用）|
+
+### details/_archive/ — 归档的过程文件（Phase3a 重构下沉）
+
+> Phase3a 重构把 agent-team 过程文件与早期 pipeline 下沉至此，保留可追溯但不在主导航。
+
+| 目录 | 内容 |
+|---|---|
+| [`details/_archive/verification_pipeline/`](./details/_archive/verification_pipeline/) | V01-V07 验证 pipeline（MASTER_PIPELINE / Vxx / REVIEW / QUICKSTART / phase0 / results / 协调元文档）|
+| [`details/_archive/meta/`](./details/_archive/meta/) | 工作流元文档（`13_recall_system_analysis.md`）|
+| [`details/_archive/projects/`](./details/_archive/projects/) | 各子项目过程文件（如 14_migration_gfx942 的 `TEAM_CONFIG.md` + `progress/`）|
+| [`details/_archive/`](./details/_archive/) | 另含 issues / perf / research / topics 各 wave 过程文件 |
 
 ### details/integration/ — vllm + ATOM 集成路径 source patch（4 项）
 

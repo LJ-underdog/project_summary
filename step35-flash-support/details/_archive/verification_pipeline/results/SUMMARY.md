@@ -9,7 +9,7 @@
 >   3 重证据：dispatch grep 6 项与 baseline 完全一致 + 4-prompt sanity 4/4 命中 + P2 byte-identical 60 token_ids
 >   完全一致；唯一 noise = P1 finish_reason 微差但 25/25 prime 全命中，capability 不退化）
 > - **Performance reference ✅**：`tp2_verify_post_merge_wave/L18` (tp=2) + `L20` (tp=4 / tp=8)
->   已写入顶层 [`step35-flash-support/REPRODUCE.md §6.2`](../../../REPRODUCE.md)（gfx942 stepfun-Flash-FP8
+>   已写入顶层 [`step35-flash-support/REPRODUCE.md §6.2`](../../../../REPRODUCE.md)（gfx942 stepfun-Flash-FP8
 >   三档 perf anchor）
 >
 > 详见对应 wave progress 文件（`/home/junlin12/project_fp8_tp4_repro/tp2_verify_post_merge_wave/progress/`）。

@@ -58,6 +58,8 @@ rocm-smi --showmemuse      # 显存可用 ≥ 192 GB/卡（MI308X）
 
 ### 3.1 三仓 pinned commit
 
+> ⚠️ 本节 = **pad/通用 tp8 历史复现**（pad-256 anchor，2026-05-09，pre-nopad）；**nopad inter=160 / EP（W8）复现** 用不同 pin，见 `details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md §6.1`（ATOM feat-tip `0526446` = e18b467/PR #641 + stepfun SWA per-layer kv-head 补丁 + aiter `360ebdb66` + CK `e90ecddea`）。两套各服务各路径、均保留。
+
 | 仓库 | Commit | Branch on `origin` | 备注 |
 |---|---|---|---|
 | ATOM | **`969d564`** | `feat/step3p5-flash-support` | 含 tp=8 双层 fix（详见 `details/topics/18_fp8_tp8_root_cause_and_fix/`）|
@@ -335,6 +337,8 @@ step35-flash-support 仓内未提供与 fp8-tp4-repro 等价的 throughput_bench
 ### 6.2-EP 性能 anchors（EP / expert-parallel，2026-06-03 实测）
 
 > 🔴 **铁律**：本小节全部是 **EP（`--enable-expert-parallel`，inter=1280 未沿 TP 分片）**，**不可**与上方 §6.2 纯 TP anchor 混读 —— 不同 parallelism 路径。来源：W8_resume wave teammate-27/28；完整记录 `details/perf/22_ep_cudagraph_perf_accuracy_2026-06-03.md`。
+>
+> ▶ **EP 完整复现脚本 + commit pin 见 `perf/22 §6` + `details/scripts/ep_e2e_cudagraph.sh`（e2e）/ `ep_perf_bench.sh`（perf）。**
 
 测试条件（**EP**）：`stepfun-ai/Step-3.5-Flash-FP8` + 显式 `--model $STEP35_PATH` + `--kv_cache_dtype fp8` + `--enable-expert-parallel`；TP8；**cudagraph ON（无 `--enforce-eager`）**，`cudagraph_capture_sizes=[1]`；单序列 batch=1；temperature=0；`ignore_eos`（口径干净）。
 

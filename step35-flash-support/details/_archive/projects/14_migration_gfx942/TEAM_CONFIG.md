@@ -8,8 +8,8 @@
 >   等描述对应 2026-04-26 实施时点；之后：
 >   - ATOM 升级至 `969d564`（含 tp=8 双层 fix）
 >   - aiter NEW-RC-3 patch 已 commit 化为 `f06cdcca5`，working tree 不再 dirty
-> - 当前 step35-flash-support reproduce commit 见顶层 [`REPRODUCE.md §3.1`](../../../REPRODUCE.md)。
-> - 本 wave 最终交付报告见 [`MIGRATION_REPORT.md`](./MIGRATION_REPORT.md)（同样含 §6 / §9.2 UPDATE banner）。
+> - 当前 step35-flash-support reproduce commit 见顶层 [`REPRODUCE.md §3.1`](../../../../REPRODUCE.md)。
+> - 本 wave 最终交付报告见 [`MIGRATION_REPORT.md`](../../../projects/14_migration_gfx942/MIGRATION_REPORT.md)（同样含 §6 / §9.2 UPDATE banner）。
 >
 > 由 `tp2_verify_post_merge_wave/L31` 标注（2026-05-09）。
 

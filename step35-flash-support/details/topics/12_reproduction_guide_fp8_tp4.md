@@ -14,7 +14,7 @@
 >
 > 由 `tp2_verify_post_merge_wave/L31` 标注（2026-05-09）。
 >
-> 🔴 **补注（2026-06-03 / teammate-39）**：**权威复现 = 顶层 [`REPRODUCE.md`](../../REPRODUCE.md)**；本文仅 **tp4 / gfx950 历史细节**。tp8 / EP-vs-TP / nopad(inter=160) ÷8 bug 等本文未覆盖，见 [`../TP8_THREE_BUGS.md`](../TP8_THREE_BUGS.md) + [`../../../W8_resume/NOPAD_TP_HANDOFF.md`](../../../W8_resume/NOPAD_TP_HANDOFF.md)。
+> 🔴 **补注（2026-06-03 / teammate-39）**：**权威复现 = 顶层 [`REPRODUCE.md`](../../REPRODUCE.md)**；本文仅 **tp4 / gfx950 历史细节**。tp8 / EP-vs-TP / nopad(inter=160) ÷8 bug 等本文未覆盖，见 [`../TP8_THREE_BUGS.md`](../TP8_THREE_BUGS.md) + `NOPAD_TP_HANDOFF.md`（W8_resume 工作文件，非本仓）。
 
 ---
 
