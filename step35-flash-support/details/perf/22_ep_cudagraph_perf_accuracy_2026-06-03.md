@@ -52,7 +52,22 @@
   - T24 的 "pad_parity" 是 **EP-vs-EP**（同 inter=1280 路径自比）= **无意义对照**，不构成精度证明。
   - 无 EP-vs-reference（fp32 correct-ref / 已知正确输出）数值对照。
   - EP 本就**不受 ÷8 b_scale bug 影响**（inter=1280 对齐，nopad smalltile 路径根本不触发）。
-- **结论**：EP 精度 = **"看着连贯"**，**非严格验证**。如需 EP 精度定论，须补 EP-vs-reference 数值对照（本 wave 未做）。
+- **结论（历史）**：早期 EP 精度 = **"看着连贯"**（eyeball），**非严格验证**。
+
+### 3b. 方案 B 交叉验证（弱标准 C，TP8/TP4/TP2，2026-06-04，teammate-69/70/71）
+
+> ⚠️ **这仍是弱结论，不是逐数值严格证明。** 方案 B = 同 prompt、greedy（temp=0）下 **EP（inter=1280）vs 纯 TP（inter 沿 TP 分片）** 逐输出对照（两条独立并行 + 不同 kernel 路径）。**弱标准 C** = EP 4/4 连贯 + 可验证项（`1+2+3=6`）正确 + 与纯 TP **语义一致** + 无 garble。
+
+| TP | EP e2e | 与纯 TP greedy 对照 | 判定 |
+|---|---|---|---|
+| TP8 | 4/4 连贯、`1+2+3=6` | 纯 TP = nopad(inter=160)；**P3 第 1 token 即分叉**（fp8 路径差最大） | PASS(weak) |
+| TP4 | 4/4 连贯、`1+2+3=6` | 纯 TP = pad(inter=320)；**P3 逐字相同** | PASS(weak) |
+| TP2 | 4/4 连贯、`1+2+3=6` | 纯 TP = pad(inter=640)；**P3 逐字相同 + P4 前 ~55 token 相同** | PASS(weak) |
+
+- 🔴 **务必如实读**：**方案 B 未达成「逐 token 一致 = 互证」**——EP 与纯 TP 是**不同 fp8 数值路径**，greedy 在语义灵活点（top-2 近-tie）必自然分叉，**这不是 EP 错误，但也不是严格证明**。要严格 EP 精度定论仍须 **HF/transformers reference**（同 prompt greedy 序列 / 首 token logits）或 **prefill 末层 logit cosine**（本 wave 未做）。
+- **洞察（弱证据强度梯度）**：弱证据随 **fp8 路径接近度**递增——纯 TP nopad smalltile（inter=160，TP8）数值离 EP inter=1280 最远 → P3 第 1 token 即分叉；纯 TP 标准 pad（inter=320/640，TP4/TP2）越接近 EP 的标准 pad 族 → 共享前缀越长（TP2 P3 逐字同 + P4 ~55 token 同）。
+- **能确认的弱结论**：三档 EP 均**无明显错误**（无 garble、`1+2+3=6` 正确、与纯 TP 语义一致）；**不能宣称**「EP 精度已严格验证正确」。
+- TP4+EP / TP2+EP 此前**从未跑过**（T68 审查），本次首次补齐（精度弱 C + 性能见 §7）。
 
 ---
 
@@ -125,6 +140,22 @@ bash details/scripts/ep_perf_bench.sh
 ### 6.6 caveat
 - **EP 下 nopad/pad = no-op 同路径**：inter=1280 ≥ 256，`ATOM_FP8_MOE_DISABLE_PAD` 设不设走同一路径（见 §1c / §4）。脚本里设它仅为显式，**不构成 nopad/pad 对比**。
 - **EP 精度未对参考严格验证** = "看着连贯"（见 §3）。如需 EP 精度定论须补 EP-vs-reference 数值对照。
+
+---
+
+## 7. EP / 纯 TP cudagraph 性能矩阵（TP8 / TP4 / TP2，2026-06-04，teammate-54/57/59/70/72）
+
+> 口径：**cudagraph（非 eager）**、commit **0526446**、`perf_correctness_bench.py`、input 实际 10213 / output 256 / measure-A / runs 2 / num-prompts 1 / kv fp8 / `--cudagraph-capture-sizes "[1]"`。🔴 **不可与 REPRODUCE §6.2（eager + pad anchor）直接比** —— 模式（cudagraph vs eager）与口径不同。
+
+| TP | EP（inter=1280） TTFT/TPOT/tput | 纯 TP TTFT/TPOT/tput | util | 来源 |
+|---|---|---|---|---|
+| **TP8** | **562.9ms / 13.5ms / 74.2 tok/s** | nopad(inter=160): 599.3/14.2/70.6；pad(inter=256): 671.2/13.3/75.0 | 0.5 | T54 / T57 / T59 |
+| **TP4** | **811.1ms / 14.1ms / 70.9 tok/s** | inter=320: 919.6/14.1/70.9 | 0.5 | T70 |
+| **TP2** | **1536.5ms / 15.0ms / 66.7 tok/s** | inter=640: 1597.5/15.1/66.1 | **0.85** | T72 |
+
+- **趋势**：卡越少（TP2←TP4←TP8）→ TTFT / TPOT 越高、decode 吞吐越低（TP 扩展回报递减）；各档 **EP 略快于同档纯 TP**（EP inter 不沿 TP 分片 → 省 TP 通信/重排）。
+- **🔴 TP2 用 util=0.85**：TP2 仅 2 卡、每卡持较重权重，`perf_correctness_bench` 在 util=0.5 时 KV-budget 不足（`GDN mamba KV budget` 负）→ engine init 崩 DP rank0 SHUTDOWN（= handoff §4.3 的 **bench TP-init flaky**，**非 EP/模型问题**；GPU 每次干净释放、无泄漏）。用 e2e 已验证的 **util=0.85** 即通过（参数级修，未改 bench 代码，teammate-72）。
+- 三档均 CORRECTNESS PASS、bos_spam False、cudagraph capture 成功（capture cost 0.3–0.65s）。路径经插桩/dispatch 确认（EP inter=1280 / 纯 TP inter 各档分片），非自比。
 
 ---
 
