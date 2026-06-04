@@ -69,6 +69,21 @@
 - **能确认的弱结论**：三档 EP 均**无明显错误**（无 garble、`1+2+3=6` 正确、与纯 TP 语义一致）；**不能宣称**「EP 精度已严格验证正确」。
 - TP4+EP / TP2+EP 此前**从未跑过**（T68 审查），本次首次补齐（精度弱 C + 性能见 §7）。
 
+### 3c. logit 级严格验证 + 噪声底校准（2026-06-04，teammate-77/79）— 比弱 C 更深
+
+> **首次量化 EP vs 纯TP-pad 的 logit 级数值差**（超越 §3b 弱 C 的 greedy 文本对照）。方法：first-token logits（`max-tokens=1`/`temp=0`/4 prompt，**位置完全对齐**，避 greedy 分叉），经 `model_runner.postprocess` 临时插桩 dump（offline SamplingParams 无 logprobs；跳 warmup NaN）；路径插桩确认 **EP inter=1280 / pad inter=160→256**（非自比）。证据 dump：`W8_resume/T77_*、T79_*`（仓外工作文件）。
+
+**三层诚实结论：**
+
+1. **decision 级（top-1 greedy）= 安全**：EP 与纯TP-pad 的 first-token **top-1 argmax 4/4 一致** → temp=0 greedy 生产下 EP 选的 token 与成熟 pad baseline 相同，**无决策分歧、无 garble**。
+2. **distribution 级（logit）= 系统性偏离（真实，已校准）**：
+   - **EP-vs-pad cosine = 0.752**（逐 prompt 0.699–0.808）；
+   - **pad-vs-pad 噪声底 = 0.9948**（同 pad 路径再跑一次的 fp8 run 间抖动，teammate-79）；
+   - 0.752 ≪ 0.9948（**~50× 分离**）→ **EP 分布系统性比 pad 更尖/更自信**（4/4 prompt 同向：EP top1-prob 0.67–0.97 vs pad 0.43–0.66、熵更低）**是真实路径差异，非 fp8 噪声**（已用噪声底校准坐实）。
+3. **ground-truth 级 = 未裁决**：EP 与 pad **皆 fp8 近似**，cosine 0.752 只证两条 fp8 路径**真实不同**，**不能判谁更准**。须 **HF/transformers bf16 reference**（`modeling_step3p5.py` + FP8 反量化，可行但重）做 EP-vs-HF / pad-vs-HF 三方对比才能定论 —— **本 wave 未做**。
+
+> 🔴 **诚实 verdict**：**既非 clean 数值等价（cosine 非 ≈1），也非 bug（top-1 4/4 一致、无 garble）** —— 是两条 fp8 路径的**真实系统性分布差异**。**含义**：① greedy（temp=0）生产**安全**（EP top-1 = pad）；② **sampling / temperature>0 场景需注意 EP 分布更尖**（采样行为会与 pad 不同）；③ **EP 绝对精度对错 = open**（待 HF reference）。**不宣称 EP 正确，也不宣称 EP 有 bug。**
+
 ---
 
 ## 4. EP vs TP 区别 + 为何 EP 下 nopad/pad 无区别

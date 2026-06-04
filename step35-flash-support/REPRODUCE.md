@@ -355,7 +355,8 @@ step35-flash-support 仓内未提供与 fp8-tp4-repro 等价的 throughput_bench
 - **EP TPOT 13.5ms 与 §6.2 TP anchor 13.7ms 巧合性接近，但二者是不同路径（EP vs TP），不构成可比对照**；TTFT 560–571ms < TP anchor 747ms 是口径差异（gpu-mem-util / max-model-len / input 不同档），非可比 regression。
 - 🔴 **EP 下 "nopad vs pad" = 同一路径**：EP inter=1280 ≥ 256，`ATOM_FP8_MOE_DISABLE_PAD` 是 **no-op**（teammate-29 坐实）。T27/T28 progress 标注的 "nopad/pad" 微差（TTFT ~1.9%、TPOT 0.06%）**是 run-to-run 噪声，不可解读为 nopad/pad perf 对比**。上表是 **EP 整体 perf**。
 - **EP 精度（teammate-24）**：ATOM 原生 e2e（EP+cudagraph）4/4 连贯、非 Qwen、有自然 eos。**⚠️ 但未对 ground-truth/参考做严格数值验证**（"pad_parity" 是 EP-vs-EP 自比 = 无意义；EP inter=1280 对齐本就不受 ÷8 bug 影响）→ **EP 精度 = "看着连贯"，非严格验证**。
-- ▶ **EP 精度（方案B弱标准C，TP8/4/2）+ EP/纯TP cudagraph 性能矩阵（TP8 562.9/13.5/74.2、TP4 811.1/14.1/70.9、TP2 1536.5/15.0/66.7，纯TP 各档；TP2 perf 需 util=0.85）见 `details/perf/22_*.md §3b + §7`**。🔴 EP 精度仍是**弱结论**（连贯+与纯TP语义一致+1+2+3=6+无garble），**非逐数值严格验证**（须 HF reference / logit cosine 才严格）。
+- ▶ **EP 精度（方案B弱标准C，TP8/4/2）+ EP/纯TP cudagraph 性能矩阵（TP8 562.9/13.5/74.2、TP4 811.1/14.1/70.9、TP2 1536.5/15.0/66.7，纯TP 各档；TP2 perf 需 util=0.85）见 `details/perf/22_*.md §3b + §7`**。
+- ▶ **EP 精度 logit 级严格结果见 `perf/22 §3c`**：first-token **greedy top-1 与 pad 4/4 一致（greedy 生产安全）**；但 **logit 分布系统性更尖**（EP-vs-pad cosine 0.752 vs 噪声底 0.995，真实路径差已校准）；**对 ground-truth 未裁决**（须 HF bf16 reference）。🔴 **不宣称 EP 正确也不宣称有 bug**；sampling/temperature 场景注意 EP 分布更尖。
 
 #### cudagraph 现已可用（2026-06-03，teammate-26）
 - 早前 "TP8 cudagraph 崩" 的根因 = **custom-allreduce IPC 不兼容**（`hipIpcGetMemHandle invalid argument` @ `allocate_kv_cache` barrier），**非 nopad 特异（pad 也崩）**（详 teammate-25）。
