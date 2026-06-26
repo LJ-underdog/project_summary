@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M5b（group softmax）代码改动 review</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M5b 代码改动 review</div>
+  <h1>HSTU Attention Backward — M5b（group softmax）：合流但不碰已 promoted 的代码</h1>
+  <p class="subtitle">M5b 把 softmax 反向路径落到 <strong>group 模式</strong>——即「M4 的 group 结构 × M5 的 softmax 路径」合流,补齐了 softmax 在三种模式(batched / jagged / group)上的最后一块覆盖。卖点是<strong>复用不重写</strong>:M5 softmax pipeline、PRE、POST 逐字复用,M5 no_group 与全部 SiLU 路径 byte-identical(零回归)。本文按最佳阅读顺序逐文件解读,所有引用以 <code>git show f7db567d:&lt;file&gt;</code> 行号为准。</p>
+  <div class="audience">读者:要 review 这套 group softmax bwd 合流改动的工程师(零基础友好,关键术语配一句白话)</div>
+</header>
+
+<div class="layout">
+<main>
+
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M5b</div>
+  <p class="lede">M5b = <strong>M4 group × M5 softmax 的融合点</strong>。它只新写一个 MAIN kernel(<code>HstuAttentionBwdDQDKDVGroupSoftmaxKernel</code>)+ 一条 group dispatch(<code>RunSoftmax</code>)+ 让 group harness 跑 GPU group fwd 产 O+LSE。其余全靠复用:M5 的 with_softmax pipeline、PRE <code>hstu_bwd_dot_do_o_kernel</code>(<code>is_jagged=true</code>)、POST <code>hstu_bwd_convert_dq_kernel</code> 原样调用。</p>
+  <p>关键洞察:<strong>group 永远是 packed(jagged)</strong>,所以 LSE/D 的 <code>[head, ΣL]</code> 布局与 M5 jagged 路一字不差——这让 M5 写好的 softmax pipeline 直接 mode-agnostic 复用。三个已 promoted 文件(M5 softmax pipeline / SiLU pipeline / no_group dispatch)在本 commit <strong>零 diff</strong>。</p>
+  <div class="badges">
+    <span class="badge info">5 文件改 · +569 / −5 行</span>
+    <span class="badge ok">corrpair 10/10 PASS · 套件 68 全绿 exit 0</span>
+    <span class="badge ok">零回归(3 文件 byte-identical)</span>
+  </div>
+  <div class="statgrid">
+    <div class="stat"><div class="v">5</div><div class="l">改动文件</div></div>
+    <div class="stat"><div class="v">10/10</div><div class="l">corrpair sweep PASS</div></div>
+    <div class="stat"><div class="v">68/67</div><div class="l">套件 total/pass(0 fail)</div></div>
+    <div class="stat"><div class="v">359</div><div class="l">新 kernel 行数(kernel.hpp)</div></div>
+  </div>
+</div>
+
+<section id="s1">
+  <h2>1&nbsp;&nbsp;总览:M5b 到底改了什么</h2>
+  <p class="lede">一句话四件事:</p>
+  <div class="callout-grid">
+    <div class="callout clay"><div class="k">新 kernel</div><div class="t">GroupSoftmaxKernel</div><div class="d">M4 group 骨架(per-group <code>i_group</code> 超参 + jagged offset + 双 pipeline)× M5 softmax(LSE/D window,去 scale_p),共 <code>kernel.hpp:1214-1565</code>。</div></div>
+    <div class="callout"><div class="k">复用 pipeline</div><div class="t">M5 softmax pipeline 直接吃</div><div class="d">with-local / no-local 两条均实例化自 <code>HstuAttentionWithSoftmaxBwdDQDKDVPipelineKRKTRVR</code>(<code>dispatch:202-204</code>),pipeline 文件 0 改。</div></div>
+    <div class="callout"><div class="k">group dispatch</div><div class="t">RunSoftmax(PRE→MAIN→POST)</div><div class="d">镜像 M5 no_group:PRE 产 D → memset dq_acc → MAIN group kernel → POST 收 dQ(<code>dispatch:191-313</code>);<code>kUseSoftmax</code> 分支去 throw 改调它。</div></div>
+    <div class="callout"><div class="k">harness + 契约</div><div class="t">group fwd 产 LSE + 加字段</div><div class="d">group 段 softmax 时跑 GPU group fwd(<code>is_training=true</code>)产 O+LSE(<code>harness:770-828</code>);params 加 <code>d_ptr</code>+<code>nhead_stride_lsed</code>(<code>params.hpp:167-168</code>)。</div></div>
+  </div>
+  <div class="note-block olive"><strong>最精妙处:group = packed = jagged。</strong>&nbsp;group 模式天然把所有 batch 的 token 连续打包成 <code>[head, ΣL]</code>,这和 jagged 同款。因此 M5 早已写好、对 batched/jagged 都 mode-agnostic 的 softmax pipeline,在 group 路上<strong>无需任何改动</strong>就能复用——LSE/D 的 base 公式 <code>i_nhead*ΣL + query_start</code>、seq stride=1 与 M5 jagged 路一字不差(<code>kernel.hpp:1449-1453</code>、<code>1432</code>)。M5b 的工作量因此被压到只新写「装配逻辑」而非「数学」。</div>
+</section>
+
+<section id="s2">
+  <h2>2&nbsp;&nbsp;最佳阅读顺序</h2>
+  <p class="lede">按「<strong>契约 → 复用边界 → 新 kernel → group dispatch → harness 产 LSE → 构建</strong>」读。先认清哪些是复用、哪些是新写,再看新 kernel 如何把两条血脉缝在一起,最后看 harness 怎么喂 LSE 把链路跑通。下图标注了<span style="color:#4B5C39">绿=复用</span>/<span style="color:#8A3B1E">橙=新写</span>。</p>
+
+  <div class="svg-wrap">
+  <svg viewBox="0 0 940 290" width="100%" role="img" aria-label="M5b 阅读顺序与复用/新写依赖流">
+    <defs>
+      <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#87867F"/></marker>
+    </defs>
+    <g font-size="12">
+      <!-- row 1: contract + reuse sources -->
+      <rect x="14"  y="20" width="170" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="99" y="42" text-anchor="middle" fill="#141413" font-weight="700">① params.hpp</text>
+      <text x="99" y="60" text-anchor="middle" fill="#87867F">+d_ptr +lsed</text>
+
+      <rect x="230" y="20" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="330" y="40" text-anchor="middle" fill="#141413" font-weight="700">M5 softmax pipeline</text>
+      <text x="330" y="58" text-anchor="middle" fill="#4B5C39">复用(0 改)</text>
+
+      <rect x="470" y="20" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="570" y="40" text-anchor="middle" fill="#141413" font-weight="700">PRE dot_do_o</text>
+      <text x="570" y="58" text-anchor="middle" fill="#4B5C39">is_jagged=true 复用</text>
+
+      <rect x="710" y="20" width="210" height="54" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="815" y="40" text-anchor="middle" fill="#141413" font-weight="700">POST convert_dq</text>
+      <text x="815" y="58" text-anchor="middle" fill="#4B5C39">复用(0 改)</text>
+
+      <!-- row 2: the new MAIN kernel (fuses everything) -->
+      <rect x="300" y="120" width="340" height="58" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="2"/>
+      <text x="470" y="142" text-anchor="middle" fill="#141413" font-weight="700">② GroupSoftmaxKernel(新写)</text>
+      <text x="470" y="162" text-anchor="middle" fill="#8A3B1E">M4 group 骨架 × M5 LSE/D + 双 pipeline</text>
+
+      <!-- arrows feeding into kernel -->
+      <line x1="330" y1="74" x2="430" y2="118" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="570" y1="74" x2="510" y2="118" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="99"  y1="74" x2="320" y2="118" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 3: dispatch -->
+      <rect x="300" y="208" width="340" height="50" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="470" y="229" text-anchor="middle" fill="#141413" font-weight="700">③ group RunSoftmax</text>
+      <text x="470" y="247" text-anchor="middle" fill="#8A3B1E">PRE→memset→MAIN→POST(去 throw)</text>
+
+      <line x1="470" y1="178" x2="470" y2="206" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="570" y1="74"  x2="560" y2="206" stroke="#87867F" stroke-dasharray="3,3" marker-end="url(#ar)"/>
+      <line x1="815" y1="74"  x2="600" y2="206" stroke="#87867F" stroke-dasharray="3,3" marker-end="url(#ar)"/>
+
+      <!-- row 3 side: harness + cmake -->
+      <rect x="14" y="208" width="250" height="50" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="139" y="229" text-anchor="middle" fill="#141413" font-weight="700">④ harness:group fwd 产 LSE</text>
+      <text x="139" y="247" text-anchor="middle" fill="#87867F">is_training=true + LSE 转置</text>
+
+      <rect x="676" y="208" width="244" height="50" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="798" y="229" text-anchor="middle" fill="#141413" font-weight="700">⑤ CMake:链 group fwd entry</text>
+      <text x="798" y="247" text-anchor="middle" fill="#87867F">BWD_INTERFACES += group_fwd</text>
+
+      <line x1="264" y1="233" x2="298" y2="233" stroke="#87867F" marker-end="url(#ar)"/>
+    </g>
+  </svg>
+  </div>
+  <p class="svg-caption">绿框=复用(本 commit 0 改或 is_jagged 复用);橙框=本里程碑新写。新 kernel 是融合点,把三条复用血脉(pipeline/PRE/POST)与 M4 group 骨架缝在一起。</p>
+
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>#</th><th>文件</th><th>读它回答的问题</th><th>重点行</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>hstu_attention_bwd_params.hpp</code></td><td>group 契约<strong>补了哪两个字段</strong>(softmax 才用)</td><td><code>:164</code> / <code>:167-168</code></td></tr>
+      <tr><td>2</td><td><code>hstu_attention_bwd_kernel.hpp</code></td><td>新 MAIN kernel 如何<strong>融合 group 超参 + LSE/D + 双 pipeline</strong></td><td><code>:1214</code> / <code>:1411-1417</code> / <code>:1536-1560</code></td></tr>
+      <tr><td>3</td><td><code>hstu_attention_group_backward_dispatch.hpp</code></td><td>group softmax 如何<strong>装配 PRE→MAIN→POST</strong> 并去掉 throw</td><td><code>:191</code> / <code>:232</code> / <code>:320-321</code></td></tr>
+      <tr><td>4</td><td><code>example_hstu_attention_bwd.cpp</code></td><td>harness 怎么<strong>跑 GPU group fwd 产 LSE</strong> 喂两侧</td><td><code>:770</code> / <code>:815</code> / <code>:827</code> / <code>:871-873</code></td></tr>
+      <tr><td>5</td><td><code>CMakeLists.txt</code></td><td>为何要把 <strong>group fwd entry 链进 bwd target</strong></td><td>hunk <code>@@ -34</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="s3">
+  <h2>3&nbsp;&nbsp;逐文件 review(为什么这样改)</h2>
+
+  <h3>① params.hpp — group 契约补两字段 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:164</code> <code>lse_ptr</code> 注释升级为「softmax path only (M5b);<code>[head, ΣL]</code> seq-continuous packed」——点明 group LSE 的 packed 布局。</li>
+    <li><code>:167</code> 新增 <code>d_ptr</code>(PRE 产物 <code>D=rowsum(O*dO)</code>,softmax 才用)、<code>:168</code> <code>nhead_stride_lsed</code>(LSE 与 D 共用,<code>== ΣL</code>,group packed 下 seq stride=1)。</li>
+    <li>只动 <code>HstuAttentionGroupBwdParams</code>(<code>:116</code> 起);no_group 结构体一字未改——M0 立的「params 字段名定死、只加不改结构」军令状继续成立。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_params.hpp:164-168 — group 契约新增的两个 softmax 字段</span>    <span class="kw">const</span> <span class="kw">void</span>* lse_ptr; <span class="cm">// softmax path only (M5b); [head, ΣL] seq-continuous packed</span>
+
+    <span class="cm">// ---- softmax PRE output (M5b): D = rowsum(O*dO), same [head,ΣL] layout as LSE ----</span>
+    <span class="kw">void</span>* <span class="hl">d_ptr</span>;                          <span class="cm">// softmax path only</span>
+    ck_tile::index_t <span class="hl">nhead_stride_lsed</span>;   <span class="cm">// == ΣL (group packed; LSE/D seq stride is 1)</span></div>
+
+  <h3>② bwd_kernel.hpp — 新 MAIN kernel(M4×M5 融合点)<span class="tag tag-new">新增</span></h3>
+  <p>整个 <code>HstuAttentionBwdDQDKDVGroupSoftmaxKernel</code> 共 359 行,位于 <code>:1214-1565</code>。它 = M4 group kernel 的骨架(per-group 超参 + jagged offset + 双 pipeline 分支)× M5 softmax kernel(LSE/D dram window + softmax pipeline 调用,<strong>去 scale_p</strong>)。</p>
+  <ul>
+    <li><strong>per-group 超参</strong>(<code>:1411-1417</code>):<code>i_group = i_batch / num_batch_per_group</code>(<code>readfirstlane</code> 标量化),据此取 per-group 的 <code>window_size</code>/<code>contextual_seqlen</code>/<code>min_full_attn_seqlen</code>。softmax <strong>不读</strong> <code>group_attn_scale</code>/<code>group_max_seqlen</code>——因为 softmax 不用 scale_p,scale 由 LSE 取代。</li>
+    <li><strong>jagged offset + 早退</strong>:<code>query_start = q_offsets[i_batch]</code>(<code>:1401</code>),<code>if(i_n0 >= seqlen_kv) return;</code>(<code>:1406-1407</code>,M4 同款,group 恒 packed)。</li>
+    <li><strong>LSE/D 定位</strong>(<code>:1432</code>、<code>:1449-1453</code>):<code>batch_offset_lsed = query_start</code>(seq stride=1),base = <code>i_nhead*nhead_stride_lsed + batch_offset_lsed</code>,<code>nhead_stride_lsed == ΣL</code>——<strong>与 M5 jagged 路一字不差</strong>。</li>
+    <li><strong>双 pipeline 运行时分支</strong>(<code>:1536-1560</code>):<code>if(window_size>0)</code> 走 <code>PipelineLocal</code>(with-local mask),<code>else</code> 走 <code>PipelineNoLocal</code>(without-local)——两条都是 M5 softmax pipeline 实例,调用签名<strong>无 scale_p</strong>(只传 <code>lse/d window, mask, alpha, smem</code>)。</li>
+    <li>收尾 <code>write_dkdv</code> lambda(<code>:1514</code> 附近)两分支共享,mask 无关。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp:1411-1417 — per-group 超参(softmax 不取 scale_p)</span>        <span class="kw">const</span> index_t <span class="hl">i_group</span> =
+            __builtin_amdgcn_readfirstlane(i_batch / kargs.num_batch_per_group);
+        <span class="kw">const</span> index_t window_size =
+            <span class="kw">reinterpret_cast</span>&lt;<span class="kw">const</span> int32_t*&gt;(kargs.group_window_size_ptr)[i_group];
+        <span class="kw">const</span> index_t contextual_seqlen =
+            <span class="kw">reinterpret_cast</span>&lt;<span class="kw">const</span> int32_t*&gt;(kargs.group_contextual_seqlen_ptr)[i_group];
+        <span class="kw">const</span> index_t min_full_attn_seqlen =
+            <span class="kw">reinterpret_cast</span>&lt;<span class="kw">const</span> int32_t*&gt;(kargs.group_min_full_attn_seqlen_ptr)[i_group];</div>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp:1536-1560 — 双 pipeline 分支,调用无 scale_p(对比 SiLU 路多传 scale_p)</span>        <span class="kw">if</span>(window_size &gt; 0)
+        {
+            <span class="kw">const</span> <span class="kw">int</span> eff_min_full = (seqlen_q - num_target &gt; min_full_attn_seqlen)
+                                         ? min_full_attn_seqlen
+                                         : (seqlen_q - num_target);
+            <span class="kw">auto</span> mask = <span class="fn">make_hstu_self_attention_block_mask_with_local</span>&lt;LocalMask&gt;(
+                <span class="cm">/*is_tile_in_first_split=*/</span><span class="kw">true</span>, seqlen_q, contextual_seqlen, num_target,
+                window_size, eff_min_full);
+            <span class="kw">auto</span> [dk_acc_tile, dv_acc_tile] =
+                <span class="hl">PipelineLocal</span>{}(q_dram_window, k_dram_window, v_dram_window, do_dram_window,
+                                lse_dram_window, d_dram_window, dq_dram_window, mask, kargs.alpha,
+                                smem_ptr); <span class="cm">// 注意:无 scale_p,scale 由 LSE 取代</span>
+            <span class="fn">write_dkdv</span>(dk_acc_tile, dv_acc_tile);
+        }
+        <span class="kw">else</span>
+        {
+            <span class="kw">auto</span> mask = <span class="fn">make_hstu_self_attention_block_mask_without_local</span>&lt;NoLocalMask&gt;(
+                seqlen_q, contextual_seqlen, num_target);
+            <span class="kw">auto</span> [dk_acc_tile, dv_acc_tile] =
+                <span class="hl">PipelineNoLocal</span>{}(q_dram_window, k_dram_window, v_dram_window, do_dram_window,
+                                  lse_dram_window, d_dram_window, dq_dram_window, mask, kargs.alpha,
+                                  smem_ptr);
+            <span class="fn">write_dkdv</span>(dk_acc_tile, dv_acc_tile);
+        }</div>
+  <div class="note-block clay"><strong>融合的精髓:</strong>&nbsp;M4 group kernel 的双 pipeline 分支结构(<code>window_size>0</code> 选 with/without-local)和 M5 softmax kernel 的 LSE/D window + 无-scale_p 调用,是两套<em>正交</em>的逻辑。M5b 没有重写任何一套,而是把 M4 的「选哪条 pipeline」骨架里的 pipeline <strong>实例</strong>换成 M5 的 softmax pipeline,并补上 LSE/D window 的构造。359 行里没有新的反向数学,全是装配。</div>
+
+  <h3>③ group_backward_dispatch.hpp — group RunSoftmax(去 throw)<span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:21</code> include <code>hstu_attention_with_softmax_bwd_pipeline.hpp</code>——把 M5 写好的 softmax pipeline 引进 group dispatch。</li>
+    <li><code>:191-313</code> 新增 <code>RunSoftmax</code>:镜像 M5 no_group 的四段式——<strong>PRE</strong>(<code>hstu_bwd_dot_do_o_kernel</code>,<code>is_jagged=true</code> 见 <code>:232</code>,group packed <code>[head,ΣL]</code> = jagged 同款)→ <strong>memset</strong> dq_acc → <strong>MAIN</strong>(launch GroupSoftmaxKernel)→ <strong>POST</strong>(<code>hstu_bwd_convert_dq_kernel</code> 原样复用)。</li>
+    <li>两条 pipeline 均实例化自 <code>HstuAttentionWithSoftmaxBwdDQDKDVPipelineKRKTRVR</code>(<code>:202-204</code>),LocalMask/NoLocalMask 由 <code>kUseCausal</code> 编译期选。</li>
+    <li><code>:320-321</code> <code>kUseSoftmax</code> 分支<strong>从 throw 改为调 RunSoftmax</strong>;SiLU 分支(<code>:323</code> <code>RunSilu</code>)逐字不变。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_group_backward_dispatch.hpp:317-323 — kUseSoftmax 分支去 throw,SiLU 分支不变</span>        <span class="kw">if constexpr</span>(kIsDeterministic)
+            <span class="kw">throw</span> std::runtime_error(<span class="str">"... deterministic ... (M6)"</span>);
+        <span class="kw">else if constexpr</span>(kUseSoftmax)
+            <span class="hl">RunSoftmax</span>(param, stream); <span class="cm">// M5b — 此前是 throw "(M5)"</span>
+        <span class="kw">else</span>
+            <span class="fn">RunSilu</span>(param, stream);    <span class="cm">// SiLU 路逐字不变</span></div>
+  <div class="note-block olive"><strong>PRE 为什么能直接复用?</strong>&nbsp;<code>:232</code> 传 <code>is_jagged=true</code> + <code>seq_q_offsets_ptr</code>,并把 batch stride 显式置 0(<code>// packed: no batch stride</code>)。group 既然 packed,token 基址完全用 offset 定位,与 M5 jagged 路调 PRE 的姿势一模一样——同一个 PRE kernel 函数,换组参数即可。</div>
+
+  <h3>④ example_hstu_attention_bwd.cpp — harness 产 LSE <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:743-746</code> 分配 group packed LSE/D 缓冲:<code>lsed_elems = num_head * phy_seqlen_q</code>、<code>nhead_stride_lsed = phy_seqlen_q</code>(<code>= ΣL</code>),并 alloc <code>o_dev/lse_dev/d_dev</code>。</li>
+    <li><code>:770-828</code> <strong>softmax 时跑 GPU group fwd</strong>:构造 <code>HstuAttentionGroupFwdParams</code>,关键置 <code>is_training=true</code>(<code>:775</code>)让 fwd 顺带吐 LSE;<code>seq_stride_lse=1 / nhead_stride_lse=ΣL</code>(packed)。bf16 调 <code>hstu_attention_group_forward_bf16(fp, stream)</code>(<code>:815</code>)。</li>
+    <li><strong>LSE 转置喂 reference</strong>(<code>:827</code>):GPU 侧 <code>[head, ΣL]</code> → reference 要的 <code>[1, ΣL, head]</code>,<code>lse_host(0,s,h) = lse_flat[h*ΣL + s]</code>。GPU 产的同一份 LSE 既喂 GPU-bwd 又(转置后)喂 reference,两侧 P 一致(与 M5 同策略)。</li>
+    <li><strong>接线 bwd params</strong>(<code>:843</code>、<code>:871-873</code>):<code>o_ptr</code>/<code>lse_ptr</code>/<code>d_ptr</code> 都用 <code>use_softmax ? ... : nullptr</code>,SiLU 仍为 null;<code>nhead_stride_lsed</code> 接上。SiLU group 段原样(仍跳 fwd)。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp:770-827(节选)— group fwd 产 O+LSE 并转置喂 reference</span>    <span class="kw">if</span>(use_softmax)
+    {
+        HstuAttentionGroupFwdParams fp{};
+        fp.is_training        = <span class="hl">true</span>;          <span class="cm">// 让 fwd 顺带吐 LSE</span>
+        <span class="cm">// ... q/k/v/o/lse 指针 + group_*_ptr ...</span>
+        fp.seq_stride_lse     = 1;             <span class="cm">// packed</span>
+        fp.nhead_stride_lse   = nhead_stride_lsed; <span class="cm">// == ΣL</span>
+        <span class="kw">if constexpr</span>(std::is_same&lt;InOutDataType, ck_tile::bf16_t&gt;::value)
+            <span class="fn">hstu_attention_group_forward_bf16</span>(fp, stream);
+        <span class="cm">// 转置 GPU LSE([head,ΣL]) -> reference 视图([1,ΣL,head])</span>
+        <span class="kw">for</span>(<span class="kw">int</span> h = 0; h &lt; num_head; h++)
+            <span class="kw">for</span>(<span class="kw">int</span> s = 0; s &lt; phy_seqlen_q; s++)
+                lse_host(0, s, h) = lse_flat[<span class="kw">static_cast</span>&lt;size_t&gt;(h) * phy_seqlen_q + s];
+    }</div>
+
+  <h3>⑤ CMakeLists.txt — 链 group fwd entry <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>BWD_INTERFACES_SRCS</code> 加 <code>hstu_attention_group_forward_bf16.cpp</code>(<code>@@ -34</code> hunk)。</li>
+    <li><strong>为什么:</strong>harness 现在要调 group fwd entry 产 LSE,但该 entry 之前没在 bwd target 的 interface 源里 → 链接缺符号。其 instances 已被既有 <code>*forward_bf16*</code> glob 覆盖,只缺 entry 这一个 TU。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">CMakeLists.txt:@@ -34 — BWD_INTERFACES 补 group fwd entry</span> <span class="kw">set</span>(BWD_INTERFACES_SRCS hstu_attention_no_group_backward_bf16.cpp
+                         hstu_attention_group_backward_bf16.cpp
+                         hstu_attention_no_group_forward_bf16.cpp
+<span class="hl">+                        hstu_attention_group_forward_bf16.cpp</span>)</div>
+</section>
+
+<section id="s4">
+  <h2>4&nbsp;&nbsp;设计动机小结</h2>
+  <ol>
+    <li><strong>复用不重写,合流即装配</strong>:M5 softmax pipeline、PRE(<code>is_jagged=true</code>)、POST 全部逐字复用;359 行新 kernel 里没有新的反向数学,只是把 M4 group 骨架的 pipeline 槽位换成 M5 softmax 实例。</li>
+    <li><strong>group = packed = jagged,所以 mode-agnostic 生效</strong>:LSE/D base = <code>i_nhead*ΣL + query_start</code>、seq stride=1(<code>kernel.hpp:1432/1449-1453</code>)与 M5 jagged 路一字不差,这是 pipeline 能直接复用的物理前提。</li>
+    <li><strong>softmax 不用 scale_p</strong>:per-group 仍取 window/contextual/min_full(<code>:1411-1417</code>),但 scale 由 LSE 取代——双 pipeline 调用签名去掉 scale_p(<code>:1536-1560</code>)。</li>
+    <li><strong>GPU 产 LSE 同喂两侧</strong>:harness 跑 group fwd(<code>is_training=true</code>)产的同一份 LSE,既喂 GPU-bwd 又(转置后)喂 reference(<code>harness:815/827</code>),保证两侧 P 一致——延续 M5 策略。</li>
+    <li><strong>不碰已 promoted 代码 = 零回归</strong>:M5 softmax pipeline / SiLU pipeline / no_group dispatch 三文件在本 commit byte-identical,只在 dispatch 的 <code>kUseSoftmax</code> 分支把 throw 换成调用(<code>:320-321</code>),SiLU 分支不动。</li>
+  </ol>
+</section>
+
+<section id="s5">
+  <h2>5&nbsp;&nbsp;验证与遗留 / 边界</h2>
+
+  <h4>对拍结果(出处:M5b-done.md §5 + candidates.jsonl「M5b-group-softmax」)</h4>
+  <p>attn_scale=1.0、bf16 阈值 rel≤2e-2 / abs≤5e-2。<code>runs/run-M5b-sweep.log</code> <strong>10/10 PASS</strong>:softmax × causal{0,1} × g{2,3,4} × per-group 异构(window 混 with/without-local、attn_scale、attn_scale=0、<strong>全异构</strong>(window/context/minfull/attn_scale/num_target 各组各异 → 证明真按 <code>i_group</code> 取超参)、per-batch num_target、causal=0+num_target)。误差 bf16 舍入级:dQ max_abs ≤ 1.4e-2(vs max|ref| ~0.3–10.75,rel ~1e-3)、dV ≤ 4e-3。</p>
+  <div class="gate-banner"><strong>套件(出处:M5b-done.md §6 + runs/test-20260608-094807.log):</strong> 加 8 个 M5b 交叉案 → <strong>TOTAL 68 / PASS 67 / FAIL 0 / SKIP 1,exit 0</strong>;M1–M5 的 60 个旧案仍全 PASS(三文件 byte-identical vs aced5784)。build 0 error(<code>runs/build-M5b.log</code>)。candidates 中状态 <span class="status-yes">promoted</span>。</div>
+
+  <h4>遗留 / 给后续(M5b 明确不做)</h4>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>能力 / 边界</th><th>落地里程碑</th></tr></thead>
+    <tbody>
+      <tr><td>cross-attention softmax(no_group/group 现均仅 self-attn)</td><td>cross-attention 里程碑</td></tr>
+      <tr><td>deterministic dQ(group softmax 现走 atomic)</td><td>M6 / M6b(group determ)</td></tr>
+      <tr><td>fp16 加宽 / 非 hd64</td><td>M7a / M7b / M7c</td></tr>
+      <tr><td>双 pipeline 同时实例化的 compile-size / perf 取舍</td><td>M8(perf,已知取舍)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block"><strong>已知坑(M5b-done.md §7):</strong> 唯一链接坑——group harness 调 group fwd entry 产 LSE,但该 entry 此前不在 bwd target 的 <code>BWD_INTERFACES_SRCS</code> → 加上即可(instances 已被 glob 覆盖)。另:<code>HstuAttentionGroupFwdParams</code> 无 attn_scale / batch_stride_lse 标量(group 用 group_*_ptr + query_start),按其字段集填,勿照搬 no_group。</div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 总览</a>
+  <a href="#s2">2 最佳阅读顺序</a>
+  <a href="#s3">3 逐文件 review</a>
+  <a href="#s3" class="sub">①params ②kernel</a>
+  <a href="#s3" class="sub">③dispatch ④harness</a>
+  <a href="#s3" class="sub">⑤cmake</a>
+  <a href="#s4">4 设计动机小结</a>
+  <a href="#s5">5 验证与遗留 / 边界</a>
+</nav>
+
+</div><!-- /layout -->
+</div><!-- /page -->
+</body>
+</html>

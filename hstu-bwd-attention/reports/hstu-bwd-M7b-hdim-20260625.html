@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M7b（对称 hdim {64,96,128,256}）代码改动 review</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M7b 代码改动 review</div>
+  <h1>HSTU Attention Backward — M7b（对称 hdim）：让 tile 形状成为 MaxK 的编译期函数</h1>
+  <p class="subtitle">M7b 解禁对称 head-dim（hdim_qk==hdim_v）∈ {64,96,128,256}。核心洞察:pre-M7b 的 dispatch 虽然按 MaxK 模板化,却<strong>硬编码了 hd64 的 tile 形状</strong>——MaxK 只流进实例符号、没流进 shape,直接加 headdim 轴会<strong>静默复用 hd64 tile（silent-wrong）</strong>。本文按最佳阅读顺序逐文件解读,所有行号以 <code>git show c9fe2891:&lt;file&gt;</code> 为准。</p>
+  <div class="audience">读者：要 review 这次 head-dim 扩展的工程师（关键术语配一句白话）</div>
+</header>
+
+<div class="layout">
+<main>
+
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M7b</div>
+  <p class="lede">M7b 把「tile 形状」从 dispatch 里<strong>硬编码的 hd64 常量</strong>抽成一个编译期 selector <code>HstuBwdShape&lt;MaxK&gt;</code>(新建头文件),其中 <code>&lt;64&gt;</code> 与原硬编码<strong>逐字等价</strong>——这是 hd64 零回归的基石;<code>&lt;96/128/256&gt;</code> 各按 FMHA bwd codegen 蓝本给出自己的 tile。两个 dispatch 改取 selector,3 处「hd64 only」的 throw 换成<strong>典范 guard</strong>(<code>hdim_qk!=hdim_v || hdim_qk!=MaxK</code>),挡住 <code>HDIM_SWITCH</code> 静默向上取整带来的 silent-wrong。</p>
+  <p>分两阶段交付:<strong>stage1 纯重构</strong>(selector+guard+kN0)先证 hd64 byte-identical 零回归,<strong>stage2</strong> 才把 headdim 轴加进生成器(48 新实例)。reference / pipeline / kernel 逻辑<strong>一行未碰</strong>(git diff 空)。</p>
+  <div class="badges">
+    <span class="badge info">9 改 + 1 新 + 48 实例 · commit c9fe2891</span>
+    <span class="badge ok">sweep 128/128 PASS · 套件 171/171</span>
+    <span class="badge ok">hd64 byte-identical 零回归</span>
+    <span class="badge gate">非对称 / 非典范 hdim → M7c</span>
+  </div>
+  <div class="statgrid">
+    <div class="stat"><div class="v">4</div><div class="l">对称 hdim {64,96,128,256}</div></div>
+    <div class="stat"><div class="v">128/128</div><div class="l">对拍 sweep PASS</div></div>
+    <div class="stat"><div class="v">48</div><div class="l">新增 batched 实例</div></div>
+    <div class="stat"><div class="v">171/171</div><div class="l">回归套件 exit 0</div></div>
+  </div>
+</div>
+
+<section id="s1">
+  <h2>1&nbsp;&nbsp;总览：M7b 到底改了什么</h2>
+  <p class="lede">一句话四件事:</p>
+  <div class="callout-grid">
+    <div class="callout clay"><div class="k">根因 / selector</div><div class="t">tile 形状 = f(MaxK)</div><div class="d">新建 <code>hstu_attention_bwd_shape.hpp</code>,<code>HstuBwdShape&lt;MaxK&gt;</code> 特化 64/96/128/256(<code>:29-133</code>);<code>&lt;64&gt;</code> 与原硬编码逐字等价。</div></div>
+    <div class="callout clay"><div class="k">guard</div><div class="t">典范值守门</div><div class="d">2 dispatch 改取 selector(<code>:47</code>);3 处 hd64-only throw 换成 <code>hdim_qk!=hdim_v||hdim_qk!=MaxK</code>(<code>dispatch:377-380/396-399</code>)。</div></div>
+    <div class="callout"><div class="k">入口 / 生成器</div><div class="t">headdim 轴打通</div><div class="d">4 entry 把硬编码 64 换成 <code>HDIM_SWITCH</code>(<code>:28</code>);生成器 <code>BWD_HEADDIMS_M0=[64,96,128,256]</code>(<code>:178</code>)→ 48 新实例。</div></div>
+    <div class="callout"><div class="k">harness</div><div class="t">hd256 workspace 修正</div><div class="d"><code>kN0_bwd=(hdim==256)?64:128</code>(<code>:303/771</code>):hd256 的 tile bn0=64,determ split 数翻倍,workspace 必须随之。</div></div>
+  </div>
+  <div class="note-block clay"><strong>M7b 最易错处:</strong>&nbsp;<code>HDIM_SWITCH</code>(<code>hstu_attention_hdim_switch.hpp:9-35</code>)是<strong>向上取整</strong>的——传 hdim=100 它会选 MaxK=128 那条 tile。如果只靠它选 MaxK、不在 dispatch 里再校验 <code>hdim_qk==MaxK</code>,hdim=100 就会<strong>静默套用 128 tile 跑出错误结果</strong>。所以典范 guard 不是冗余,而是把「非典范 hdim」从 silent-wrong 变成 loud-throw(留给 M7c 的 pad 路径处理)。</div>
+</section>
+
+<section id="s2">
+  <h2>2&nbsp;&nbsp;最佳阅读顺序</h2>
+  <p class="lede">按「<strong>根因(selector)→ guard → 入口 fan-out → 实例生成 → harness 验证</strong>」的依赖方向读。下图是依赖流,表格是逐步导引。</p>
+
+  <div class="svg-wrap">
+  <svg viewBox="0 0 940 270" width="100%" role="img" aria-label="M7b 阅读顺序依赖流">
+    <defs>
+      <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#87867F"/></marker>
+    </defs>
+    <g font-size="12">
+      <!-- row 1 -->
+      <rect x="14"  y="20" width="180" height="56" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="104" y="42" text-anchor="middle" fill="#141413" font-weight="700">① bwd_shape.hpp</text>
+      <text x="104" y="60" text-anchor="middle" fill="#87867F">HstuBwdShape&lt;MaxK&gt;</text>
+
+      <rect x="252" y="20" width="200" height="56" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="352" y="42" text-anchor="middle" fill="#141413" font-weight="700">② dispatch ×2</text>
+      <text x="352" y="60" text-anchor="middle" fill="#87867F">取 selector + 典范 guard</text>
+
+      <rect x="510" y="20" width="200" height="56" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="610" y="42" text-anchor="middle" fill="#141413" font-weight="700">③ entry ×4</text>
+      <text x="610" y="60" text-anchor="middle" fill="#87867F">HDIM_SWITCH fan-out</text>
+
+      <rect x="752" y="20" width="174" height="56" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="839" y="42" text-anchor="middle" fill="#141413" font-weight="700">⑤ hdim_switch.hpp</text>
+      <text x="839" y="60" text-anchor="middle" fill="#87867F">向上取整(复用)</text>
+
+      <line x1="194" y1="48" x2="250" y2="48" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="452" y1="48" x2="508" y2="48" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="752" y1="48" x2="712" y2="48" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- down -->
+      <line x1="610" y1="76" x2="610" y2="112" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 2 -->
+      <rect x="510" y="114" width="200" height="56" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="610" y="136" text-anchor="middle" fill="#141413" font-weight="700">④ generate_instances.py</text>
+      <text x="610" y="154" text-anchor="middle" fill="#87867F">BWD_HEADDIMS=[64,96,128,256]</text>
+
+      <rect x="252" y="114" width="200" height="56" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="352" y="136" text-anchor="middle" fill="#141413" font-weight="700">⑥ instances/* (48 新)</text>
+      <text x="352" y="154" text-anchor="middle" fill="#87867F">hd64 maxk_64 byte-identical</text>
+
+      <line x1="510" y1="142" x2="454" y2="142" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- down to row 3 -->
+      <line x1="352" y1="170" x2="352" y2="206" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 3 -->
+      <rect x="252" y="208" width="380" height="44" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="442" y="234" text-anchor="middle" fill="#141413" font-weight="700">⑦ example_..._bwd.cpp (harness) — kN0_bwd 随 hdim</text>
+    </g>
+  </svg>
+  </div>
+  <p class="svg-caption">读法:先吃透根因层(①②橙=核心:selector + guard),再看入口怎么 fan-out 到 MaxK(③④⑤),最后看实例与验证(⑥⑦绿)。</p>
+
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>#</th><th>文件</th><th>读它回答的问题</th><th>重点行</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>hstu_attention_bwd_shape.hpp</code> <span class="tag tag-new">新</span></td><td>tile 形状如何成为 <strong>MaxK 的编译期函数</strong>;为何 <code>&lt;64&gt;</code> 零回归</td><td><code>:29-55</code>(64) / <code>:57-133</code>(96/128/256)</td></tr>
+      <tr><td>2</td><td><code>...batched_backward_dispatch.hpp</code></td><td>dispatch 怎么<strong>取 selector</strong>、guard 如何挡 silent-wrong</td><td><code>:47</code> / <code>:377-380</code> / <code>:396-399</code></td></tr>
+      <tr><td>2'</td><td><code>...group_backward_dispatch.hpp</code></td><td>group 路径同样的 selector + guard</td><td><code>:47</code> / <code>:305-311</code></td></tr>
+      <tr><td>3</td><td><code>...no_group_backward_bf16.cpp</code>(×4 entry)</td><td>入口如何把硬编码 64 换成 <code>HDIM_SWITCH</code></td><td><code>:26-36</code></td></tr>
+      <tr><td>4</td><td><code>generate_instances.py</code></td><td>headdim 轴怎么进生成器 → 48 新实例</td><td><code>:170-178</code></td></tr>
+      <tr><td>5</td><td><code>hstu_attention_hdim_switch.hpp</code> <span class="tag tag-reuse">复用</span></td><td><code>HDIM_SWITCH</code> 为什么是<strong>向上取整</strong>(guard 存在的理由)</td><td><code>:9-35</code></td></tr>
+      <tr><td>6</td><td><code>instances/*_ref.hpp</code> + <code>*.cpp</code></td><td>48 新实例 + hd64 byte-identical 不变</td><td>ref <code>:11-17</code></td></tr>
+      <tr><td>7</td><td><code>example_hstu_attention_bwd.cpp</code></td><td>hd256 的 determ workspace 为什么要改 <code>kN0_bwd</code></td><td><code>:303</code> / <code>:771</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="s3">
+  <h2>3&nbsp;&nbsp;逐文件 review（为什么这样改）</h2>
+
+  <h3>① bwd_shape.hpp — tile 形状的编译期 selector（核心）<span class="tag tag-new">新增</span></h3>
+  <ul>
+    <li><code>:9-27</code> 头部注释钉死<strong>设计契约</strong>:pre-M7b dispatch 按 MaxK 模板化但硬编码 hd64 tile → MaxK 只进符号不进 shape;本文件把 <code>TileFmhaBwdShape</code> 变成 MaxK 的编译期函数。tile 蓝本 = upstream FMHA bwd codegen gfx950/CDNA4(非 trload fp16/bf16)的 <code>fmha_bwd.py</code> 预设。</li>
+    <li><code>:29-30</code> primary template <strong>故意只声明不定义</strong>——只有四个典范 hdim 有特化,传别的值编译期直接报错(又一道防线)。</li>
+    <li><code>:33-55</code> <code>HstuBwdShape&lt;64&gt;</code>:<code>FmhaBlockTile = sequence&lt;32,128,64,32,64,32,32,64,64&gt;</code> 等所有模板实参,与 pre-M7b dispatch 里硬编码的预设<strong>逐字等价</strong>(零回归不变式;<code>:24-27</code> 注释)。</li>
+    <li><code>:57-80</code> <code>&lt;96&gt;</code>:注意 <code>BlockWarps2 = sequence&lt;2,2,1&gt;</code>——Gemm4 的 warp layout 与 64/128/256 不同(<code>:57</code> 注释点明)。</li>
+    <li><code>:82-105</code> <code>&lt;128&gt;</code>:<code>bm0=16</code>(q-seqlen block)比 64/96 的 32 小;<code>FmhaBlockTile = sequence&lt;16,128,128,16,128,16,32,128,128&gt;</code>。</li>
+    <li><code>:107-133</code> <code>&lt;256&gt;</code>:<code>bm0=16, bn0=64</code>(<code>:114</code>)。<code>:107-110</code> 注释警示:bn0=64 意味着 determ split 数(<code>ceil(seqlen/kN0)</code>)相对 128-bn0 的预设<strong>翻倍</strong>,harness 的 dq_acc workspace 必须按 kN0=64 算,否则 determ reduce 越界——这正是 ⑦ harness 改动的根因。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_shape.hpp:33-43 — HstuBwdShape&lt;64&gt; 与 pre-M7b 硬编码逐字等价</span><span class="cm">// hd64 — byte-identical to the pre-M7b hardcoded preset in both dispatches.</span>
+<span class="kw">template</span> &lt;&gt;
+<span class="kw">struct</span> <span class="fn">HstuBwdShape</span>&lt;64&gt;
+{
+    <span class="kw">using</span> FmhaBlockTile = ck_tile::sequence&lt;<span class="hl">32, 128, 64, 32, 64, 32, 32, 64, 64</span>&gt;;
+    <span class="kw">using</span> BlockWarps0   = ck_tile::sequence&lt;1, 4, 1&gt;;
+    <span class="kw">using</span> BlockWarps1   = ck_tile::sequence&lt;4, 1, 1&gt;;
+    <span class="kw">using</span> BlockWarps2   = ck_tile::sequence&lt;1, 4, 1&gt;;
+    <span class="kw">using</span> WarpTile0     = ck_tile::sequence&lt;16, 16, 32&gt;;   <span class="cm">// CDNA4 K-doubled MFMA</span>
+    <span class="kw">using</span> WarpTile1     = ck_tile::sequence&lt;16, 16, 16&gt;;
+    <span class="kw">using</span> Type = ck_tile::TileFmhaBwdShape&lt;FmhaBlockTile, ... 0 <span class="cm">/* kMaxSeqLenQ */</span>&gt;;
+};</div>
+  <div class="note-block olive"><strong>为什么 hd256 的 bn0 单独是 64?</strong>&nbsp;hdim 越大,单个 KV block 的 tile 占 LDS 越多;hd256 用满 CDNA4 的 64KB/CU LDS,只能把 bn0 缩到 64 才放得下。这个非对称恰好把「workspace 大小依赖 tile bn0」这件原本被 128 常量掩盖的事暴露出来,所以 harness 不能再写死 128。</div>
+
+  <h3>② batched_backward_dispatch.hpp — 取 selector + 典范 guard <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:44-47</code> 删掉原来 ~20 行硬编码 tile,改成一行 <code>using FmhaBwdShape = typename HstuBwdShape&lt;MaxK&gt;::Type;</code>。MaxK 现在真正驱动 shape。</li>
+    <li><code>:377-380</code>(softmax 分支)与 <code>:396-399</code>(SiLU 分支):原来的 <code>hdim_qk!=64||hdim_v!=64</code> throw,换成 <strong>典范 guard</strong> <code>hdim_qk!=hdim_v || hdim_qk!=MaxK</code>。注释(<code>:374-376</code>)讲清:MaxK 是 <code>HDIM_SWITCH</code> 向上取整选的典范 tile,必须要求 <code>hdim==MaxK</code> 让 head-dim 精确贴合 tile(无 pad),否则非典范 hdim 会被静默套到更大 tile。</li>
+    <li>非对称(<code>hdim_qk!=hdim_v</code>)和任意非典范 hdim 的 pad 路径明确划给 <strong>M7c</strong>(<code>fc13643e</code>)。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_batched_backward_dispatch.hpp:373-380 — softmax 分支的典范 guard</span><span class="cm">// M5/M7b: softmax (no_group = batched + jagged). symmetric hdim ∈ {64,96,128,256}.</span>
+<span class="cm">// MaxK is the canonical tile picked by HDIM_SWITCH; require hdim_qk==hdim_v==MaxK so</span>
+<span class="cm">// the head-dim fits the tile exactly (no padding) — reject non-canonical hdims that</span>
+<span class="cm">// HDIM_SWITCH would silently round up to a larger tile (M7c handles pad).</span>
+<span class="kw">if</span>(param.hdim_qk != param.hdim_v || param.hdim_qk != MaxK)
+    <span class="kw">throw</span> std::runtime_error(
+        <span class="str">"HSTU bwd softmax supports symmetric hdim_qk==hdim_v in {64,96,128,256} only"</span>);</div>
+
+  <h3>②' group_backward_dispatch.hpp — group 路径同型改动 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:47</code> 同样改取 <code>HstuBwdShape&lt;MaxK&gt;::Type</code>。</li>
+    <li><code>:305-311</code> 单处典范 guard <code>hdim_qk!=hdim_v || hdim_qk!=MaxK</code>(group 路径 dispatch 内部不再分 softmax/SiLU 两处 throw,统一一道守门)。</li>
+  </ul>
+
+  <h3>③ entry ×4(no_group/group × bf16/fp16）— HDIM_SWITCH fan-out <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li>4 个 entry 把原本写死的模板实参 <code>64</code> 换成由 <code>HDIM_SWITCH(param.hdim_qk, param.hdim_v, MaxK, …)</code> 在运行时选出的 <code>MaxK</code>。entry 新 <code>#include "hstu_attention_hdim_switch.hpp"</code>。</li>
+    <li>no_group bf16 entry:<code>:26 BOOL_SWITCH_3</code>(causal×softmax×determ)外再套 <code>:28 HDIM_SWITCH</code>,内层调 <code>run_batched_backward_dispatch&lt;…, MaxK&gt;</code>(<code>:34</code>)。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_no_group_backward_bf16.cpp:26-36 — BOOL_SWITCH_3 外再套 HDIM_SWITCH</span><span class="cm">// M7b: MaxK selected at runtime from hdim via HDIM_SWITCH (symmetric {64,96,128,256}).</span>
+<span class="fn">BOOL_SWITCH_3</span>(use_causal, kUseCausal, param.use_softmax, kUseSoftmax,
+              param.kIsDeterministic, kIsDeterministic, [&amp;] {
+    <span class="hl">HDIM_SWITCH</span>(param.hdim_qk, param.hdim_v, MaxK, [&amp;] {
+        <span class="fn">run_batched_backward_dispatch</span>&lt;ck_tile::bf16_t,
+                                      kUseCausal, kUseSoftmax,
+                                      <span class="kw">false</span>, <span class="cm">// kHasBias</span>
+                                      kIsDeterministic,
+                                      <span class="hl">MaxK</span>&gt;(param, stream);
+    });
+});</div>
+
+  <h3>④ generate_instances.py — 加 headdim 轴 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:178</code> <code>BWD_HEADDIMS_M0 = [64, 96, 128, 256]</code>(原 <code>[64]</code>)。<code>:170-176</code> 注释更新:实例数 = 2 dtype × 2 causal × 2 softmax × 2 determ × 4 hdim = <strong>64 个 batched bwd .cpp</strong>。</li>
+    <li>本 commit 实际新增 <strong>48 个</strong> 新实例 .cpp(96/128/256 各 8 × 2 dtype = 48;hd64 那 16 个早已存在),加 2 个 <code>*_ref.hpp</code> 重生成。done 文档计「50 instance = 48 新 + 2 ref」。</li>
+    <li>关键:<strong>hd64 maxk_64 实例与基线 <code>bf82a1d2</code>(M7a)byte-identical</strong>(<code>git diff</code> 空)——这是 selector<code>&lt;64&gt;</code> 逐字等价的直接后果,也是零回归的可验证证据。</li>
+  </ul>
+
+  <h3>⑤ hstu_attention_hdim_switch.hpp — 向上取整(guard 存在的理由）<span class="tag tag-reuse">复用</span></h3>
+  <ul>
+    <li>本 commit <strong>未改动</strong>此文件(早先里程碑已有),但它是理解 guard 的钥匙。<code>:9-35</code>:<code>HDIM_1&lt;=64</code>→MaxK=64、<code>&lt;=96</code>→96、<code>&lt;=128</code>→128、<code>&lt;=256</code>→256,否则 throw。</li>
+    <li>它<strong>向上取整</strong>:hdim=100 → MaxK=128。若不在 dispatch 里再校验 <code>hdim==MaxK</code>,100 就会静默用 128 tile 跑——这正是 ② guard 把它从 silent-wrong 升级为 loud-throw 的目标。</li>
+  </ul>
+
+  <h3>⑥ instances/* — 48 新实例,hd64 不变 <span class="tag tag-new">新增</span> <span class="tag tag-mod">/ ref 重生成</span></h3>
+  <ul>
+    <li>新增 96/128/256 各 8 个 batched bwd .cpp × {bf16,fp16}(causal×softmax×determ 的组合),共 48 个;每个文件头标「自动生成,勿改」。</li>
+    <li><code>*_ref.hpp</code> 重生成,补 extern template 声明(bf16 ref 现 32 条 <code>:11-17</code> 起);hd64 段保持原样。</li>
+  </ul>
+
+  <h3>⑦ example_hstu_attention_bwd.cpp — hd256 determ workspace 修正 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li>no_group(<code>:303</code>)与 group(<code>:771</code>)两处:<code>constexpr int kN0_bwd = 128;</code> → <code>const int kN0_bwd = (hdim_qk == 256) ? 64 : 128;</code>。</li>
+    <li><strong>为什么:</strong>determ 的 dq_acc workspace 按 <code>num_splits = ceil(seqlen_kv / kN0)</code> 分配;<code>kN0</code> 必须等于 bwd tile 的 bn0(k-seqlen block),才与 dispatch 的 <code>Pipeline::kN0</code> 对齐。hd256 的 tile bn0=64(见 <code>HstuBwdShape&lt;256&gt;</code>),其余 hdim 都是 128。写死 128 会让 hd256 的 split 数<strong>少算一半</strong> → determ reduce 越界。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp:296-306 — kN0_bwd 随 hdim(no_group determ workspace)</span><span class="cm">// num_splits = ceil(grid_seqlen_kv / kN0); kN0 = the bwd tile's bn0 (k-seqlen block),</span>
+<span class="cm">// which MUST match the dispatch's Pipeline::kN0. hd256's preset uses bn0=64 (M7b).</span>
+<span class="kw">const bool</span> is_deterministic = <span class="kw">static_cast</span>&lt;<span class="kw">bool</span>&gt;(arg_parser.get_int(<span class="str">"deterministic"</span>));
+<span class="kw">const int</span> kN0_bwd           = <span class="hl">(hdim_qk == 256) ? 64 : 128</span>;
+<span class="kw">const int</span> num_splits =
+    is_deterministic ? ((grid_seqlen_kv_h + kN0_bwd - 1) / kN0_bwd) : 1;</div>
+</section>
+
+<section id="s4">
+  <h2>4&nbsp;&nbsp;设计动机小结</h2>
+  <ol>
+    <li><strong>把硬编码常量抽成编译期函数</strong>:tile 形状从 dispatch 内联常量(silent 复用 hd64)变成 <code>HstuBwdShape&lt;MaxK&gt;</code>(<code>bwd_shape.hpp:29-133</code>),让 MaxK 真正驱动 shape。</li>
+    <li><strong>零回归不变式可验证</strong>:<code>HstuBwdShape&lt;64&gt;</code> 与原硬编码逐字等价 → hd64 maxk_64 实例 byte-identical → 106 子集全绿,改重构而非改逻辑。</li>
+    <li><strong>把 silent-wrong 变成 loud-throw</strong>:<code>HDIM_SWITCH</code> 向上取整 + dispatch 典范 guard(<code>hdim_qk!=hdim_v||hdim_qk!=MaxK</code>),非典范/非对称 hdim 一律显式报错,不静默跑错。</li>
+    <li><strong>生成器优先</strong>:headdim 只在 <code>generate_instances.py:178</code> 加一条轴,48 个实例自动 fan-out,杜绝手写漂移。</li>
+    <li><strong>workspace 随 tile 自适应</strong>:hd256 bn0=64 暴露了被 128 常量掩盖的 split-count 依赖,harness 改 <code>kN0_bwd=f(hdim)</code> 修正 determ 越界。</li>
+    <li><strong>分阶段交付</strong>:stage1 纯重构(selector+guard+kN0)证零回归,stage2 才加 hdim——风险隔离,先锁不变量再扩能力。</li>
+  </ol>
+</section>
+
+<section id="s5">
+  <h2>5&nbsp;&nbsp;验证 &amp; 遗留 / 边界</h2>
+
+  <h4>验证证据(以 candidates.jsonl + M7b-done.md 为准)</h4>
+  <ul>
+    <li><strong>对拍 sweep 128/128 PASS,0 FAIL</strong>:每 hdim{64,96,128,256} × dtype{bf16,fp16} × 16 代表案(SiLU/softmax × causal{0,1} × {nomask,5因子combo} × {batched,jagged,group};含 P1-1 cross causal=0+num_target;非整除 seqlen=200;determ multi-split)。per-hdim/dtype 均 32P/0F。</li>
+    <li><strong>误差随 hdim 增大如预测、容差未松</strong>(沿用 bf16 2e-2/5e-2、fp16 5e-3/1e-2):hd64 bf16 dQ≤~2e-3;hd128 bf16 dQ≤~0.016;hd256 bf16 dQ≤~0.03 vs |ref|~10.6(&lt; atol 5e-2)。softmax 路全 hdim dQ err ~1e-4 量级;fp16 路全 hdim dQ≤~4e-3。</li>
+    <li><strong>hd256 寄存器/occupancy:无 spill</strong>(rocprofv3 --kernel-trace):Scratch=0;VGPR 124(hd64)→172/184(hd256),&lt;256;AGPR 0。LDS 32KB→64KB(hd256 用满 CDNA4 64KB/CU → occupancy=1 WG/CU,纯 perf 特征,留 M8)。hd256 保留交付,无需降级。</li>
+    <li><strong>回归套件 171/171 PASS exit 0</strong>:= 旧 106 − 1(删 <code>reject-hdim128</code>)+ 2 guard reject(<code>reject-hdim-noncanonical</code> hdim=100、<code>reject-hdim-asymmetric</code> 64/128)+ 60 M7b pass + 4 per-hdim determ byte-identical repro;12 个 determ repro 全 byte-identical。</li>
+  </ul>
+
+  <div class="gate-banner"><strong>四方闭合(candidates.jsonl status=promoted):</strong>&nbsp;coder + reviewer 独立 build_review(7/7 GREEN)+ lead 亲核 + binary-symbol 反证(LDS 32/48/64KB 多层证明 tile 随 hdim 分叉、非静默复用 hd64)。reference/pipeline/kernel git-diff <strong>空</strong>(零 promoted-logic 触碰)。</div>
+
+  <h4>明确不做 / 留给后续</h4>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>能力</th><th>状态</th><th>落地里程碑</th></tr></thead>
+    <tbody>
+      <tr><td>非对称 hdim_qk≠hdim_v</td><td><span class="status-no">guard throw</span></td><td>M7c <code>fc13643e</code>(pad 路)</td></tr>
+      <tr><td>非典范任意 hdim(48/80/100/192…)</td><td><span class="status-no">guard throw</span></td><td>M7c(head-dim padding 激活)</td></tr>
+      <tr><td>hd256 occupancy=1(LDS-bound)</td><td>正确但慢</td><td>M8 perf <code>a86529dc</code></td></tr>
+      <tr><td>group entry TU 较重(单 TU 实例化多 hdim×combo)</td><td>构建可行,未阻塞</td><td>M8 可选拆分</td></tr>
+      <tr><td>LSE 数值盲区(两侧共用 GPU fwd 产出)</td><td>继承 M5/M5b</td><td>靠 fwd 里程碑兜底(hdim 未改此结构)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 总览</a>
+  <a href="#s2">2 最佳阅读顺序</a>
+  <a href="#s3">3 逐文件 review</a>
+  <a href="#s3" class="sub">①shape ②dispatch ②'group</a>
+  <a href="#s3" class="sub">③entry ④generator ⑤hdim_switch</a>
+  <a href="#s3" class="sub">⑥instances ⑦harness</a>
+  <a href="#s4">4 设计动机小结</a>
+  <a href="#s5">5 验证 &amp; 遗留 / 边界</a>
+</nav>
+
+</div><!-- /layout -->
+</div><!-- /page -->
+</body>
+</html>

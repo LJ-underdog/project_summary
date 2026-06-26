@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M7b（symmetric hdim {64,96,128,256}）实现讲义</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+.warn-banner { background: linear-gradient(90deg, #FBE9D0, #FDF6EC); border: 1.5px solid #C9912F; border-radius: 10px; padding: 14px 18px; margin: 14px 0; font-size: 13.5px; color: #6E4E15; max-width: 880px; }
+.warn-banner strong { color: #5A3E10; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M7b symmetric hdim 实现讲义</div>
+  <h1>HSTU Attention Backward — M7b：把 hdim 从「写死 64」改成「随 MaxK 选 tile」，且一行 kernel 不碰</h1>
+  <p class="subtitle">这份文档讲清 M7b 如何把 bwd 从 <strong>仅 hd64</strong> 扩到 <strong>symmetric hdim ∈ {64,96,128,256}</strong>（hdim_qk==hdim_v）。核心是一处<strong>差点静默出错的设计缺陷</strong>：pre-M7b 的 dispatch 把 hd64 的 tile shape 写死，<code>MaxK</code> 只流进 instance 符号、<strong>没用来选 shape</strong>——若直接加 headdim 轴，四个 hdim 会静默共用同一份 hd64 tile（<em>silent-wrong</em>）。M7b 用一个 <code>HstuBwdShape&lt;MaxK&gt;</code> selector 把 tile 变成 MaxK 的编译期函数，并用 <strong>二进制符号反证</strong>证明 tile 真的随 hdim 分化了。范围诚实标注：<strong>仅 symmetric</strong>，hdim_qk≠hdim_v 与非典范 hdim 是 M7c（guard 显式 throw 挡住）。所有片段引磁盘真实行号（commit <code>1ae97750</code>，基线 <code>bf82a1d2</code>）。</p>
+  <div class="audience">读者：要理解 / review 这套 multi-hdim tile 扩展的工程师（关键术语都配一句白话）</div>
+  <div style="margin-top:12px; font-size:13px; color:var(--gray-500);">
+    代码目录：<code style="font-family:var(--mono);font-size:12px;">ck_hstu/example/ck_tile/18_hstu_attention/</code> &nbsp;&middot;&nbsp; 主目标 <strong style="color:var(--clay);">gfx950 (MI350X/CDNA4)</strong> &nbsp;&middot;&nbsp; 落点 2026-06-11 &nbsp;&middot;&nbsp; 接续 <a href="hstu-bwd-M7a-fp16-20260611.html" style="color:var(--clay)">M7a fp16 文档</a>
+  </div>
+</header>
+
+<div class="layout">
+<main>
+
+<!-- ============ TL;DR ============ -->
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M7b</div>
+  <p>bwd 的 dispatch/kernel/pipeline 全都按 <code>Problem</code>（内含 <code>FmhaBwdShape</code>）模板化——shape 是<strong>注入</strong>的。M7b 只做一件事：把两个 dispatch 里<strong>写死的 hd64 tile</strong> 换成 <code>using FmhaBwdShape = HstuBwdShape&lt;MaxK&gt;::Type;</code>，让 tile 随编译期 <code>MaxK</code> 选。新增 selector 头文件（四特化 64/96/128/256，蓝本 = 上游 FMHA bwd codegen gfx9 非 trload preset），entry 把硬编码的 <code>64</code> 换成 <code>HDIM_SWITCH</code>，generate_instances 加 headdim 轴。<strong>promoted 的 pipeline / kernel / reference 一行未改（git diff 为空）。</strong></p>
+  <p>最关键的设计点：<code>HstuBwdShape&lt;64&gt;::Type</code> 与原硬编码<strong>逐字等价</strong> ⇒ hd64 路实例化出 byte-identical 的 kernel = 零回归基石；非典范 / 非对称 hdim 经入口 <code>guard</code> <strong>显式 throw</strong>（不静默 pad）。tile「真随 hdim 分化」用 rocprofv3 抽二进制符号反证：kernel 的 LDS 出现 <strong>32 / 48 / 64 KB 多档</strong>——若静默复用 hd64，应恒 32 KB。</p>
+  <div class="badges">
+    <span class="badge ok">sweep 128 / 128 PASS</span>
+    <span class="badge ok">套件 171 / 171 / 0 / 0 · exit 0（独立复跑 ×2）</span>
+    <span class="badge ok">hd64 byte-identical 零回归</span>
+    <span class="badge ok">库 pipeline/kernel/reference diff 为空</span>
+    <span class="badge ok">hd256 Scratch=0 无 spill</span>
+    <span class="badge info">范围：symmetric hdim_qk==hdim_v</span>
+  </div>
+</div>
+
+<!-- ============ 1 M7b 是什么 ============ -->
+<section id="s1">
+  <h2>1 &nbsp;M7b 是什么：解禁 symmetric hdim {64,96,128,256}</h2>
+  <p class="lede">M7b 把反向支持的 head-dim 从 <strong>{64}</strong> 扩成 <strong>{64, 96, 128, 256}</strong>，约束是 <strong>hdim_qk == hdim_v</strong>（symmetric）。<strong>不</strong>动 dtype（bf16+fp16 已由 M7a 通）、<strong>不</strong>动任何 kernel 算法、<strong>不</strong>引入 head-dim padding——目标只取四个能被 tile 整除的<strong>典范值</strong>，故每个 hdim 都 <code>hdim==bhdq==bhdv==MaxK</code>，padding 恒为 0。</p>
+  <div class="callout-grid">
+    <div class="callout">
+      <div class="k">In scope</div>
+      <div class="t">symmetric 典范 hdim</div>
+      <div class="d">hdim_qk == hdim_v ∈ {64, 96, 128, 256}。每个映射到精确同值的 <code>MaxK</code> tile，无 pad。</div>
+    </div>
+    <div class="callout clay">
+      <div class="k">Out of scope → M7c</div>
+      <div class="t">非对称 hdim</div>
+      <div class="d">hdim_qk ≠ hdim_v（如 64/128）需独立 q/v tile + pad 路。入口 guard 显式 throw。</div>
+    </div>
+    <div class="callout clay">
+      <div class="k">Out of scope → M7c</div>
+      <div class="t">非典范 hdim</div>
+      <div class="d">如 80 / 100：HDIM_SWITCH 会向上圆到大 tile，需 head-dim padding。guard throw,不静默算错。</div>
+    </div>
+  </div>
+  <div class="note-block olive"><strong>白话：</strong>&nbsp;M7b 是「让现成的 5-GEMM bwd kernel 换更大的 tile 跑起来」，不是「写新算法」。难点不在算法，在<strong>怎么保证换 tile 时既没把 hd64 弄回归、又没让新 hdim 静默用错 tile</strong>——这正是下面几节的主线。</div>
+</section>
+
+<!-- ============ 2 核心洞察 ============ -->
+<section id="s2">
+  <h2>2 &nbsp;核心洞察：MaxK 穿透了，却没用来选 shape</h2>
+  <p class="lede">这是整单的「地雷」。pre-M7b 的两个 dispatch 模板签名上<strong>已经有</strong> <code>MaxK</code>，instance 文件名也带 <code>maxk_64</code>——看上去「hdim 是个轴」。但 tile shape 是<strong>硬编码</strong>的 hd64 常量，<code>MaxK</code> 只活在符号名里、<strong>从不参与 shape 构造</strong>。</p>
+  <div class="formula formula-block">
+    <span class="line">陷阱推演（若不修就加 headdim 轴）：</span>
+    <span class="line">  generate_instances 把 BWD_HEADDIMS 改成 [64,96,128,256]</span>
+    <span class="line">  ⇒ 生成 4 份 kernel,MaxK = 64/96/128/256 各异（符号名不同）</span>
+    <span class="line">  但 FmhaBwdShape 仍 = 写死的 hd64 tile（bm0=32,bn0=128,bhd=64,…）</span>
+    <span class="line">  ⇒ 四个「不同 hdim」的 kernel 跑的是<em>同一份 hd64 tile</em> = silent-wrong</span>
+    <span class="line">  （能编译、可能还「PASS」,但 head-dim 维度算错——最危险的那种 bug）</span>
+  </div>
+
+  <h3>【图1】修复前后：shape 从哪来</h3>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 330" width="100%" role="img" aria-label="pre-M7b 硬编码 tile vs M7b selector">
+    <defs>
+      <marker id="aa" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/></marker>
+      <marker id="ac" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#D97757"/></marker>
+      <marker id="ao" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#788C5D"/></marker>
+    </defs>
+    <!-- BEFORE -->
+    <text x="24" y="26" font-size="12.5" fill="#8A3B1E" font-weight="700">pre-M7b（地雷）：MaxK 不参与 shape</text>
+    <rect x="40" y="42" width="150" height="40" rx="7" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.3"/>
+    <text x="115" y="60" text-anchor="middle" font-size="10" fill="#8A3B1E" font-weight="700">MaxK = 64/96/128/256</text>
+    <text x="115" y="74" text-anchor="middle" font-size="8.5" fill="#3D3D3A">（只是个模板参数）</text>
+    <rect x="40" y="100" width="150" height="46" rx="7" fill="#fff" stroke="#87867F"/>
+    <text x="115" y="120" text-anchor="middle" font-size="9.5" fill="#141413" font-weight="700">写死 hd64 tile</text>
+    <text x="115" y="135" text-anchor="middle" font-size="8.5" fill="#3D3D3A">sequence&lt;32,128,64,…,64,64&gt;</text>
+    <rect x="250" y="70" width="170" height="48" rx="7" fill="#fff" stroke="#141413" stroke-width="1.4"/>
+    <text x="335" y="90" text-anchor="middle" font-size="10" fill="#141413" font-weight="700">FmhaBwdShape (恒 hd64)</text>
+    <text x="335" y="106" text-anchor="middle" font-size="9" fill="#8A3B1E">四个 hdim 共用 → silent-wrong</text>
+    <path d="M190 110 C 215 108, 225 100, 248 96" stroke="#87867F" stroke-width="1.3" marker-end="url(#aa)"/>
+    <path d="M190 62 C 220 64, 224 80, 248 86" stroke="#D97757" stroke-width="1.1" stroke-dasharray="3 3" marker-end="url(#ac)"/>
+    <text x="196" y="50" font-size="8" fill="#8A3B1E">仅进符号名,不进 shape</text>
+
+    <!-- divider -->
+    <line x1="490" y1="34" x2="490" y2="300" stroke="#D1CFC5" stroke-width="1.2" stroke-dasharray="4 4"/>
+
+    <!-- AFTER -->
+    <text x="520" y="26" font-size="12.5" fill="#4B5C39" font-weight="700">M7b（修好）：shape = MaxK 的编译期函数</text>
+    <rect x="520" y="42" width="150" height="40" rx="7" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+    <text x="595" y="60" text-anchor="middle" font-size="10" fill="#4B5C39" font-weight="700">MaxK = 64/96/128/256</text>
+    <text x="595" y="74" text-anchor="middle" font-size="8.5" fill="#3D3D3A">（驱动 selector）</text>
+    <rect x="520" y="100" width="150" height="120" rx="7" fill="#fff" stroke="#788C5D" stroke-width="1.3"/>
+    <text x="595" y="118" text-anchor="middle" font-size="9.5" fill="#4B5C39" font-weight="700">HstuBwdShape&lt;MaxK&gt;</text>
+    <text x="595" y="138" text-anchor="middle" font-size="8.5" fill="#3D3D3A">&lt;64&gt;  bm0=32 bn0=128 bhd=64</text>
+    <text x="595" y="154" text-anchor="middle" font-size="8.5" fill="#3D3D3A">&lt;96&gt;  warps2=2,2,1</text>
+    <text x="595" y="170" text-anchor="middle" font-size="8.5" fill="#3D3D3A">&lt;128&gt; bm0=16</text>
+    <text x="595" y="186" text-anchor="middle" font-size="8.5" fill="#3D3D3A">&lt;256&gt; bm0=16 bn0=64</text>
+    <text x="595" y="206" text-anchor="middle" font-size="8.5" fill="#4B5C39" font-weight="700">四特化各异</text>
+    <rect x="730" y="116" width="210" height="90" rx="7" fill="#fff" stroke="#141413" stroke-width="1.4"/>
+    <text x="835" y="138" text-anchor="middle" font-size="10" fill="#141413" font-weight="700">FmhaBwdShape (随 hdim 变)</text>
+    <text x="835" y="158" text-anchor="middle" font-size="9" fill="#4B5C39">每 hdim 一份正确 tile</text>
+    <text x="835" y="178" text-anchor="middle" font-size="8.5" fill="#3D3D3A">LDS 32 / 48 / 64 KB 分档</text>
+    <text x="835" y="194" text-anchor="middle" font-size="8.5" fill="#3D3D3A">（§7 二进制反证）</text>
+    <path d="M670 62 C 695 66, 700 86, 595 98" stroke="#788C5D" stroke-width="1.2" marker-end="url(#ao)"/>
+    <path d="M670 160 L728 160" stroke="#87867F" stroke-width="1.3" marker-end="url(#aa)"/>
+    <text x="700" y="246" font-size="9" fill="#4B5C39">改动只在「shape 从哪来」,不在 shape 内容、不在 pipeline。</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图1：左 = pre-M7b，MaxK 仅进符号名、tile 写死 hd64，加 headdim 轴会四 hdim 共用 hd64 tile（silent-wrong）。右 = M7b，<code>HstuBwdShape&lt;MaxK&gt;</code> 让 tile 成为 MaxK 的编译期函数,四特化各异。</p>
+  <div class="note-block clay"><strong>为什么这是「最值得讲」的点：</strong>&nbsp;它是<strong>能编译、能跑、甚至能 PASS 的错</strong>——最难发现的 bug 类。draft 阶段把它揪出来,定了铁律：<em>「shape 必须随 MaxK 选；headdim 轴必须在 shape 选择就位之后才加。」</em>整单顺序由此而定（§6）。</div>
+</section>
+
+<!-- ============ 3 shape selector ============ -->
+<section id="s3">
+  <h2>3 &nbsp;shape selector：HstuBwdShape&lt;MaxK&gt; 四特化</h2>
+  <p class="lede">新增 <code>hstu_attention_bwd_shape.hpp</code>：一个 <code>template&lt;index_t MaxK&gt; struct HstuBwdShape;</code>，对 64/96/128/256 各一特化，导出 <code>using Type = TileFmhaBwdShape&lt;…&gt;</code>。primary 模板<strong>故意不定义</strong>——只有四个典范 hdim 合法,别的值编译期就报错。tile 数值蓝本 = 上游 FMHA bwd codegen <code>01_fmha/codegen/ops/fmha_bwd.py</code> 的 gfx9 fp16/bf16 <strong>非 trload</strong> preset（gfx950 非 trload 继承之）。</p>
+
+  <h3>四个 hdim 的 tile 参数（FmhaBlockTile = sequence&lt;bm0,bn0,bk0,bk1,bk2,bk3,bk4,bhdq,bhdv&gt;）</h3>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>hdim / MaxK</th><th>bm0</th><th>bn0 (kN0)</th><th>bk0/bk2</th><th>bhdq/bhdv</th><th>warps2 (Gemm4)</th><th>LDS</th><th>差异点</th></tr></thead>
+    <tbody>
+      <tr><td><strong>64</strong></td><td>32</td><td>128</td><td>64</td><td>64</td><td>1,4,1</td><td>32 KB</td><td>基准（与原硬编码逐字等价）</td></tr>
+      <tr><td><strong>96</strong></td><td>32</td><td>128</td><td>96</td><td>96</td><td><span class="status-no">2,2,1</span></td><td>~48 KB</td><td>warps2 不同（非 2 幂的 Gemm4 布局）</td></tr>
+      <tr><td><strong>128</strong></td><td><span class="status-no">16</span></td><td>128</td><td>128</td><td>128</td><td>1,4,1</td><td>~48 KB</td><td>bm0=16（q-seqlen block 减半）</td></tr>
+      <tr><td><strong>256</strong></td><td><span class="status-no">16</span></td><td><span class="status-no">64</span></td><td>256</td><td>256</td><td>1,4,1</td><td>64 KB</td><td>bm0=16 且 bn0=64（牵出 §5 harness 修复）</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block"><strong>读表：</strong>&nbsp;tile 不是「同一份放大」——96 的 Gemm4 warp 布局变 <code>2,2,1</code>，128/256 的 q-block 减到 16,256 的 k-block 又减到 64。每个值都对得上 codegen 蓝本（reviewer 逐字符核对）。第 10 个模板槽（Gemm4 warp tile）复用 <code>WarpTile0</code> 而非蓝本的 <code>min(wk0,bk4)</code>——因为四个 hdim 都 <code>wk0=32 且 bk4=32 ⇒ min=32=wk0</code>,故复用恒等价。</div>
+
+  <h3>零回归基石：&lt;64&gt; 特化与原硬编码逐字等价</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_shape.hpp — HstuBwdShape&lt;64&gt;（= 原 dispatch 删掉的硬编码块）</span><span class="kw">template</span> &lt;&gt; <span class="kw">struct</span> <span class="fn">HstuBwdShape</span>&lt;<span class="hl">64</span>&gt; {
+    <span class="kw">using</span> FmhaBlockTile = ck_tile::sequence&lt;<span class="hl">32,128,64,32,64,32,32,64,64</span>&gt;;
+    <span class="kw">using</span> BlockWarps0 = ck_tile::sequence&lt;1,4,1&gt;;  <span class="cm">// gemm0/2</span>
+    <span class="kw">using</span> BlockWarps1 = ck_tile::sequence&lt;4,1,1&gt;;  <span class="cm">// gemm1/3</span>
+    <span class="kw">using</span> BlockWarps2 = ck_tile::sequence&lt;1,4,1&gt;;  <span class="cm">// gemm4</span>
+    <span class="kw">using</span> WarpTile0 = ck_tile::sequence&lt;16,16,32&gt;; <span class="kw">using</span> WarpTile1 = ck_tile::sequence&lt;16,16,16&gt;;
+    <span class="kw">using</span> Type = ck_tile::TileFmhaBwdShape&lt;FmhaBlockTile, BW0,WT0, BW1,WT1, BW0,WT0, BW1,WT1, BW2,<span class="hl">WT0</span>, <span class="hl">0</span>&gt;;
+};</div>
+  <div class="code-block"><span class="ttl">两个 dispatch — 唯一改动：取 selector 而非写死</span><span class="cm">// pre-M7b: 30+ 行硬编码 FmhaBlockTile/BlockWarps/WarpTile/TileFmhaBwdShape …（删除）</span>
+<span class="kw">using</span> FmhaBwdShape = <span class="kw">typename</span> <span class="hl">HstuBwdShape&lt;MaxK&gt;::Type</span>;   <span class="cm">// ← 全部替换成这一行</span></div>
+  <div class="note-block olive"><strong>白话：</strong>&nbsp;<code>&lt;64&gt;</code> 的 sequence 值、TileFmhaBwdShape 的 11 个类型实参顺序、末尾 <code>0</code>（kMaxSeqLenQ）都和原硬编码<strong>逐字相同</strong> ⇒ <code>MaxK=64</code> 路实例化出<strong>同一个类型</strong> ⇒ byte-identical kernel。「selector 同型即同码」,不需要 <code>if constexpr(MaxK==64)</code> 走旧路那种 hack。证据见 §9。</div>
+</section>
+
+<!-- ============ 4 guard ============ -->
+<section id="s4">
+  <h2>4 &nbsp;guard：把 silent-wrong 变成响亮的 throw</h2>
+  <p class="lede">entry 用 <code>HDIM_SWITCH(hdim_qk, hdim_v, MaxK, …)</code> 把运行时 hdim 映射到编译期 <code>MaxK</code>,规则是 <code>≤64→64, ≤96→96, ≤128→128, ≤256→256, else throw</code>。问题：非典范值会被<strong>向上圆</strong>——hdim=100 会选 MaxK=128 的 tile,但实际只有 100 维数据,而 M7b 不做 pad ⇒ 读 100..127 维是越界垃圾 = silent-wrong。</p>
+  <div class="code-block"><span class="ttl">两 dispatch 的 Run() 入口 — 替换原 3 处 hd64-only throw</span><span class="cm">// M7b: symmetric hdim ∈ {64,96,128,256}; 要求 hdim_qk==hdim_v==MaxK,</span>
+<span class="cm">// 使 head-dim 精确贴合 tile（无 pad）。挡住 HDIM_SWITCH 会向上圆的非典范 hdim。</span>
+<span class="kw">if</span>(param.hdim_qk != param.hdim_v || param.hdim_qk != <span class="hl">MaxK</span>)
+    <span class="kw">throw</span> std::runtime_error(
+        <span class="str">"HSTU bwd ... supports symmetric hdim_qk==hdim_v in {64,96,128,256} only"</span>);</div>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 180" width="100%" role="img" aria-label="guard 决策">
+    <defs><marker id="g1" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/></marker></defs>
+    <rect x="30" y="70" width="150" height="42" rx="7" fill="#fff" stroke="#87867F"/>
+    <text x="105" y="86" text-anchor="middle" font-size="10" fill="#141413" font-weight="700">运行时 hdim_qk,hdim_v</text>
+    <text x="105" y="101" text-anchor="middle" font-size="9" fill="#3D3D3A">HDIM_SWITCH → MaxK</text>
+    <path d="M180 91 L230 91" stroke="#87867F" stroke-width="1.2" marker-end="url(#g1)"/>
+    <rect x="232" y="64" width="150" height="54" rx="7" fill="var(--gray-150)" stroke="#D1CFC5"/>
+    <text x="307" y="84" text-anchor="middle" font-size="9.5" fill="#141413" font-weight="700">guard 判定</text>
+    <text x="307" y="100" text-anchor="middle" font-size="8.5" fill="#3D3D3A">qk==v 且 qk==MaxK?</text>
+    <!-- yes -->
+    <path d="M382 80 L470 56" stroke="#788C5D" stroke-width="1.3" marker-end="url(#g1)"/>
+    <rect x="472" y="36" width="300" height="40" rx="7" fill="var(--olive-lt)" stroke="#788C5D"/>
+    <text x="490" y="52" font-size="9.5" fill="#4B5C39" font-weight="700">典范 symmetric（64/96/128/256）</text>
+    <text x="490" y="67" font-size="8.5" fill="#3D3D3A">→ 放行,tile 精确贴合,pad=0</text>
+    <!-- no -->
+    <path d="M382 102 L470 130" stroke="#D97757" stroke-width="1.3" marker-end="url(#g1)"/>
+    <rect x="472" y="108" width="300" height="56" rx="7" fill="var(--clay-lt)" stroke="#D97757"/>
+    <text x="490" y="126" font-size="9.5" fill="#8A3B1E" font-weight="700">非典范(80/100) 或 非对称(64/128)</text>
+    <text x="490" y="141" font-size="8.5" fill="#3D3D3A">→ throw（exit -6,what() 明确）</text>
+    <text x="490" y="155" font-size="8.5" fill="#3D3D3A">不静默选大 tile 算错 → 留 M7c</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图2：guard 把「非典范 / 非对称 hdim」从可能的 silent-wrong 转成显式 throw。两个 reject 测试案（hdim=100、hdim_qk=64≠hdim_v=128）实测均 throw + exit -6 + 正确 what()。</p>
+  <div class="note-block olive"><strong>反证机理（为何 guard 必需）：</strong>&nbsp;若去掉 guard,hdim=100 会走 hd128 tile（bhdq=128）而实际 hdim=100,kernel 的 buffer_load 越界补 0 ⇒ 产出非 throw 的<strong>错值</strong>。guard 在场时实测 throw,证明这条防线真在挡洞。</div>
+</section>
+
+<!-- ============ 5 harness kN0 ============ -->
+<section id="s5">
+  <h2>5 &nbsp;harness kN0 修复：hd256 的 bn0=64 牵出的越界</h2>
+  <p class="lede">deterministic dQ 把 dq_acc 拆成 <code>num_splits</code> 个 slot（每个 KV-block 一个,POST 阶段归约）。<code>num_splits = ceil(grid_seqlen_kv / kN0)</code>,而 <code>kN0 = Pipeline::kN0 = BlockTile::at(1) = bn0</code>(k-seqlen block)。pre-M7b 所有 hdim 的 bn0 都是 128,harness 就<strong>写死 <code>kN0_bwd=128</code></strong> 来算 workspace 大小。</p>
+  <div class="formula formula-block">
+    <span class="line">hd256 的 tile：bn0 = 64（不是 128!）</span>
+    <span class="line">  若 harness 仍用 kN0=128 估 num_splits ⇒ 估值 = 实际的一半</span>
+    <span class="line">  但 dispatch 用 Pipeline::kN0=64 实际拆 2× 份</span>
+    <span class="line">  ⇒ determ workspace 写越界 / reduce 读错 → 静默错 dQ</span>
+  </div>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp — 两处（no_group + group）随 hdim 取 kN0</span><span class="cm">// hd256 的 preset 用 bn0=64（其余 hdim 用 128）— 必须匹配 dispatch 的 Pipeline::kN0</span>
+<span class="cm">- constexpr int kN0_bwd = 128;</span>
+<span class="hl">+ const int kN0_bwd = (hdim_qk == 256) ? 64 : 128;</span></div>
+  <div class="note-block clay"><strong>这是 M7b 唯一有「真 bug 风险」的改动</strong>（其余是结构性重构）。验证：hd256 deterministic 对拍 PASS（dQ err 0.0156 vs |ref|≈10.7）<strong>且</strong> 同输入两次跑 byte-identical（no_group + group 各一案）。反推：若 hd256 误用了 hd64 tile（bn0=128），harness kN0=64 与 dispatch 失配 → determ 对 oracle 应 FAIL。实测 PASS ⇒ 反证 bn0=64 的 hd256 tile 真在用。</div>
+</section>
+
+<!-- ============ 6 分阶段 ============ -->
+<section id="s6">
+  <h2>6 &nbsp;分阶段落地：先证「重构零回归」,再加 hdim</h2>
+  <p class="lede">由 §2 的铁律（shape 选择必须先就位）推出实现顺序：把单子切成<strong>两 stage</strong>,中间立一个 lead 亲验的<strong>硬检查点</strong>——先只做重构（不加新 hdim）、证明它零回归,再开闸加 96/128/256。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 200" width="100%" role="img" aria-label="M7b 两阶段时间线">
+    <defs><marker id="tl" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/></marker></defs>
+    <!-- stage1 -->
+    <rect x="30" y="40" width="410" height="120" rx="10" fill="#fff" stroke="#788C5D" stroke-width="1.4"/>
+    <text x="235" y="62" text-anchor="middle" font-size="12" fill="#4B5C39" font-weight="700">STAGE 1 — 重构,BWD_HEADDIMS 仍 [64]</text>
+    <text x="235" y="84" text-anchor="middle" font-size="9.5" fill="#3D3D3A">dispatch 取 selector&lt;64&gt; · 解 3 throw 换 guard · harness kN0 随 hdim</text>
+    <text x="235" y="106" text-anchor="middle" font-size="9.5" fill="#8A3B1E" font-weight="700">硬检查点（lead 亲验放行）：</text>
+    <text x="235" y="124" text-anchor="middle" font-size="9" fill="#3D3D3A">selector&lt;64&gt; 同型 · hd64 instance byte-identical · 106 套件全绿</text>
+    <text x="235" y="142" text-anchor="middle" font-size="9" fill="#3D3D3A">误差与基线同量级 → 锁定「重构本身零回归」</text>
+    <!-- arrow -->
+    <path d="M442 100 L532 100" stroke="#87867F" stroke-width="1.4" marker-end="url(#tl)"/>
+    <text x="487" y="92" text-anchor="middle" font-size="8.5" fill="#8A3B1E">闸门</text>
+    <!-- stage2 -->
+    <rect x="534" y="40" width="416" height="120" rx="10" fill="#fff" stroke="#D97757" stroke-width="1.4"/>
+    <text x="742" y="62" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">STAGE 2 — 加 hdim 96/128/256</text>
+    <text x="742" y="84" text-anchor="middle" font-size="9.5" fill="#3D3D3A">BWD_HEADDIMS=[64,96,128,256] · entry 换 HDIM_SWITCH</text>
+    <text x="742" y="106" text-anchor="middle" font-size="9.5" fill="#3D3D3A">hd128 → hd96 → hd256 增量,每步对拍 -attn_scale=1.0</text>
+    <text x="742" y="128" text-anchor="middle" font-size="9" fill="#3D3D3A">+48 batched instance · sweep 128/128 · 套件升级 171</text>
+    <text x="742" y="146" text-anchor="middle" font-size="9" fill="#4B5C39" font-weight="700">每 hdim 含 P1-1 cross + determ repro</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图3：两阶段 + 硬检查点。stage1 只重构、不加 hdim,先把「换 selector 没动行为」证死;通过后才在 stage2 加 hdim,从最常用的 hd128（2 幂）起增量推进。</p>
+  <div class="note-block"><strong>为什么值得分两段：</strong>&nbsp;如果把「重构」和「加 hdim」混在一起,一旦对拍出错,无法判断是<strong>重构碰坏了 hd64</strong> 还是<strong>新 hdim 的 tile 错</strong>。分段 + 检查点把这两类风险<strong>解耦</strong>——stage1 绿了,后续任何问题都只可能在新 hdim。</div>
+</section>
+
+<!-- ============ 7 二进制反证 ============ -->
+<section id="s7">
+  <h2>7 &nbsp;二进制符号反证：tile 真随 hdim 分化了吗？</h2>
+  <p class="lede">§2 的地雷最阴险之处：就算 tile 静默复用 hd64,代码也<strong>能编译、可能还 PASS</strong>。光看「对拍绿了」不足以证明 tile 真的分化。M7b 用一个不依赖对拍结果的<strong>独立物证</strong>把这点钉死——直接看编译出的二进制里,各 kernel 的资源占用。</p>
+  <div class="formula formula-block">
+    <span class="line">反证逻辑：LDS 占用是 tile 的「指纹」</span>
+    <span class="line">  LDS（共享内存）大小由 tile 形状决定 → tile 不同 ⇒ LDS 不同</span>
+    <span class="line">  若四 hdim 静默共用 hd64 tile ⇒ 所有 bwd kernel 的 LDS 应恒 = 32 KB</span>
+    <span class="line">  rocprofv3 实测：kernel 符号的 LDS 出现 32 KB / 48 KB / 64 KB 多档并存</span>
+    <span class="line">  ⇒ tile 确实随 hdim 分化,非静默复用 hd64</span>
+  </div>
+  <h3>【图4】rocprofv3 抽二进制 kernel 符号的 LDS 分布</h3>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 230" width="100%" role="img" aria-label="kernel LDS 分档柱状图">
+    <line x1="80" y1="180" x2="900" y2="180" stroke="#87867F" stroke-width="1.2"/>
+    <line x1="80" y1="40" x2="80" y2="180" stroke="#87867F" stroke-width="1.2"/>
+    <text x="40" y="184" font-size="9" fill="#3D3D3A">0</text>
+    <text x="34" y="114" font-size="9" fill="#3D3D3A">32K</text>
+    <text x="34" y="62" font-size="9" fill="#3D3D3A">64K</text>
+    <!-- bars -->
+    <rect x="160" y="114" width="120" height="66" rx="4" fill="#788C5D"/><text x="220" y="134" text-anchor="middle" font-size="11" fill="#fff" font-weight="700">32 KB</text>
+    <rect x="370" y="84" width="120" height="96" rx="4" fill="#C9912F"/><text x="430" y="108" text-anchor="middle" font-size="11" fill="#fff" font-weight="700">~48 KB</text>
+    <rect x="580" y="48" width="120" height="132" rx="4" fill="#D97757"/><text x="640" y="72" text-anchor="middle" font-size="11" fill="#fff" font-weight="700">64 KB</text>
+    <text x="220" y="198" text-anchor="middle" font-size="10" fill="#3D3D3A" font-weight="700">hd64 tile</text>
+    <text x="430" y="198" text-anchor="middle" font-size="10" fill="#3D3D3A" font-weight="700">hd96 / hd128 tile</text>
+    <text x="640" y="198" text-anchor="middle" font-size="10" fill="#3D3D3A" font-weight="700">hd256 tile</text>
+    <text x="760" y="120" font-size="10" fill="#8A3B1E" font-weight="700">多档并存</text>
+    <text x="760" y="136" font-size="9" fill="#3D3D3A">⇒ 非单一 hd64</text>
+    <text x="80" y="28" font-size="10" fill="#3D3D3A" font-weight="700">group_segment_size（LDS / kernel,rocprofv3 --kernel-trace 抽自二进制符号表）</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图4：二进制里 bwd DQDKDV kernel 的 LDS 占用呈 32 / 48 / 64 KB 多档。若 tile 静默复用 hd64,应恒 32 KB。多档存在 = tile 确实随 hdim 分化（独立于对拍的物证）。</p>
+  <div class="note-block clay"><strong>这条为什么单列：</strong>&nbsp;它把「复用模板加 hdim」最容易漏的失败模式（tile 没真分化、对拍假绿）变成<strong>可证伪</strong>的——不看代码、不信对拍,直接量二进制。多档 LDS 对得上四 tile 的理论值 ⇒ 放心。配合 §5 的「hd256 determ 用 kN0=64 才 PASS」,双重锁死。</div>
+</section>
+
+<!-- ============ 8 hd256 资源 ============ -->
+<section id="s8">
+  <h2>8 &nbsp;hd256 资源：无 spill,occupancy=1 是已知 perf 特征</h2>
+  <p class="lede">hd256 是四 hdim 里 tile 最大的,首要风险是<strong>寄存器溢出（spill）</strong>——一旦 Scratch&gt;0,性能与正确性都受影响。rocprofv3 <code>--kernel-trace</code> 实测（gfx950/MI350X）：</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>配置</th><th>VGPR</th><th>AGPR</th><th>SGPR</th><th>Scratch</th><th>LDS</th></tr></thead>
+    <tbody>
+      <tr><td>hd64 SiLU / softmax</td><td>124</td><td>0</td><td>112</td><td><span class="status-yes">0</span></td><td>32 KB</td></tr>
+      <tr><td>hd256 SiLU</td><td>172</td><td>0</td><td>112</td><td><span class="status-yes">0</span></td><td>64 KB</td></tr>
+      <tr><td>hd256 softmax</td><td>184</td><td>0</td><td>112</td><td><span class="status-yes">0</span></td><td>64 KB</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="callout-grid">
+    <div class="callout">
+      <div class="k">正确性风险</div>
+      <div class="t">无 spill</div>
+      <div class="d">所有 kernel <code>Scratch=0</code>;VGPR 124→172/184 远低于 CDNA4 每 wave 256 上限;AGPR=0。hd256 最关键风险点排除。</div>
+    </div>
+    <div class="callout clay">
+      <div class="k">perf 特征 → M8</div>
+      <div class="t">occupancy=1</div>
+      <div class="d">occupancy=1 来自 dispatch 里<strong>对所有 hdim 硬编码的 <code>constexpr occupancy=1</code> launch-bounds trait</strong>(<strong>非 M7b 引入</strong>,非 LDS 耗尽)。注:hd256 kernel 自身 LDS 占用 64 KB,而 gfx950/CDNA4 每 CU LDS = <strong>160 KB</strong>(rocminfo GROUP segment 实测 / rocm-ref hardware-specs-table),即单 WG 远未用满 CU LDS——故 occupancy=1 是 trait 所定,不是 LDS-bound。</div>
+    </div>
+    <div class="callout">
+      <div class="k">结论</div>
+      <div class="t">保留交付</div>
+      <div class="d">hd256 正确性 32/32 PASS、无 spill ⇒ 留在 M7b 范围,无需降级。占用率优化属 M8 perf。</div>
+    </div>
+  </div>
+  <div class="note-block olive"><strong>诚实边界：</strong>&nbsp;occupancy=1 是<strong>性能</strong>特征不是正确性 bug;它在 pre-M7b 就是 1（对所有 hdim 硬编码),M7b 没有引入回归。若要提 hd256 占用率（缩 LDS / 调 tile）属 M8 perf 单。</div>
+</section>
+
+<!-- ============ 9 验证数据 ============ -->
+<section id="s9">
+  <h2>9 &nbsp;验证数据：sweep 128/128、套件 171/171、零回归</h2>
+  <p class="lede">铁律 <code>-attn_scale=1.0</code>,容差<strong>沿用未松</strong>（bf16 rtol2e-2/atol5e-2、fp16 rtol5e-3/atol1e-2）。两层验证：专项 sweep + 完整回归套件,后者经 reviewer <strong>独立干净重建</strong>复跑。</p>
+  <div class="statgrid">
+    <div class="stat"><div class="v">128/128</div><div class="l">hdim sweep PASS</div></div>
+    <div class="stat"><div class="v">171</div><div class="l">套件 TOTAL=PASS</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">FAIL / SKIP / exit</div></div>
+    <div class="stat"><div class="v">12</div><div class="l">determ 逐位复现案</div></div>
+  </div>
+
+  <h3>① 套件 171/171（旧 106 − 1 reject-hdim128 + 2 guard reject + 60 M7b pass + 4 新 determ repro；全 12 个 determ repro 均 byte-identical）</h3>
+  <p>套件从 106 升到 <strong>171 / 171 / 0 / 0 · exit 0</strong>:删过期 <code>reject-hdim128</code>,加 <strong>2 个 guard reject</strong>（noncanonical hdim=100、asymmetric 64/128）、<strong>60 个 M7b pass 案</strong>（hdim{96,128,256}×{bf16,fp16}×10 代表案,<strong>每 hdim 含 3 个 P1-1 cross</strong>:batched SiLU/softmax + group softmax 的 causal=0+num_target）、<strong>4 个 per-hdim determ byte-identical repro</strong>（含 hd256 no_group + group,验 kN0=64 split 路）。</p>
+
+  <h3>② 误差量级（代表性,容差未松仍有余量）</h3>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>路径</th><th>max_abs_err</th><th>max|ref|</th><th>vs atol</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>bf16 SiLU multi-split (h64→h256)</td><td>0.0156（bf16 ULP）</td><td>9.7 → 10.7</td><td><span class="status-yes">远低 5e-2</span></td><td>mean 随 hdim 升（8.6e-7→1.2e-6）= 累加变多,合理</td></tr>
+      <tr><td>bf16 SiLU h256 combo</td><td>0.0078</td><td>5.16</td><td><span class="status-yes">远低</span></td><td>—</td></tr>
+      <tr><td>softmax 路（全 hdim）</td><td>~3e-5 … 1e-4</td><td>0.09 … 2.3</td><td><span class="status-yes">远低 5e-2</span></td><td>softmax 数值更温和</td></tr>
+      <tr><td>fp16 路（全 hdim）</td><td>≤ ~4e-3</td><td>~10.7</td><td><span class="status-yes">远低 1e-2</span></td><td>fp16 容差更紧仍过（M7a 已证 fp16 同码路）</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block olive"><strong>误差曲线合理性：</strong>&nbsp;dQ/dK 沿 hdim 收缩（GEMM4/GEMM1),hdim 越大累加项越多 → mean abs err 略升——实测 bf16 SiLU multi-split 的 mean 从 h64 的 8.6e-7 升到 h256 的 1.2e-6,正是预测曲线。误差<strong>非零、随规模缩放</strong> = 真在算（不是 tile 没生效的假绿）。</div>
+
+  <h3>③ 零回归:库逻辑 byte-level 不变</h3>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>文件</th><th>性质</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>hstu_attention_bwd_shape.hpp</code></td><td><span class="tag tag-new">新增</span></td><td>HstuBwdShape&lt;MaxK&gt; 四特化;&lt;64&gt; 与原硬编码逐字等价</td></tr>
+      <tr><td>两 dispatch</td><td><span class="tag tag-mod">改·重构</span></td><td>取 <code>HstuBwdShape&lt;MaxK&gt;::Type</code> + 3 throw 换 guard</td></tr>
+      <tr><td>4 entry（no_group/group × bf16/fp16）</td><td><span class="tag tag-mod">改·加性</span></td><td>硬编码 <code>64</code> → <code>HDIM_SWITCH</code></td></tr>
+      <tr><td><code>generate_instances.py</code> + ref.hpp</td><td><span class="tag tag-mod">改·加性</span></td><td>BWD_HEADDIMS [64]→[64,96,128,256];ref 纯增 96/128/256 extern</td></tr>
+      <tr><td><code>example_hstu_attention_bwd.cpp</code></td><td><span class="tag tag-mod">改·加性</span></td><td>kN0_bwd 随 hdim（§5,两处）</td></tr>
+      <tr><td>两 pipeline / bwd_kernel / reference</td><td><span class="tag tag-reuse">byte-identical</span></td><td><strong>一行未改</strong>（<code>git diff bf82a1d2</code> 为空）</td></tr>
+      <tr><td>hd64 maxk_64 的 16 个 instance</td><td><span class="tag tag-reuse">byte-identical</span></td><td>重生成后与基线 diff 仍为空</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block clay"><strong>硬证据：</strong>&nbsp;<code>git diff bf82a1d2 -- *pipeline*.hpp *bwd_kernel*.hpp *reference*.hpp</code> = <strong>空</strong>（promoted 逻辑零碰)。<code>git diff bf82a1d2 -- instances/*maxk_64*</code> = <strong>空</strong>（hd64 instance byte-identical,reviewer 重生成后复核仍空）。</div>
+</section>
+
+<!-- ============ 10 四方闭合 ============ -->
+<section id="s10">
+  <h2>10 &nbsp;四方闭合 + 范围（诚实标注）</h2>
+  <p class="lede">M7b 经四组<strong>相互独立</strong>的证据闭合后才 promote（commit <code>1ae97750</code>）：</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 200" width="100%" role="img" aria-label="四方闭合矩阵">
+    <rect x="30" y="30" width="218" height="150" rx="10" fill="#fff" stroke="#788C5D" stroke-width="1.4"/>
+    <text x="139" y="54" text-anchor="middle" font-size="12" fill="#4B5C39" font-weight="700">① coder</text>
+    <text x="139" y="78" text-anchor="middle" font-size="9.5" fill="#3D3D3A">build 0 error (429MB)</text>
+    <text x="139" y="96" text-anchor="middle" font-size="9.5" fill="#3D3D3A">sweep 128/128</text>
+    <text x="139" y="114" text-anchor="middle" font-size="9.5" fill="#3D3D3A">套件 171/171 exit0</text>
+    <text x="139" y="132" text-anchor="middle" font-size="9.5" fill="#3D3D3A">stage1 硬检查点</text>
+    <text x="139" y="150" text-anchor="middle" font-size="9.5" fill="#3D3D3A">hd256 rocprof 资源</text>
+
+    <rect x="258" y="30" width="232" height="150" rx="10" fill="#fff" stroke="#D97757" stroke-width="1.4"/>
+    <text x="374" y="54" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">② reviewer（独立 build_review）</text>
+    <text x="374" y="78" text-anchor="middle" font-size="9.5" fill="#3D3D3A">7/7 GREEN · 0 RED</text>
+    <text x="374" y="96" text-anchor="middle" font-size="9.5" fill="#3D3D3A">tile 逐字符对蓝本</text>
+    <text x="374" y="114" text-anchor="middle" font-size="9.5" fill="#3D3D3A">二进制符号反证（LDS 多档）</text>
+    <text x="374" y="132" text-anchor="middle" font-size="9.5" fill="#3D3D3A">rm-rf 干净重建 171/171</text>
+    <text x="374" y="150" text-anchor="middle" font-size="9.5" fill="#3D3D3A">库 diff 空 · rocprof Scratch=0</text>
+
+    <rect x="500" y="30" width="210" height="150" rx="10" fill="#fff" stroke="#788C5D" stroke-width="1.4"/>
+    <text x="605" y="54" text-anchor="middle" font-size="12" fill="#4B5C39" font-weight="700">③ 设计稿（draft）</text>
+    <text x="605" y="78" text-anchor="middle" font-size="9.5" fill="#3D3D3A">揪出「MaxK 没选 shape」</text>
+    <text x="605" y="96" text-anchor="middle" font-size="9.5" fill="#3D3D3A">定铁律:shape 先就位</text>
+    <text x="605" y="114" text-anchor="middle" font-size="9.5" fill="#3D3D3A">逐 GEMM 论证无需 pad</text>
+    <text x="605" y="132" text-anchor="middle" font-size="9.5" fill="#3D3D3A">harness kN0 风险预标红</text>
+    <text x="605" y="150" text-anchor="middle" font-size="9.5" fill="#3D3D3A">lead 审批闸门</text>
+
+    <rect x="720" y="30" width="230" height="150" rx="10" fill="#fff" stroke="#D97757" stroke-width="1.4"/>
+    <text x="835" y="54" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">④ lead 亲核</text>
+    <text x="835" y="78" text-anchor="middle" font-size="9.5" fill="#3D3D3A">套件 171/171 自跑</text>
+    <text x="835" y="96" text-anchor="middle" font-size="9.5" fill="#3D3D3A">hd64 maxk_64 byte-identical</text>
+    <text x="835" y="114" text-anchor="middle" font-size="9.5" fill="#3D3D3A">guard throw 100 & 64/128</text>
+    <text x="835" y="132" text-anchor="middle" font-size="9.5" fill="#3D3D3A">hd256 softmax+combo PASS</text>
+    <text x="835" y="150" text-anchor="middle" font-size="9.5" fill="#3D3D3A">stage1 放行</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图5：四方闭合。reviewer 用<strong>独立</strong> <code>build_review</code>（<code>rm -rf</code> + 重配重编,不复用 coder 的 build）干净复跑 171/171,并用<strong>二进制符号反证</strong>构成与对拍互不依赖的物证链。</p>
+
+  <h3>能力边界（M7b 后）</h3>
+  <div class="note-block olive">SiLU + softmax <strong>全模式（batched / jagged / group）</strong> × 全 5 因子 mask × causal{0,1} × bf16 + fp16 × <strong>symmetric hdim ∈ {64,96,128,256}</strong> × atomic + deterministic（全模式）。hd64 零回归。</div>
+
+  <h3>范围限定（非缺口隐瞒）</h3>
+  <div class="warn-banner"><strong>M7b 仅 symmetric:hdim_qk == hdim_v ∈ {64,96,128,256}。</strong>&nbsp;hdim_qk ≠ hdim_v（非对称）与非典范任意 hdim（需 head-dim padding）属 <strong>M7c</strong>,已由入口 guard 显式 throw 挡住。本文档不把范围夸大成「任意 hdim」。</div>
+  <ul>
+    <li><strong>盲区继承 M5/M5b</strong>：LSE 数值由 GPU fwd 产、对拍两侧共用同一份,靠 fwd 里程碑兜底——hdim 未改变此结构。</li>
+    <li><strong>非阻塞观察（→ M8 perf）</strong>：hd256 occupancy=1（硬编码 launch-bounds trait,非 LDS-bound——CDNA4 每 CU LDS 160 KB,kernel 仅占 64 KB);group entry TU 单 TU 内 4 hdim × 8 combo 实例化较重（本次独立重建仍顺利,未成阻塞,过慢可拆 per-hdim instance）。</li>
+  </ul>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 M7b 是什么 · 范围</a>
+  <a href="#s2">2 核心洞察</a>
+  <a href="#s2" class="sub">图1 修复前后</a>
+  <a href="#s3">3 shape selector</a>
+  <a href="#s4">4 guard 防 silent-wrong</a>
+  <a href="#s4" class="sub">图2 guard 决策</a>
+  <a href="#s5">5 harness kN0 修复</a>
+  <a href="#s6">6 分阶段落地</a>
+  <a href="#s6" class="sub">图3 两阶段</a>
+  <a href="#s7">7 二进制符号反证</a>
+  <a href="#s7" class="sub">图4 LDS 分档</a>
+  <a href="#s8">8 hd256 资源</a>
+  <a href="#s9">9 验证数据</a>
+  <a href="#s10">10 四方闭合 + 范围</a>
+  <a href="#s10" class="sub">图5 闭合矩阵</a>
+</nav>
+
+</div>
+</div>
+</body>
+</html>

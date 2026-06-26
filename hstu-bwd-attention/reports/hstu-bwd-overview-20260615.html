@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — 全程实现总览（M0 → M8 + cross-attention）</title>
+<style>
+:root {
+  --ivory:#FAF9F5; --slate:#141413; --clay:#D97757; --oat:#E3DACC;
+  --olive:#788C5D; --olive-lt:rgba(120,140,93,.12); --clay-lt:rgba(217,119,87,.10);
+  --gray-150:#F0EEE6; --gray-300:#D1CFC5; --gray-500:#87867F; --gray-700:#3D3D3A; --white:#FFFFFF;
+  --serif:ui-serif,Georgia,'Times New Roman',serif;
+  --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:ui-monospace,'SF Mono',Menlo,Monaco,monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:var(--sans); background:var(--ivory); color:var(--gray-700); line-height:1.55; padding:56px 32px 120px; -webkit-font-smoothing:antialiased; }
+.page { max-width:1040px; margin:0 auto; }
+header.page-head { margin-bottom:40px; max-width:860px; }
+.eyebrow { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--gray-500); margin-bottom:12px; }
+h1 { font-family:var(--serif); font-weight:500; font-size:32px; line-height:1.18; color:var(--slate); margin-bottom:12px; letter-spacing:-.01em; }
+.subtitle { font-size:15px; color:var(--gray-500); margin-bottom:14px; max-width:780px; }
+.audience { font-family:var(--mono); font-size:12px; color:var(--gray-700); background:var(--gray-150); padding:8px 14px; border-radius:8px; display:inline-block; border:1px solid var(--gray-300); }
+h2 { font-family:var(--serif); font-weight:500; font-size:23px; color:var(--slate); margin:46px 0 16px; padding-bottom:8px; border-bottom:2px solid var(--oat); }
+h3 { font-size:16px; color:var(--slate); margin:24px 0 10px; font-weight:600; }
+p { margin-bottom:14px; }
+code { font-family:var(--mono); font-size:.88em; background:var(--gray-150); padding:1px 6px; border-radius:5px; color:var(--gray-700); }
+a { color:var(--clay); text-decoration:none; border-bottom:1px solid var(--clay-lt); }
+a:hover { border-bottom-color:var(--clay); }
+.stat-row { display:flex; flex-wrap:wrap; gap:14px; margin:22px 0 8px; }
+.stat { flex:1 1 150px; background:var(--white); border:1px solid var(--gray-300); border-radius:12px; padding:16px 18px; }
+.stat .n { font-family:var(--serif); font-size:24px; color:var(--clay); line-height:1; }
+.stat .l { font-size:12px; color:var(--gray-500); margin-top:8px; }
+table { width:100%; border-collapse:collapse; margin:18px 0; font-size:13.5px; background:var(--white); border:1px solid var(--gray-300); border-radius:10px; overflow:hidden; }
+th, td { text-align:left; padding:10px 13px; border-bottom:1px solid var(--gray-150); vertical-align:top; }
+th { background:var(--gray-150); font-weight:600; color:var(--slate); font-size:12.5px; }
+tr:last-child td { border-bottom:none; }
+td code { font-size:.85em; }
+.tag { display:inline-block; font-family:var(--mono); font-size:11px; padding:2px 8px; border-radius:20px; background:var(--olive-lt); color:var(--olive); border:1px solid rgba(120,140,93,.3); }
+.tag.clay { background:var(--clay-lt); color:var(--clay); border-color:rgba(217,119,87,.3); }
+.card { background:var(--white); border:1px solid var(--gray-300); border-radius:12px; padding:18px 20px; margin:16px 0; }
+.banner { background:var(--olive-lt); border:1px solid rgba(120,140,93,.3); border-radius:10px; padding:14px 18px; margin:18px 0; font-size:14px; }
+.banner.clay { background:var(--clay-lt); border-color:rgba(217,119,87,.3); }
+ul { margin:6px 0 14px 22px; } li { margin-bottom:7px; }
+.chain { font-family:var(--mono); font-size:12px; background:var(--gray-150); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; line-height:2; word-break:break-word; }
+.foot { margin-top:54px; padding-top:18px; border-top:1px solid var(--oat); font-size:12.5px; color:var(--gray-500); }
+.lead-in { font-size:15.5px; color:var(--gray-700); }
+.nav-card { background:var(--white); border:1px solid var(--gray-300); border-left:4px solid var(--slate); border-radius:10px; padding:14px 18px; margin:20px 0 8px; font-size:13.5px; }
+.nav-card .k { font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--gray-500); margin-bottom:6px; }
+.svg-wrap { background:var(--white); border:1px solid var(--gray-300); border-radius:12px; padding:18px 12px 8px; margin:18px 0 6px; overflow-x:auto; }
+.svg-caption { text-align:center; font-size:12px; color:var(--gray-500); font-style:italic; margin:2px auto 8px; max-width:820px; }
+svg text { font-family:var(--mono); }
+</style>
+</head>
+<body>
+<div class="page">
+<header class="page-head">
+  <div class="eyebrow">HSTU Attention Backward · gfx950 / MI350X / CDNA4 · 实现总览</div>
+  <h1>从 855 行 CPU 参考到全特性 GPU 反向：HSTU bwd 全程实现总览</h1>
+  <p class="subtitle">本文是 HSTU attention <strong>backward</strong> GPU kernel 从零实现的总索引，串联 M0–M8 + cross-attention 各里程碑讲义。每个里程碑均经「设计 → draft 闸门 → 分阶段实现 + 硬检查点 → 四方闭合 → 提交」的证据驱动流程。点击各行进入对应讲义。</p>
+  <span class="audience">读者：接手/复盘本项目者 · 活的状态以 docs/HANDOFF.md 为准 · 截至 commit 048f0a9a（2026-06-15）</span>
+</header>
+
+<div class="stat-row">
+  <div class="stat"><div class="n">10</div><div class="l">git 里程碑提交</div></div>
+  <div class="stat"><div class="n">253/253</div><div class="l">对拍套件 exit 0</div></div>
+  <div class="stat"><div class="n">causal 1.6× · window ~10×</div><div class="l">MAIN perf 加速（M8）</div></div>
+  <div class="stat"><div class="n">(0,256]</div><div class="l">任意 hdim_qk/hdim_v</div></div>
+</div>
+
+<div class="nav-card">
+  <div class="k">如何用本页</div>
+  想<strong>整体把握</strong>：看 §一（项目是什么 + <em>图1</em> kernel 结构 + <em>图2</em> 能力边界矩阵）。想<strong>按时间追踪能力如何叠加</strong>：看 §二（<em>图3</em> 时间线 + 里程碑表，点表格行进每篇讲义）。想看<strong>性能</strong>：§三（<em>图4</em> 加速条形）。想懂<strong>为什么可信</strong>：§四（<em>图5</em> 四方闭合 + 证据栈）→ §五 教训。结尾 §六 git 链、§七 后续。每篇里程碑讲义是本页对应行的深读。
+</div>
+
+<h2>一、项目是什么</h2>
+<p class="lead-in">起点：HSTU attention 的 backward 此前<strong>只有 855 行 CPU 参考</strong>（<code>reference_hstu_attention_bwd.hpp</code>），<strong>无 GPU kernel</strong>。目标：在 <strong>gfx950 / MI350X / CDNA4</strong> 上实现 GPU bwd，复用 ck_tile FMHA bwd 基建（PRE <code>dot_do_o</code> → MAIN 5-GEMM <code>kr_ktr_vr</code> → POST convert/reduce）。</p>
+<p>反向的数学核心是 <strong>5 个 GEMM</strong> + 激活/掩码：<code>dS=Q·Kᵀ</code> 重算、<code>dV=Pᵀ·dO</code>、<code>dP=dO·Vᵀ</code>、<code>dK=dSᵀ·Q</code>、<code>dQ=dS·K</code>。其三段式 kernel 结构与各段墙钟占比见<strong>图1</strong>。基础原理见早期深读讲义：<a href="fmha-bwd-intro-20260528.html">FMHA bwd 入门</a> · <a href="bwd-5-gemms-deepdive-20260602.html">5-GEMM 深读</a> · <a href="bwd-main-pipeline-7stages-20260602.html">MAIN pipeline 7 阶段</a> · <a href="bwd-saved-tensors-20260602.html">saved tensors</a> · <a href="ck-vs-hstu-bwd-20260529.html">CK vs HSTU bwd</a> · <a href="ck-qkv-layout-bhsd-vs-bshd-20260602.html">QKV layout</a>。</p>
+
+<div class="svg-wrap">
+<svg viewBox="0 0 920 210" width="100%" height="210" role="img" aria-label="bwd kernel 三段结构">
+  <defs><marker id="ka" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/></marker></defs>
+  <text x="24" y="24" font-size="12" fill="#141413" font-weight="700">bwd 一次反向 = PRE → MAIN（5-GEMM）→ POST；MAIN 主导 84–90% wall-time</text>
+  <!-- PRE -->
+  <rect x="40" y="58" width="180" height="86" rx="9" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+  <text x="130" y="80" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">PRE · dot_do_o</text>
+  <text x="130" y="100" text-anchor="middle" font-size="9" fill="#3D3D3A">D = rowsum(O · dO)</text>
+  <text x="130" y="116" text-anchor="middle" font-size="8.5" fill="#87867F">逐元素，q-seq；softmax 路用</text>
+  <text x="130" y="132" text-anchor="middle" font-size="8.5" fill="#87867F">~9% wall-time</text>
+  <!-- MAIN -->
+  <rect x="280" y="42" width="360" height="118" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.6"/>
+  <text x="460" y="64" text-anchor="middle" font-size="11.5" fill="#8A3B1E" font-weight="700">MAIN dqdkdv · 5-GEMM (kr_ktr_vr)</text>
+  <text x="460" y="86" text-anchor="middle" font-size="9.5" fill="#3D3D3A">dS=Q·Kᵀ(重算) → dV=Pᵀ·dO → dP=dO·Vᵀ</text>
+  <text x="460" y="102" text-anchor="middle" font-size="9.5" fill="#3D3D3A">→ dK=dSᵀ·Q → dQ_acc=dS·K</text>
+  <text x="460" y="124" text-anchor="middle" font-size="9" fill="#8A3B1E">+ SiLU/softmax 激活 + 5 因子 mask</text>
+  <text x="460" y="146" text-anchor="middle" font-size="11" fill="#8A3B1E" font-weight="700">84–90% wall-time（M8 收紧对象）</text>
+  <!-- POST -->
+  <rect x="700" y="58" width="180" height="86" rx="9" fill="var(--gray-150)" stroke="#87867F" stroke-width="1.2"/>
+  <text x="790" y="80" text-anchor="middle" font-size="11" fill="#141413" font-weight="700">POST · convert/reduce</text>
+  <text x="790" y="100" text-anchor="middle" font-size="9" fill="#3D3D3A">dq_acc → dQ</text>
+  <text x="790" y="116" text-anchor="middle" font-size="8.5" fill="#87867F">determ：固定序 split reduce</text>
+  <text x="790" y="132" text-anchor="middle" font-size="8.5" fill="#87867F">~2% wall-time</text>
+  <path d="M220 101 L278 101" stroke="#87867F" stroke-width="1.4" marker-end="url(#ka)"/>
+  <path d="M640 101 L698 101" stroke="#87867F" stroke-width="1.4" marker-end="url(#ka)"/>
+  <text x="249" y="92" text-anchor="middle" font-size="8" fill="#87867F">D</text>
+  <text x="669" y="92" text-anchor="middle" font-size="8" fill="#87867F">dq_acc</text>
+</svg>
+</div>
+<p class="svg-caption">图1：bwd kernel 三段结构。dQ 需跨 KV-block 累加（dQ_acc），故有 atomic / deterministic 两条归约路；MAIN 占墙钟 84–90%（profile 实测），是 M8 perf 的收紧对象。</p>
+
+<div class="banner">
+  <strong>最终能力边界（commit <code>048f0a9a</code>）：</strong>SiLU + softmax × <strong>全模式（batched / jagged / group）</strong> × <strong>self + cross-attention（seqlen_q ≠ seqlen_kv 全方向）</strong> × 全 5 因子 mask × causal{0,1} × <strong>bf16 + fp16</strong> × <strong>任意 hdim_qk/hdim_v ∈ (0,256]（对称 + 非对称 + 非典范，经 head-dim padding）</strong> × dQ atomic + deterministic（全模式）。真 reject：hdim>256。out-of-scope：target_in_kv、非方形 tile、独立 dO layout。
+</div>
+
+<p>这条能力边界按「轴」展开见<strong>图2</strong>——每条轴的取值均已对拍覆盖，真 reject 与 out-of-scope 项明确分列。</p>
+<div class="svg-wrap">
+<svg viewBox="0 0 920 322" width="100%" height="322" role="img" aria-label="最终能力边界矩阵">
+  <text x="20" y="22" font-size="12" fill="#141413" font-weight="700">能力边界矩阵：各轴取值均已覆盖（绿），结构性边界另列</text>
+  <g font-size="9.5">
+    <!-- rows -->
+    <!-- helper to draw: label at x20, chips from x150 -->
+    <!-- row1 模式 -->
+    <text x="20" y="56" fill="#3D3D3A" font-weight="700">模式</text>
+    <g>
+      <rect x="150" y="44" width="92" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="196" y="58" text-anchor="middle" fill="#4B5C39">batched</text>
+      <rect x="250" y="44" width="92" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="296" y="58" text-anchor="middle" fill="#4B5C39">jagged</text>
+      <rect x="350" y="44" width="92" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="396" y="58" text-anchor="middle" fill="#4B5C39">group</text>
+    </g>
+    <!-- row2 注意力 -->
+    <text x="20" y="92" fill="#3D3D3A" font-weight="700">注意力</text>
+    <rect x="150" y="80" width="140" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="220" y="94" text-anchor="middle" fill="#4B5C39">self (seqlen_q=kv)</text>
+    <rect x="298" y="80" width="200" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="398" y="94" text-anchor="middle" fill="#4B5C39">cross (seqlen_q≠kv 双向)</text>
+    <!-- row3 激活 -->
+    <text x="20" y="128" fill="#3D3D3A" font-weight="700">激活</text>
+    <rect x="150" y="116" width="92" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="196" y="130" text-anchor="middle" fill="#4B5C39">SiLU</text>
+    <rect x="250" y="116" width="92" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="296" y="130" text-anchor="middle" fill="#4B5C39">softmax</text>
+    <!-- row4 dtype -->
+    <text x="20" y="164" fill="#3D3D3A" font-weight="700">dtype</text>
+    <rect x="150" y="152" width="92" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="196" y="166" text-anchor="middle" fill="#4B5C39">bf16</text>
+    <rect x="250" y="152" width="92" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="296" y="166" text-anchor="middle" fill="#4B5C39">fp16</text>
+    <!-- row5 hdim -->
+    <text x="20" y="200" fill="#3D3D3A" font-weight="700">hdim ∈(0,256]</text>
+    <rect x="150" y="188" width="80" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="190" y="202" text-anchor="middle" fill="#4B5C39">对称</text>
+    <rect x="238" y="188" width="92" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="284" y="202" text-anchor="middle" fill="#4B5C39">非对称</text>
+    <rect x="338" y="188" width="150" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="413" y="202" text-anchor="middle" fill="#4B5C39">非典范 (head-dim pad)</text>
+    <!-- row6 dQ -->
+    <text x="20" y="236" fill="#3D3D3A" font-weight="700">dQ 归约</text>
+    <rect x="150" y="224" width="92" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="196" y="238" text-anchor="middle" fill="#4B5C39">atomic</text>
+    <rect x="250" y="224" width="150" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="325" y="238" text-anchor="middle" fill="#4B5C39">deterministic (bit-repro)</text>
+    <!-- row7 mask -->
+    <text x="20" y="272" fill="#3D3D3A" font-weight="700">mask</text>
+    <rect x="150" y="260" width="110" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="205" y="274" text-anchor="middle" fill="#4B5C39">causal {0,1}</text>
+    <rect x="268" y="260" width="290" height="20" rx="10" fill="var(--olive-lt)" stroke="#788C5D"/><text x="413" y="274" text-anchor="middle" fill="#4B5C39">window · contextual · min_full · num_target</text>
+  </g>
+  <!-- reject / oos -->
+  <rect x="560" y="44" width="340" height="58" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.3"/>
+  <text x="730" y="66" text-anchor="middle" font-size="10.5" fill="#8A3B1E" font-weight="700">真 reject（显式 throw）</text>
+  <text x="730" y="86" text-anchor="middle" font-size="9.5" fill="#3D3D3A">hdim &gt; 256</text>
+  <rect x="560" y="116" width="340" height="92" rx="9" fill="var(--gray-150)" stroke="#87867F" stroke-width="1.2"/>
+  <text x="730" y="138" text-anchor="middle" font-size="10.5" fill="#141413" font-weight="700">out-of-scope（结构性，诚实标注）</text>
+  <text x="730" y="160" text-anchor="middle" font-size="9.5" fill="#3D3D3A">target_in_kv（targets 在 KV 侧）</text>
+  <text x="730" y="178" text-anchor="middle" font-size="9.5" fill="#3D3D3A">非方形 tile（bhdq ≠ bhdv）</text>
+  <text x="730" y="196" text-anchor="middle" font-size="9.5" fill="#3D3D3A">独立 dO layout（cross R7）</text>
+  <rect x="560" y="224" width="340" height="56" rx="9" fill="var(--white)" stroke="#D1CFC5"/>
+  <text x="730" y="246" text-anchor="middle" font-size="10" fill="#3D3D3A" font-weight="700">全轴笛卡尔积 → 对拍 253/253</text>
+  <text x="730" y="266" text-anchor="middle" font-size="9" fill="#87867F">determ 路另 14 案两次 byte-identical</text>
+</svg>
+</div>
+<p class="svg-caption">图2：能力边界矩阵。左侧 7 条轴的取值均已对拍覆盖（绿）；右侧明确分列真 reject（hdim>256，显式 throw）与 out-of-scope（target_in_kv / 非方形 tile / 独立 dO layout）——边界诚实、不夸大成「任意」。</p>
+
+<h2>二、里程碑时间线（点击进入各讲义）</h2>
+<p>能力如何<strong>逐里程碑叠加</strong>见<strong>图3</strong>：每个节点标出该里程碑新增的轴，从 M0 脚手架一路累积到 M8 perf。下方表格是同一序列的细节与讲义入口。</p>
+<div class="svg-wrap">
+<svg viewBox="0 0 940 220" width="100%" height="220" role="img" aria-label="里程碑能力累积时间线">
+  <text x="20" y="22" font-size="12" fill="#141413" font-weight="700">里程碑能力累积时间线（每节点 = 新增一条能力轴）</text>
+  <!-- cumulative wedge -->
+  <path d="M60 150 L900 150 L900 92 Z" fill="var(--olive-lt)" opacity="0.6"/>
+  <text x="500" y="138" text-anchor="middle" font-size="9" fill="#788C5D">累积能力（轴数随里程碑增长 →）</text>
+  <!-- baseline -->
+  <line x1="60" y1="150" x2="900" y2="150" stroke="#87867F" stroke-width="1.4"/>
+  <!-- nodes: 11 at x = 60 + i*84 -->
+  <g font-size="8.5" text-anchor="middle">
+    <!-- M0-M1 -->
+    <circle cx="60" cy="150" r="5" fill="#788C5D"/><text x="60" y="78" fill="#3D3D3A" font-weight="700">M0–M1</text><text x="60" y="172" fill="#4B5C39">脚手架</text><text x="60" y="184" fill="#4B5C39">SiLU 闸门</text>
+    <circle cx="144" cy="150" r="5" fill="#788C5D"/><text x="144" y="92" fill="#3D3D3A" font-weight="700">M2</text><text x="144" y="172" fill="#4B5C39">+mask</text>
+    <circle cx="228" cy="150" r="5" fill="#788C5D"/><text x="228" y="78" fill="#3D3D3A" font-weight="700">M3</text><text x="228" y="172" fill="#4B5C39">+jagged</text>
+    <circle cx="312" cy="150" r="5" fill="#788C5D"/><text x="312" y="92" fill="#3D3D3A" font-weight="700">M4</text><text x="312" y="172" fill="#4B5C39">+group</text>
+    <circle cx="396" cy="150" r="5" fill="#788C5D"/><text x="396" y="78" fill="#3D3D3A" font-weight="700">M5/M5b</text><text x="396" y="172" fill="#4B5C39">+softmax</text>
+    <circle cx="480" cy="150" r="5" fill="#788C5D"/><text x="480" y="92" fill="#3D3D3A" font-weight="700">M6/M6b</text><text x="480" y="172" fill="#4B5C39">+determ</text>
+    <circle cx="564" cy="150" r="5" fill="#D97757"/><text x="564" y="78" fill="#8A3B1E" font-weight="700">M7a</text><text x="564" y="172" fill="#8A3B1E">+fp16</text>
+    <circle cx="648" cy="150" r="5" fill="#D97757"/><text x="648" y="92" fill="#8A3B1E" font-weight="700">M7b</text><text x="648" y="172" fill="#8A3B1E">+hdim 对称</text>
+    <circle cx="732" cy="150" r="5" fill="#D97757"/><text x="732" y="78" fill="#8A3B1E" font-weight="700">M7c</text><text x="732" y="172" fill="#8A3B1E">+非对称/pad</text>
+    <circle cx="816" cy="150" r="5" fill="#D97757"/><text x="816" y="92" fill="#8A3B1E" font-weight="700">cross</text><text x="816" y="172" fill="#8A3B1E">+seqlen_q≠kv</text>
+    <circle cx="900" cy="150" r="6" fill="#8A3B1E"/><text x="900" y="78" fill="#8A3B1E" font-weight="700">M8</text><text x="900" y="172" fill="#8A3B1E">+perf</text>
+  </g>
+  <text x="60" y="205" font-size="8.5" fill="#87867F">855 行 CPU 参考 · 无 GPU kernel</text>
+  <text x="900" y="205" font-size="8.5" fill="#87867F" text-anchor="end">全特性 GPU bwd · 048f0a9a</text>
+</svg>
+</div>
+<p class="svg-caption">图3：能力累积时间线。绿点 = 功能正确性里程碑（M0–M6b），赭点 = 加宽/扩展里程碑（M7a–cross），深色 = perf（M8）。每节点下方为该步新增的轴；能力单调叠加，无回退。</p>
+<table>
+<thead><tr><th>里程碑</th><th>commit</th><th>新增能力</th><th>讲义</th></tr></thead>
+<tbody>
+<tr><td><span class="tag">设计</span> DESIGN</td><td><code>—</code></td><td>设计方案（U1–U4 默认）、风险闸门 M1、gfx950 优先</td><td><a href="hstu-bwd-design-20260604.html">设计讲义</a> · <a href="hstu-bwd-impl-status-20260604.html">status</a></td></tr>
+<tr><td>M0–M1</td><td><code>418e36ec</code></td><td>脚手架 + SiLU MAIN 风险闸门（FMHA policy 零覆写复用 + VGPR 闸门）</td><td><span style="color:var(--gray-500)">（并入 M2 系列）</span></td></tr>
+<tr><td>M2 mask</td><td><code>418e36ec</code></td><td>causal + 5 因子 mask（window/contextual/min_full/num_target）+ GetTileRangeAlongY/IsEdgeTile</td><td><a href="hstu-bwd-M2-changes-20260605.html">M2 讲义</a></td></tr>
+<tr><td>M3 jagged</td><td><code>418e36ec</code></td><td>变长 packed（cu_seqlens，同 kernel 运行时分支）</td><td><a href="hstu-bwd-M3-changes-20260608.html">M3 讲义</a></td></tr>
+<tr><td>M4 group</td><td><code>418e36ec</code></td><td>group HSTU（per-group 超参 + with/without-local 双 pipeline）+ 修 P1-1 漏掩码</td><td><a href="hstu-bwd-M4-changes-20260608.html">M4 讲义</a></td></tr>
+<tr><td>M5 softmax</td><td><code>aced5784</code></td><td>softmax 路 no_group（PRE dot_do_o + fwd 存读 LSE + STAGE ds=p(dp−D)）</td><td><a href="hstu-bwd-M5-softmax-20260608.html">M5 讲义</a></td></tr>
+<tr><td>M5b group softmax</td><td><code>dc8c6b21</code></td><td>softmax 合流 group 路</td><td><a href="hstu-bwd-M5b-group-softmax-20260608.html">M5b 讲义</a></td></tr>
+<tr><td>M6 determ</td><td><code>c79d3296</code></td><td>deterministic dQ（no_group，split + 固定序 reduce，bit-reproducible）</td><td><a href="hstu-bwd-M6-deterministic-20260609.html">M6 讲义</a></td></tr>
+<tr><td>M6b group determ</td><td><code>d4fb2884</code></td><td>determ 扩 group + 修 O1 + 抓修 harness group_max_seqlens_q 低估 bug</td><td><a href="hstu-bwd-M6b-group-determ-20260610.html">M6b 讲义</a></td></tr>
+<tr><td><span class="tag clay">M7a</span> fp16</td><td><code>bf82a1d2</code></td><td>fp16 dtype 加宽（复用 bf16 模板码路，零 instance 重写）</td><td><a href="hstu-bwd-M7a-fp16-20260611.html">M7a 讲义</a></td></tr>
+<tr><td><span class="tag clay">M7b</span> hdim</td><td><code>1ae97750</code></td><td>symmetric hdim{64,96,128,256}（MaxK→shape selector，破 hd64 硬编码）</td><td><a href="hstu-bwd-M7b-hdim-20260611.html">M7b 讲义</a></td></tr>
+<tr><td><span class="tag clay">M7c</span> hdim pad</td><td><code>17515fcc</code></td><td>非对称 + 非典范 hdim（激活已接线但死的 head-dim padding，poison-pad 正向证 OOB）</td><td><a href="hstu-bwd-M7c-hdim-pad-20260615.html">M7c 讲义</a></td></tr>
+<tr><td><span class="tag clay">cross</span> attention</td><td><code>4629508f</code></td><td>cross-attention（seqlen_q ≠ seqlen_kv 全方向，runtime BOOL_SWITCH，reference 零改）</td><td><a href="hstu-bwd-cross-attention-20260615.html">cross 讲义</a></td></tr>
+<tr><td><span class="tag clay">M8</span> perf</td><td><code>048f0a9a</code></td><td>测量基线 MI + GetTileRangeAlongY 紧致化（causal 1.6× / window ~10×）</td><td><a href="hstu-bwd-M8-perf-20260615.html">M8 讲义</a></td></tr>
+</tbody>
+</table>
+<p style="font-size:12.5px;color:var(--gray-500)">注：M0–M4b 同处一个合并前快照 commit <code>418e36ec</code>，随后 <code>4bfb8e08</code> 合并上游 fwd LSE、<code>b0c08cba</code> 集成适配。另有一篇 <code>hstu-fwd-group-maxseqlen-bug</code> HTML 已<strong>作废</strong>（曾把上游 fwd 默认推导误定性为 bug，经作者核实为用法约定，详见 HANDOFF §6），不在此索引。</p>
+
+<h2>三、M8 性能结论（evidence-driven）</h2>
+<p>rocprofv3 实测：<strong>MAIN dqdkdv 主导 84–90% wall-time、矩阵核闲 ~90%（MfmaUtil 9.9%）、非 memory-bound</strong>。瓶颈 = GetTileRangeAlongY 保守全扫的浪费 q-tile。收紧后 MAIN 加速 <strong>causal 1.25–1.60× · window 4.7–9.8×</strong>（窄窗 window16 最高 9.8×，benchmark.csv 录值），诚实 Amdahl 归因（实测 < 模型，因只砍 q-loop、K/V load + atomic 写 + 启动开销不减）。各档加速见<strong>图4</strong>。</p>
+<div class="svg-wrap">
+<svg viewBox="0 0 920 232" width="100%" height="232" role="img" aria-label="M8 MAIN 加速条形图">
+  <text x="20" y="22" font-size="12" fill="#141413" font-weight="700">M8 MAIN 加速倍数（实测，越高越快；窄 window 赢最多）</text>
+  <line x1="120" y1="190" x2="900" y2="190" stroke="#87867F"/>
+  <line x1="120" y1="40" x2="120" y2="190" stroke="#87867F"/>
+  <text x="108" y="194" text-anchor="end" font-size="9" fill="#3D3D3A">1×</text>
+  <text x="108" y="115" text-anchor="end" font-size="9" fill="#3D3D3A">5×</text>
+  <text x="108" y="55" text-anchor="end" font-size="9" fill="#3D3D3A">10×</text>
+  <line x1="120" y1="115" x2="900" y2="115" stroke="#D1CFC5" stroke-dasharray="3 3"/>
+  <line x1="120" y1="55" x2="900" y2="55" stroke="#D1CFC5" stroke-dasharray="3 3"/>
+  <g font-size="9" fill="#3D3D3A" text-anchor="middle">
+    <rect x="150" y="171" width="46" height="19" fill="#C9912F"/><text x="173" y="205">causal can.sm</text><text x="173" y="166" font-size="9" fill="#8A6D2F">1.30×</text>
+    <rect x="230" y="162" width="46" height="28" fill="#C9912F"/><text x="253" y="205">causal can.silu</text><text x="253" y="157" font-size="9" fill="#8A6D2F">1.60×</text>
+    <rect x="310" y="135" width="46" height="55" fill="#D97757"/><text x="333" y="205">win256 sm</text><text x="333" y="130" font-size="9" fill="#8A3B1E">4.71×</text>
+    <rect x="390" y="131" width="46" height="59" fill="#D97757"/><text x="413" y="205">win256 silu</text><text x="413" y="126" font-size="9" fill="#8A3B1E">4.99×</text>
+    <rect x="470" y="91" width="46" height="99" fill="#D97757"/><text x="493" y="205">win64 sm</text><text x="493" y="86" font-size="9" fill="#8A3B1E">8.3×</text>
+    <rect x="550" y="83" width="46" height="107" fill="#D97757"/><text x="573" y="205">win64 silu</text><text x="573" y="78" font-size="9" fill="#8A3B1E">9.0×</text>
+    <rect x="630" y="77" width="46" height="113" fill="#D97757"/><text x="653" y="205">win16 sm</text><text x="653" y="72" font-size="9" fill="#8A3B1E">9.4×</text>
+    <rect x="710" y="73" width="46" height="117" fill="#D97757"/><text x="733" y="205">win16 silu</text><text x="733" y="68" font-size="9" fill="#8A3B1E">9.8×</text>
+  </g>
+  <rect x="800" y="48" width="12" height="12" fill="#C9912F"/><text x="818" y="58" font-size="9.5" fill="#3D3D3A" text-anchor="start">B2 causal</text>
+  <rect x="800" y="66" width="12" height="12" fill="#D97757"/><text x="818" y="76" font-size="9.5" fill="#3D3D3A" text-anchor="start">B3 window</text>
+</svg>
+</div>
+<p class="svg-caption">图4：M8 MAIN 加速实测。B2 causal 1.25–1.60×；B3 window 越窄赢越多（window16 达 9.4×/9.8×）。各 window 档共用全扫基线（全扫与 window 大小无关）。详见 <a href="hstu-bwd-M8-perf-20260615.html">M8 讲义</a>。</p>
+<div class="banner clay">
+  <strong>占用率 investigation 定论（未上 B7）：</strong>VGPR 真值 248（rocprofv3 报半值 124 是单位假象）；occupancy 被 VGPR+LDS 共卡 2 blocks/CU，但<strong>真瓶颈是 VALU/SFU（VALUBusy 41% ≫ MfmaUtil 18%）</strong>，非 occupancy-bound → B7 提占用率低 ROI（需 tile 重设计）。SiLU 比 softmax 慢 26% = sigmoid 需 2 个超越运算（exp+rcp）vs softmax 1 个，本质开销非 bug。
+</div>
+
+<h2>四、方法论 / 工程纪律（贯穿全程）</h2>
+<p>每个里程碑都走同一条「四方闭合」证据链，底座是一组可证伪的工具——见<strong>图5</strong>。</p>
+<div class="svg-wrap">
+<svg viewBox="0 0 920 250" width="100%" height="250" role="img" aria-label="四方闭合 + 证据栈">
+  <defs><marker id="fa" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/></marker></defs>
+  <text x="20" y="22" font-size="12" fill="#141413" font-weight="700">四方闭合（上）建立在可证伪的证据工具栈（下）之上</text>
+  <!-- four-party flow -->
+  <rect x="40" y="42" width="180" height="50" rx="9" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+  <text x="130" y="64" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">① coder</text>
+  <text x="130" y="82" text-anchor="middle" font-size="8.5" fill="#3D3D3A">分阶段实现 + 硬检查点</text>
+  <rect x="250" y="42" width="180" height="50" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.3"/>
+  <text x="340" y="64" text-anchor="middle" font-size="11" fill="#8A3B1E" font-weight="700">② reviewer</text>
+  <text x="340" y="82" text-anchor="middle" font-size="8.5" fill="#3D3D3A">独立 rm-rf 重建复核</text>
+  <rect x="460" y="42" width="180" height="50" rx="9" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+  <text x="550" y="64" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">③ lead 亲核</text>
+  <text x="550" y="82" text-anchor="middle" font-size="8.5" fill="#3D3D3A">逐 stage 放行 + 闸门</text>
+  <rect x="670" y="42" width="210" height="50" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.3"/>
+  <text x="775" y="64" text-anchor="middle" font-size="11" fill="#8A3B1E" font-weight="700">④ 对抗实验</text>
+  <text x="775" y="82" text-anchor="middle" font-size="8.5" fill="#3D3D3A">reverse-proof / formula-revert</text>
+  <path d="M220 67 L248 67" stroke="#87867F" stroke-width="1.3" marker-end="url(#fa)"/>
+  <path d="M430 67 L458 67" stroke="#87867F" stroke-width="1.3" marker-end="url(#fa)"/>
+  <path d="M640 67 L668 67" stroke="#87867F" stroke-width="1.3" marker-end="url(#fa)"/>
+  <!-- bracket -->
+  <text x="460" y="120" text-anchor="middle" font-size="9" fill="#87867F">↑ 四方结论都靠 ↓ 这些可证伪工具支撑</text>
+  <!-- evidence stack -->
+  <rect x="40" y="134" width="200" height="92" rx="9" fill="var(--white)" stroke="#D1CFC5"/>
+  <text x="140" y="156" text-anchor="middle" font-size="10.5" fill="#141413" font-weight="700">co_symbols byte-identity</text>
+  <text x="140" y="176" text-anchor="middle" font-size="8.5" fill="#3D3D3A">设备符号 sha256 逐位比</text>
+  <text x="140" y="192" text-anchor="middle" font-size="8.5" fill="#3D3D3A">加性改动须 byte-identical</text>
+  <text x="140" y="208" text-anchor="middle" font-size="8.5" fill="#3D3D3A">行为改动须 surgical</text>
+  <rect x="252" y="134" width="200" height="92" rx="9" fill="var(--white)" stroke="#D1CFC5"/>
+  <text x="352" y="156" text-anchor="middle" font-size="10.5" fill="#141413" font-weight="700">poison-pad</text>
+  <text x="352" y="176" text-anchor="middle" font-size="8.5" fill="#3D3D3A">NaN 填 pad 尾</text>
+  <text x="352" y="192" text-anchor="middle" font-size="8.5" fill="#3D3D3A">越界泄漏即 FAIL</text>
+  <text x="352" y="208" text-anchor="middle" font-size="8.5" fill="#3D3D3A">正向证 OOB 归零</text>
+  <rect x="464" y="134" width="200" height="92" rx="9" fill="var(--white)" stroke="#D1CFC5"/>
+  <text x="564" y="156" text-anchor="middle" font-size="10.5" fill="#141413" font-weight="700">离线 superset 校验器</text>
+  <text x="564" y="176" text-anchor="middle" font-size="8.5" fill="#3D3D3A">穷举 ~2M checks</text>
+  <text x="564" y="192" text-anchor="middle" font-size="8.5" fill="#3D3D3A">证收紧不漏梯度</text>
+  <text x="564" y="208" text-anchor="middle" font-size="8.5" fill="#3D3D3A">比对拍更早更硬</text>
+  <rect x="676" y="134" width="204" height="92" rx="9" fill="var(--white)" stroke="#D1CFC5"/>
+  <text x="778" y="156" text-anchor="middle" font-size="10.5" fill="#141413" font-weight="700">reverse-proof</text>
+  <text x="778" y="176" text-anchor="middle" font-size="8.5" fill="#3D3D3A">故意篡改 →</text>
+  <text x="778" y="192" text-anchor="middle" font-size="8.5" fill="#3D3D3A">测试/校验器 FAIL</text>
+  <text x="778" y="208" text-anchor="middle" font-size="8.5" fill="#3D3D3A">证检查非 vacuous</text>
+</svg>
+</div>
+<p class="svg-caption">图5：四方闭合 + 证据栈。上排是每里程碑的人/角色流程（coder → reviewer 独立重建 → lead 亲核 → 对抗实验）；下排是支撑结论的可证伪工具（co_symbols / poison-pad / 离线校验器 / reverse-proof）。下文逐条展开。</p>
+<div class="card">
+<ul>
+<li><strong>kernel-design-rocm skill</strong>：task contract + <strong>draft 闸门</strong> + 每候选对拍验证 + 证据 workspace（candidates.jsonl / benchmark.csv / profile/ / runs/）。</li>
+<li><strong>分阶段 + 硬检查点</strong>：复杂里程碑先证「重构本身零回归」（如 M7b/M7c/cross/M8 的 Stage 1 后必停），lead 亲核放行才进下一阶段。</li>
+<li><strong>四方闭合</strong>：coder 实现 + reviewer 独立重建复核 + lead 亲核 + 对抗实验（reverse-proof / formula-revert）。</li>
+<li><strong>零回归铁证</strong>：<code>co_symbols.py</code> 逐设备符号 byte-identity（gfx950 code object 反汇编 sha256）；MI/纯加性改动须 byte-identical，behavior 改动须 surgical（仅目标符号变）。</li>
+<li><strong>silent-wrong 正向证</strong>：poison-pad（NaN 填 pad 尾，泄漏即 FAIL）证 OOB 归零；离线穷举 superset 校验器（<code>validate_tile_range_y</code>，~2M checks）证收紧不漏梯度——<strong>比对拍更早更硬</strong>，M8 中抓到 2 个对拍可能漏的 under-tighten bug。</li>
+<li><strong>对抗 reverse-proof</strong>：故意篡改令测试/校验器 FAIL，证检查非 vacuous（cross 的 mask→self、M8 的破坏收紧）。</li>
+<li><strong>ultracode 混合编排</strong>：设计阶段用 Workflow 多 agent 并行分析 + critique 广度；实现阶段用 tmux pane 有状态 + 跨多轮 build 的连续性。</li>
+</ul>
+</div>
+
+<h2>五、关键教训</h2>
+<ul>
+<li><strong>测试覆盖洞</strong>：bug P1-1 漏测因矩阵只测「对角线」；新特性须 causal×因子 交叉覆盖。M6b 又一次：「同组多 batch 异 seqlen + 长 batch 大 target」漏覆盖致一格 FAIL。</li>
+<li><strong>silent-wrong 比 throw 危险</strong>：未支持组合不 throw 会静默算错；要么对拍/穷举覆盖，要么显式 throw（M7b/c 的 guard、cross 的 target_in_kv）。</li>
+<li><strong>下 bug 定性前找 owner 核实</strong>：曾把上游 fwd 默认推导误判 bug，核实为用法约定（HANDOFF §6）；后又实测上游 <code>5204dc75</code> 的 num_targets 修复因 <code>*</code>/<code>+</code> 笔误仍不对。</li>
+<li><strong>改有未提交改动的文件别 <code>git checkout</code></strong>（M7c N3 事故）；做对抗实验用独立 worktree + cp。</li>
+<li><strong>perf 模型会高估</strong>：[derived] 模型受 Amdahl 限，实测多少记多少（M8 causal 1.6× vs 模型 1.9×、window ~10× vs 22×）。</li>
+<li><strong>workflow 综合 agent 会幻觉</strong>路径/行号（如把测试驱动写成不存在的 <code>scripts/</code>）；综合产物 lead 必核事实。</li>
+</ul>
+
+<h2>六、git 里程碑链</h2>
+<div class="chain">
+418e36ec（M0–M4b）→ 4bfb8e08（merge fwd LSE）→ b0c08cba（集成）→ aced5784（M5）→ dc8c6b21（M5b）→ c79d3296（M6）→ d4fb2884（M6b）→ bf82a1d2（M7a fp16）→ 1ae97750（M7b symmetric hdim）→ 17515fcc（M7c asym/非典范 hdim via pad）→ 4629508f（cross-attention）→ 048f0a9a（M8 perf MI+B2+B3）
+</div>
+
+<h2>七、后续候选</h2>
+<ul>
+<li><strong>M8 剩余</strong>：B1 group entry TU 拆分（治 14min 单 TU build 瓶颈，build-time 安全赢）；B6 trload（深、不确定）；近似 sigmoid（SiLU 快赢，精度权衡）。占用率类（B4/B7）已判低 ROI。</li>
+<li><strong>功能 out-of-scope 项</strong>：target_in_kv（cross targets 在 KV 侧）、独立 dO layout（cross R7）、非方形 tile（bhdq≠bhdv）。</li>
+</ul>
+
+<div class="foot">
+  HSTU bwd 全程实现总览 · 截至 <code>048f0a9a</code>（2026-06-15）· 活的状态以 <code>/root/workspace/hstu-bwd-impl/docs/HANDOFF.md</code> 为准 · 证据 candidates.jsonl / benchmark.csv / runs/ / profile/。
+</div>
+</div>
+</body>
+</html>

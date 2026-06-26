@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M8（perf：MI + B2 + B3）代码改动 review</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M8 代码改动 review</div>
+  <h1>HSTU Attention Backward — M8（perf）：先量后砍，把 MAIN 浪费的 q-tile 扫描收紧</h1>
+  <p class="subtitle">M8 是性能优化首轮，scope（lead 闸门裁决）= <strong>MI（测量基建）+ B2（causal 紧致化）+ B3（window/local 紧致化）</strong>。核心：MAIN dqdkdv kernel 的 <code>GetTileRangeAlongY</code> 此前保守全扫 <code>(0,seqlen)</code>，B2/B3 按 mask 结构把 q-loop 收紧到真实 attending 行范围。所有引用以 <code>git show a86529dc:&lt;file&gt;</code> 行号为准。</p>
+  <div class="audience">读者：要 review 这套 bwd 性能优化的工程师（profiling 立靶 → 收紧 → 四方验证，按此顺序读）</div>
+</header>
+
+<div class="layout">
+<main>
+
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M8</div>
+  <p class="lede">rocprofv3 实测：MAIN dqdkdv 占 bwd wall-time <strong>84–90%</strong>，矩阵核闲 ~90%（MfmaUtil 9.9%），<strong>非 memory-bound</strong>（MemUnitStalled 0.024%）→ 瓶颈是浪费的 q-tile 迭代。M8 先建<strong>零设备码改动</strong>的测量基建（MI，behind <code>-perf</code>），再据此把 <code>GetTileRangeAlongY</code> 从全扫收紧：<strong>B2 causal</strong> MAIN 提速 1.25–1.60×，<strong>B3 window/local</strong> 提速 4.7–9.8×（窄窗最高）。</p>
+  <p>关键一笔：离线穷举校验器在 B3 <strong>抓到并修了 2 个真 silent-wrong</strong>（under-tighten），修后 1,973,278 checks 全绿——离线 gate 比对拍更早、更硬地挡下错误。</p>
+  <div class="badges">
+    <span class="badge info">+438 / −85 · 6 文件改动</span>
+    <span class="badge ok">MI 设备符号 byte-identical（零回归）</span>
+    <span class="badge ok">套件 253/253 exit 0</span>
+    <span class="badge gate">占用率类（B4/B7）profiling 证伪 / 暂缓</span>
+  </div>
+  <div class="statgrid">
+    <div class="stat"><div class="v">84–90%</div><div class="l">MAIN 占 bwd wall-time</div></div>
+    <div class="stat"><div class="v">1.60×</div><div class="l">B2 causal MAIN 峰值</div></div>
+    <div class="stat"><div class="v">9.8×</div><div class="l">B3 window MAIN 峰值</div></div>
+    <div class="stat"><div class="v">1,973,278</div><div class="l">校验器 checks 全绿</div></div>
+  </div>
+</div>
+
+<section id="s1">
+  <h2>1&nbsp;&nbsp;总览：M8 到底改了什么</h2>
+  <p class="lede">一句话：<strong>先量（MI）、再砍（B2/B3）、用离线穷举 gate 兜底</strong>。</p>
+  <div class="callout-grid">
+    <div class="callout clay"><div class="k">立靶</div><div class="t">profiling 锁定瓶颈</div><div class="d">MAIN 占 wall-time <strong>84–90%</strong>、矩阵核闲 ~90%、非 memory-bound → 靶就是浪费的 q-tile 扫描（<code>GetTileRangeAlongY</code> 保守全扫）。</div></div>
+    <div class="callout"><div class="k">测量</div><div class="t">MI 测量基建</div><div class="d">新 <code>hstu_attention_bwd_perf.hpp</code> 唯一计时原语 <code>time_op</code>；perf 字段纯 host、不进 MakeKargs → <strong>设备码字节不变</strong>。</div></div>
+    <div class="callout"><div class="k">收紧</div><div class="t">B2 causal + B3 window</div><div class="d"><code>hstu_block_masking.hpp</code> 4 个 <code>GetTileRangeAlongY</code> 按 mask 结构收 q-loop：causal 1.25–1.60×、window 4.7–9.8×。</div></div>
+    <div class="callout"><div class="k">兜底</div><div class="t">离线穷举校验器</div><div class="d">superset 校验在 B3 抓到 2 个 under-tighten silent-wrong，修后 <strong>1.97M checks 全绿</strong>。</div></div>
+  </div>
+  <div class="note-block clay"><strong>M8 最易错处：</strong>&nbsp;<code>GetTileRangeAlongY</code> 返回的 <code>[y_start, y_end)</code> 必须是真实 attending 行集合的 <strong>YTile（kM0）对齐的 SUPERSET</strong>。每个被访问 tile 内部仍有 per-pixel <code>IsTokenPairInsideMask</code> 逐元素清零，所以「多扫」只损失性能；但只要范围<strong>漏掉</strong>任何一个真 attending 行，就是 <em>silent-wrong</em>——结果错却不报错、对拍能侥幸躲过。这正是 B3 两个 bug 的形态，也是离线穷举校验器存在的理由。</div>
+</section>
+
+<section id="s2">
+  <h2>2&nbsp;&nbsp;最佳阅读顺序</h2>
+  <p class="lede">按「<strong>立靶 → 计时原语 → host 字段 → dispatch 接线 → harness 驱动 → mask 收紧 → 离线 gate</strong>」读：先理解为什么砍 q-loop 是对的靶，再看测量基建怎么做到零设备码改动，最后看真正的收紧战场与它的安全网。</p>
+
+  <div class="svg-wrap">
+  <svg viewBox="0 0 940 260" width="100%" role="img" aria-label="M8 阅读顺序依赖流">
+    <defs>
+      <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#87867F"/></marker>
+    </defs>
+    <g font-size="12">
+      <!-- row 1: MI chain -->
+      <rect x="14"  y="20" width="150" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="89" y="42" text-anchor="middle" fill="#141413" font-weight="700">① perf.hpp</text>
+      <text x="89" y="60" text-anchor="middle" fill="#87867F">time_op 计时原语</text>
+
+      <rect x="210" y="20" width="150" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="285" y="42" text-anchor="middle" fill="#141413" font-weight="700">② params.hpp</text>
+      <text x="285" y="60" text-anchor="middle" fill="#87867F">host-only perf 字段</text>
+
+      <rect x="406" y="20" width="160" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="486" y="42" text-anchor="middle" fill="#141413" font-weight="700">③ dispatch ×2</text>
+      <text x="486" y="60" text-anchor="middle" fill="#87867F">PRE/memset/MAIN/POST 包 time_op</text>
+
+      <rect x="612" y="20" width="160" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="692" y="42" text-anchor="middle" fill="#141413" font-weight="700">④ harness</text>
+      <text x="692" y="60" text-anchor="middle" fill="#87867F">-perf envelope + FLOPS</text>
+
+      <line x1="164" y1="47" x2="208" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="360" y1="47" x2="404" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="566" y1="47" x2="610" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- down -->
+      <line x1="692" y1="74" x2="692" y2="120" stroke="#87867F" marker-end="url(#ar)"/>
+      <text x="715" y="100" fill="#87867F" font-size="10">量出 MAIN=瓶颈</text>
+
+      <!-- row 2: tightening -->
+      <rect x="560" y="122" width="212" height="60" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="666" y="146" text-anchor="middle" fill="#141413" font-weight="700">⑤ block_masking.hpp</text>
+      <text x="666" y="164" text-anchor="middle" fill="#87867F">B2 NoLocal + B3 WithLocal</text>
+      <text x="666" y="177" text-anchor="middle" fill="#87867F">GetTileRangeAlongY 收紧</text>
+
+      <line x1="560" y1="152" x2="406" y2="152" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- gate -->
+      <rect x="190" y="122" width="216" height="60" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="298" y="146" text-anchor="middle" fill="#141413" font-weight="700">⑥ 离线穷举校验器</text>
+      <text x="298" y="164" text-anchor="middle" fill="#87867F">superset gate · 抓 2 bug</text>
+      <text x="298" y="177" text-anchor="middle" fill="#87867F">1.97M checks GREEN</text>
+
+      <!-- down to verify -->
+      <line x1="298" y1="182" x2="298" y2="218" stroke="#87867F" marker-end="url(#ar)"/>
+      <rect x="120" y="220" width="360" height="34" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="300" y="241" text-anchor="middle" fill="#141413" font-weight="700">⑦ 四方闭合：byte-identical · 253/253 · co_symbols · 加速复现</text>
+    </g>
+  </svg>
+  </div>
+  <p class="svg-caption">读法：①②③④ 橙=MI 链（先量），⑤ 橙=收紧战场（再砍），⑥⑦ 绿=安全网与验证（兜底）。MI 的产物（量出 MAIN 是瓶颈）正是 B2/B3 的输入。</p>
+
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>#</th><th>文件</th><th>读它回答的问题</th><th>重点行</th><th>类别</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>hstu_attention_bwd_perf.hpp</code></td><td>唯一计时原语 <code>time_op</code> 怎么做到 measure=false 时<strong>零额外行为</strong></td><td><code>:30-45</code></td><td><span class="tag tag-new">新增</span></td></tr>
+      <tr><td>2</td><td><code>hstu_attention_bwd_params.hpp</code></td><td>perf 字段为何<strong>纯 host</strong>、不进 MakeKargs</td><td><code>:111-120</code> / <code>:210-214</code></td><td><span class="tag tag-mod">改动</span></td></tr>
+      <tr><td>3</td><td><code>...batched_backward_dispatch.hpp</code><br><code>...group_backward_dispatch.hpp</code></td><td>PRE/memset/MAIN/POST 各 launch 如何包 <code>time_op</code></td><td>batched <code>:24/:77/:90/:101/:300</code></td><td><span class="tag tag-mod">改动</span></td></tr>
+      <tr><td>4</td><td><code>example_hstu_attention_bwd.cpp</code></td><td><code>-perf</code> 怎么出 envelope + per-kernel + 5-GEMM TFLOPS</td><td><code>:135</code> / <code>:624-674</code></td><td><span class="tag tag-mod">改动</span></td></tr>
+      <tr><td>5</td><td><code>hstu_block_masking.hpp</code></td><td>B2/B3 如何把 <code>GetTileRangeAlongY</code> 从全扫收紧（<strong>主战场</strong>）</td><td>4× <code>:278 / :580 / :797 / :970</code></td><td><span class="tag tag-mod">改动</span></td></tr>
+      <tr><td>6</td><td><code>test/validate_tile_range_y.cpp</code> <span class="src">(测试工件，本 commit 外)</span></td><td>superset 离线 gate 怎么抓 silent-wrong</td><td>见 §3⑥</td><td><span class="tag tag-reuse">gate</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block"><strong>说明：</strong>&nbsp;commit <code>a86529dc</code> 含 <strong>6 个</strong>库内/harness 文件（<code>git show --stat a86529dc</code>，+438/−85）。离线校验器 <code>test/validate_tile_range_y.cpp</code>、驱动 <code>test/run_perf_baseline.py</code>、<code>benchmark.csv</code> 是 M8 的真实工件（见 <code>M8-done.md</code>），但不在本 commit 树内——故本文对它们只引用<strong>结论与数值（有出处）</strong>，不给 <code>:行号</code>。</div>
+</section>
+
+<section id="s3">
+  <h2>3&nbsp;&nbsp;逐文件 review（为什么这样改）</h2>
+
+  <h3>① hstu_attention_bwd_perf.hpp — 唯一计时原语 <span class="tag tag-new">新增</span></h3>
+  <ul>
+    <li><code>:30</code> <code>time_op(bool measure, stream, Fn&amp;&amp; fn, cold=3, nrep=10)</code> 是 bwd dispatch <strong>唯一</strong>的计时入口，PRE/memset/MAIN/POST 四段都走它 → per-kernel 归因口径统一。</li>
+    <li><code>:32-37</code> <strong>measure==false 走裸路径</strong>：<code>fn()</code> 只调一次、返回 0，host 行为与「没有 MI」的裸 launch byte-identical。这是不给 <code>-perf</code> 时套件 253/253 与设备码零回归的根基。</li>
+    <li><code>:39-44</code> measure==true：<code>cold</code> 次 warmup → <code>ck_tile::gpu_timer</code>（hipEvent）包 <code>nrep</code> 次 → 返回 mean per-launch ms。</li>
+    <li>头注释（<code>:15-24</code>）写明 measure==false <strong>从不碰设备码</strong>（kernel 模板 / kargs 不变）→ 生成的 gfx950 设备符号 byte-identical（co_symbols 零回归 gate 的依据）。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_perf.hpp:30-45 — 唯一计时原语 time_op</span><span class="kw">template</span> &lt;<span class="kw">typename</span> Fn&gt;
+<span class="kw">inline float</span> <span class="fn">time_op</span>(<span class="kw">bool</span> measure, hipStream_t stream, Fn&amp;&amp; fn, <span class="kw">int</span> cold = <span class="hl">3</span>, <span class="kw">int</span> nrep = <span class="hl">10</span>)
+{
+    <span class="kw">if</span>(!measure)
+    {
+        <span class="fn">fn</span>();              <span class="cm">// 裸 launch：只跑一次，host 行为与无-MI 完全相同</span>
+        <span class="kw">return</span> <span class="hl">0.f</span>;
+    }
+    <span class="kw">for</span>(<span class="kw">int</span> i = 0; i &lt; cold; ++i)
+        <span class="fn">fn</span>();              <span class="cm">// warmup</span>
+    ck_tile::gpu_timer timer{};
+    timer.<span class="fn">start</span>(stream);
+    <span class="kw">for</span>(<span class="kw">int</span> i = 0; i &lt; nrep; ++i)
+        <span class="fn">fn</span>();
+    timer.<span class="fn">stop</span>(stream);
+    <span class="kw">return</span> timer.<span class="fn">duration</span>() / <span class="kw">static_cast</span>&lt;<span class="kw">float</span>&gt;(nrep);  <span class="cm">// mean per-launch ms</span>
+}</div>
+
+  <h3>② hstu_attention_bwd_params.hpp — host-only perf 字段 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:111-120</code>（NoGroup struct，<code>:17</code> 起）新增 <code>measure_perf</code> + <code>perf_{pre,memset,main,post}_ms</code>。<strong>关键铁律</strong>：注释（<code>:111-116</code>）明示这些字段 <em>HOST-ONLY；NOT passed to MakeKargs</em>——它们只在 host 侧 dispatch 里读，永不进 kernel kargs，所以设备符号 byte-identical。</li>
+    <li><code>:117 measure_perf=false</code> 默认关；<code>:120 perf_main_ms</code> 注明是瓶颈、B2/B3 的优化目标。</li>
+    <li><code>:210-214</code>（Group struct，<code>:131</code> 起）镜像同一组字段——batched / group 两路径同口径。</li>
+  </ul>
+  <div class="note-block olive"><strong>为什么字段加在 params 而非新结构？</strong>&nbsp;延续 M0 立的军令状——params 是 host↔device 契约。把 perf 做成 <em>host-only 尾段字段</em>，既复用既有传参通道（dispatch 直接读 <code>param.measure_perf</code>），又因不进 MakeKargs 而对 device 完全透明。这是「测量基建不碰设备码」能成立的结构前提。</div>
+
+  <h3>③ batched / group backward dispatch — PRE/memset/MAIN/POST 包 time_op <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li>两个 dispatch 都 <code>:24 #include "hstu_attention_bwd_perf.hpp"</code>。</li>
+    <li>batched：<code>memset :77</code>、<code>MAIN :90</code>、<code>POST :101</code>、<code>PRE :300</code> 各把原 launch 包进 <code>hstu_bwd_perf::time_op(param.measure_perf, stream, [&amp;]{ ... })</code>，结果写回对应 <code>param.perf_*_ms</code>。</li>
+    <li>group dispatch 同形：<code>memset :97</code>、<code>MAIN :110</code>、<code>POST :120</code>、<code>PRE :258</code>。</li>
+    <li><code>measure_perf=false</code> 时 <code>time_op</code> 退化为单次裸调用 → dispatch 行为与改动前等价（这是 253/253 与 co_symbols 零回归的运行时保证）。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_batched_backward_dispatch.hpp:90-100 — MAIN launch 包 time_op</span>param.perf_main_ms = hstu_bwd_perf::<span class="fn">time_op</span>(param.measure_perf, stream, [&amp;] {
+    <span class="cm">// stream_config{stream,false}; warmup+repeat 由 time_op 负责</span>
+    <span class="cm">// ... 原 MAIN dqdkdv kernel launch（设备码一字未改）...</span>
+});</div>
+
+  <h3>④ example_hstu_attention_bwd.cpp — -perf 驱动 + envelope + 5-GEMM FLOPS <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:135</code> 新增 CLI flag <code>perf</code>（默认 "0"）；<code>:200 measure_perf = arg_parser.get_int("perf")</code>。<strong>behind flag</strong>：默认关，套件路径不受影响。</li>
+    <li><code>:624</code> 起的 measure 分支：<strong>envelope</strong> = 整个 bwd（PRE+memset+MAIN+POST）warmup+repeat（<code>:650 measure_perf=false</code> 走未插桩路径计整体）；<strong>per-kernel</strong> = 一次 <code>:661 measure_perf=true</code> 的 dispatch 填 <code>perf_*_ms</code>。</li>
+    <li><code>:632-646</code> <strong>5-GEMM FLOP 模型</strong>（GEMM-only，忽略 elementwise）：jagged 按 seqlen 逐 batch 累加、batched 按 phy_seqlen 算，再 ×num_head。</li>
+    <li><code>:667-674</code> 统一打印 <code>PERF kernel=.. metric=.. value=..</code>（envelope/PRE/memset/MAIN/POST time_ms + envelope/MAIN TFLOPS + total_gemm_flops），供 <code>run_perf_baseline.py</code> 解析进 <code>benchmark.csv</code>。</li>
+  </ul>
+  <div class="note-block"><strong>per-kernel 与独立 profile 互证：</strong>&nbsp;<code>-perf</code> 量到的 canonical MAIN 0.263ms、envelope 87% 与独立 rocprofv3 profile（MAIN 266us、87.6%）吻合；连 SiLU 26% 异常（silu/softmax=1.27×）也复现（出处 <code>M8-done.md</code> MI 节）。</div>
+
+  <h3>⑤ hstu_block_masking.hpp — GetTileRangeAlongY 收紧（主战场，+178 行）<span class="tag tag-mod">改动</span></h3>
+  <p>4 个 mask 结构各有一个 <code>GetTileRangeAlongY</code>：cross/self × WithLocal/NoLocal。它返回 KV-block <code>[i_x, i_x+XTile)</code> 所对应的 Q-row 范围 <code>[y_start, y_end)</code>（即 <code>GetTileRangeAlongX</code> 的转置），决定 MAIN 的 q-loop 扫多少 tile。M8 前一律返回 <code>(0, seqlen)</code> 全扫。</p>
+
+  <h4>B2 — NoLocal causal（self <code>:970</code> / cross <code>:797</code>）</h4>
+  <ul>
+    <li>非 causal（<code>!IsMasking</code>，含 P1-1 num_target）= 全注意力，<strong>原样返回 <code>(0,seqlen)</code></strong>——已是精确，不动。</li>
+    <li>causal：列 c 被行 r≥c 注意，故 KV-tile 最小列 <code>i_x</code> 最早被行 <code>i_x</code> 命中 → <code>y_start = align_down(i_x)</code>（self 无 q/k 偏移）。</li>
+    <li>contextual 行 [0,ctx) 注意所有 uih 列：tile 触到 uih 区（<code>i_x &lt; max_uih_len</code>）时由行 0 命中 → <code>y_start=0</code>。</li>
+    <li><code>y_end = seqlen</code>（target 行已在 <code>[i_x, seqlen)</code> 内，安全上界）。实测 MAIN <strong>1.25–1.60×</strong>。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_block_masking.hpp:972-997 — NoLocal self（B2 最干净示例）</span><span class="kw">if constexpr</span>(!IsMasking)
+{
+    <span class="cm">// 非 causal：每 Q 行注意每 K 列 -> 范围已精确</span>
+    <span class="kw">return</span> ck_tile::<span class="fn">make_tuple</span>(<span class="hl">0</span>, seqlen);
+}
+<span class="kw">else</span>
+{
+    index_t y_start;
+    <span class="kw">if</span>(contextual_seqlen &gt; 0 &amp;&amp; i_x &lt; max_uih_len)
+        y_start = <span class="hl">0</span>;                       <span class="cm">// contextual 行注意全部 uih 列</span>
+    <span class="kw">else</span>
+        y_start = i_x - i_x % YTile;       <span class="hl">// align_down 到 Q tile（self 无偏移）</span>
+    <span class="kw">return</span> ck_tile::<span class="fn">make_tuple</span>(y_start, seqlen);
+}</div>
+
+  <h4>B3 — WithLocal window/local（self <code>:580</code> / cross <code>:278</code>）</h4>
+  <ul>
+    <li>窗口双边带：causal 行∈[col, col+W]；非 causal [col−W, col+W]（W=<code>max_attn_len</code>）。cross 还要叠 <code>diff_q_kv_len</code> 偏移。</li>
+    <li>contextual：<code>y_start=0</code> 且 floor <code>y_end ≥ contextual_seqlen</code>；target/min_full 行：<code>y_end=seqlen</code>。</li>
+    <li>实测 MAIN <strong>4.7–9.8×</strong>，窄窗最高（window16 ~9.8×）。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_block_masking.hpp:278-303 — WithLocal cross（B3，含两处 bug 修复）</span><span class="kw">const</span> index_t W = max_attn_len;
+<span class="kw">const bool</span> ctx_rows = (contextual_seqlen &gt; 0 &amp;&amp; i_x &lt; max_k_uih_len);
+index_t y_start;
+<span class="kw">if</span>(ctx_rows) { y_start = <span class="hl">0</span>; }
+<span class="kw">else</span> {
+    <span class="cm">// causal 下沿=对角线(r=col-diff)；非causal 下沿=col-W-diff</span>
+    index_t lo = kUseCausal ? (i_x - diff_q_kv_len)
+                            : (min(i_x, max_k_uih_len) - W - diff_q_kv_len);
+    <span class="hl">// 【bug#1 修复】非 causal min_full 行注意所有列 -> 下沉 y_start</span>
+    <span class="kw">if</span>(!kUseCausal &amp;&amp; min_full_attn_seqlen &gt; 0) {
+        <span class="kw">const</span> index_t mf_lo = max_q_uih_len - min_full_attn_seqlen;
+        <span class="kw">if</span>(mf_lo &lt; lo) lo = mf_lo;
+    }
+    <span class="kw">if</span>(lo &lt; 0) lo = 0;
+    y_start = lo - lo % YTile;             <span class="cm">// align_down</span>
+}</div>
+
+  <div class="gate-banner"><strong>★ 离线校验器在 B3 抓到 2 个真 under-tighten silent-wrong（未上 GPU 就拦下）：</strong>
+    <br>① <strong>非 causal + min_full</strong>：min_full 行（row≥max_id−mf）注意<em>所有</em>列，在非 causal 下落在窗口带下沿<em>之下</em>（物理起点 <code>max_uih_len−mf</code>），最初只在 y_end 处理 → 漏。修：非 causal WithLocal 把 <code>y_start</code> 下沉到 <code>max_uih_len−mf</code>（上方代码 bug#1；causal 不受影响，min_full 仍需 row≥col）。
+    <br>② <strong>cross causal 大 diff + contextual</strong>：diff 大时窗口带映射出界（y_end 被 clamp 到 0），但 contextual 行 [0,ctx) 仍 attend → 漏。修：contextual 分支 floor <code>y_end ≥ contextual_seqlen</code>。
+    <br>→ 修后 <strong>1,973,278 checks ALL GREEN</strong>。<span class="src">(出处：M8-done.md)</span></div>
+
+  <h3>⑥ test/validate_tile_range_y.cpp — 离线穷举 superset gate <span class="tag tag-reuse">gate</span> <span class="src">(测试工件，本 commit 外)</span></h3>
+  <ul>
+    <li><strong>为什么离线 gate 比对拍硬</strong>：对拍只覆盖跑到的 shape/随机数据，under-tighten 可能侥幸躲过；校验器对每个 KV-tile 穷举枚举真实 attending 行集合，断言 <code>GetTileRangeAlongY</code> 返回的范围是其 <strong>YTile 对齐 superset</strong>——一旦漏行立即 FAIL，比 GPU 跑早、比对拍硬。</li>
+    <li>B2+B3 扩到 cross + WithLocal + 2 种 tile 形状后 <strong>1,973,278 checks ALL GREEN</strong>；reverse-proof：故意破坏一处收紧 → 校验器 FAIL，证明它<strong>非 vacuous</strong>（不是永远 PASS 的空壳）。</li>
+    <li>上面两个 bug 正是它抓出来的——这是 M8 的硬价值：把 silent-wrong 挡在 GPU 之外。<span class="src">(出处：M8-done.md / commit message)</span></li>
+  </ul>
+
+  <h4>MAIN 加速汇总（bf16, batched, causal, seqlen=2048, per-kernel MAIN time_ms）</h4>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>config</th><th>MI 基线</th><th>B2</th><th>B3</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>canonical softmax hd64</td><td>0.2632</td><td><strong>0.2027 (1.30×)</strong></td><td>0.2030</td><td>B2 收割 causal；B3 不动 NoLocal</td></tr>
+      <tr><td>canonical silu hd64</td><td>0.3327</td><td><strong>0.2085 (1.60×)</strong></td><td>0.2084</td><td></td></tr>
+      <tr><td>hd256 softmax</td><td>1.0325</td><td><strong>0.7673 (1.35×)</strong></td><td>0.7740</td><td></td></tr>
+      <tr><td>hd256 silu</td><td>0.9709</td><td><strong>0.7762 (1.25×)</strong></td><td>0.7779</td><td></td></tr>
+      <tr><td>window256 softmax</td><td>0.2992 (全扫)</td><td>0.2994 (不动)</td><td><strong>0.0635 (4.71×)</strong></td><td>B3 收割 window</td></tr>
+      <tr><td>window256 silu</td><td>0.4193</td><td>0.4192</td><td><strong>0.0840 (4.99×)</strong></td><td></td></tr>
+      <tr><td>window64 softmax/silu</td><td>0.2992/0.4193</td><td>—</td><td><strong>0.0362/0.0468 (8.3×/9.0×)</strong></td><td>窄 window 赢更多</td></tr>
+      <tr><td>window16 softmax/silu</td><td>0.2992/0.4193</td><td>—</td><td><strong>0.0318/0.0430 (9.4×/9.8×)</strong></td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="src">window 的 "before" = MI 全扫基线；全扫 MAIN 与 window 大小无关，故各 window 档共用 window256 基线。出处：benchmark.csv / M8-done.md。</p>
+
+  <div class="note-block clay"><strong>诚实归因（Amdahl，实测 &lt; 模型）：</strong>&nbsp;B2 causal 实测 1.25–1.60×，<em>低于</em> draft [derived] ~1.9×——收紧只砍 MAIN 内 q-tile 循环数；每 KV-block 的 K/V load、atomic dq_acc 写流量、kernel 启动开销<strong>不随之减半</strong>，Amdahl 限制 &lt; 2×。B3 window 实测 4.7–9.8×，<em>低于</em> [derived] ~22×：窄窗时 MAIN 已极小（window16 MAIN 0.032ms &lt; PRE 0.025ms），MAIN 不再是瓶颈，envelope 被 PRE/启动开销主导。<strong>实测多少记多少，不吹模型数。</strong></div>
+</section>
+
+<section id="s4">
+  <h2>4&nbsp;&nbsp;设计动机小结</h2>
+  <ol>
+    <li><strong>先量后砍，靶要 profiling 立</strong>：rocprofv3 量出 MAIN 占 84–90%、矩阵核闲 ~90%、非 memory-bound，才确认「砍浪费的 q-tile 扫描」是对的靶——不靠直觉优化。</li>
+    <li><strong>测量基建不碰设备码</strong>：<code>time_op</code>（<code>perf.hpp:30</code>）measure=false 退化裸 launch + perf 字段 host-only 不进 MakeKargs（<code>params:111-116</code>）→ 设备符号 byte-identical，MI 自身零回归。</li>
+    <li><strong>收紧只改范围、不改正确性</strong>：每个 tile 内 per-pixel mask 照常清零，<code>GetTileRangeAlongY</code> 只需返回真实 attending 集合的 YTile 对齐 superset——把「收紧」与「掩码语义」解耦。</li>
+    <li><strong>离线穷举 gate &gt; 对拍</strong>：superset 校验穷举所有 tile，比对拍更早更硬地挡 under-tighten silent-wrong；B3 两个真 bug 即被它抓出（1.97M checks GREEN + reverse-proof 非 vacuous）。</li>
+    <li><strong>诚实归因，不吹模型</strong>：实测低于 [derived] 模型就照实记并用 Amdahl 解释（K/V load + atomic 写 + 启动开销不随 q-loop 同比缩）。</li>
+  </ol>
+</section>
+
+<section id="s5">
+  <h2>5&nbsp;&nbsp;遗留 / 边界（M8 明确不做）</h2>
+  <p class="lede">占用率类经 profiling 证伪 / 低 ROI 暂缓——M8 只做 runtime 真赢的 MI+B2+B3。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>暂缓项</th><th>为什么不做（profiling 依据）</th><th>归宿</th></tr></thead>
+    <tbody>
+      <tr><td><strong>B4</strong> grid widening</td><td>"grid starvation 根因" 被实测证伪：256× 超额订阅<em>非</em>饥饿，依据作废</td><td>后续 / 已否</td></tr>
+      <tr><td><strong>B7</strong> hd256 occupancy / VGPR</td><td>VGPR 真值 248（rocprofv3 报半值 124）；MAIN 实为 <strong>VALU/SFU-bound</strong>（VALUBusy 41% ≫ MfmaUtil 18%），提 occupancy 需同砍 VGPR&lt;170+LDS&lt;21KB，要 tile 重设计，低 ROI</td><td>后续</td></tr>
+      <tr><td><strong>B1</strong> group TU split</td><td>build-axis 优化，可日后并行，不影响 runtime</td><td>后续</td></tr>
+      <tr><td><strong>B6</strong> trload</td><td>高风险高工，本期不碰</td><td>后续</td></tr>
+      <tr><td>近似 sigmoid（SiLU 26%）</td><td>根因 = sigmoid 本质需 exp+rcp 两超越运算（softmax 单 exp2），<code>sig</code> 已 CSE，非 bug；近似式有精度/对拍风险</td><td>后续（精度权衡）</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block"><strong>真限制器（INV 定论）：</strong>&nbsp;per-block LDS/VGPR 在 2 blocks/CU 处 co-limit（非 grid 数）；MemUnitStalled=0.024%（非 memory-bound）。占用率本期不碰，更高 ROI 的方向是降 VALU/transcendental 工作量。<span class="src">(出处：M8-INV-findings.md)</span></div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 总览</a>
+  <a href="#s2">2 最佳阅读顺序</a>
+  <a href="#s3">3 逐文件 review</a>
+  <a href="#s3" class="sub">①perf ②params ③dispatch</a>
+  <a href="#s3" class="sub">④harness ⑤masking(B2/B3)</a>
+  <a href="#s3" class="sub">⑥校验器 + 加速表</a>
+  <a href="#s4">4 设计动机小结</a>
+  <a href="#s5">5 遗留 / 边界</a>
+</nav>
+
+</div><!-- /layout -->
+</div><!-- /page -->
+</body>
+</html>

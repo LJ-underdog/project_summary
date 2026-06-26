@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Attention Backward 到底要从 Forward 存哪些副产物？</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 740px; margin-bottom: 10px; }
+p { max-width: 740px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 800px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 820px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+.formula-block .line.hl { background: var(--clay-lt); border-radius: 4px; padding: 2px 6px; margin: 0 -6px; }
+em { font-style: italic; color: var(--slate); }
+strong { color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 900px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compare-table th.fmha-col { background: var(--clay-lt); color: var(--clay); }
+table.compare-table th.hstu-col { background: var(--olive-lt); color: var(--olive); }
+table.compare-table td:nth-child(3) { background: rgba(217,119,87,.03); }
+table.compare-table td:nth-child(4) { background: rgba(120,140,93,.04); }
+table.compare-table td:first-child { font-weight: 600; color: var(--slate); white-space: nowrap; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 900px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 820px; }
+.note-block strong { color: var(--slate); }
+.note-block.silu { border-left-color: var(--olive); background: var(--olive-lt); }
+.note-block.softmax { border-left-color: var(--clay); background: var(--clay-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 940px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.fmha { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.fmha .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.bigcallout { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--clay); border-radius: 12px; padding: 18px 22px; margin: 16px 0; max-width: 820px; }
+.bigcallout .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--clay); margin-bottom: 8px; font-weight: 600; }
+.bigcallout p { font-size: 14px; color: var(--slate); }
+.bigcallout p + p { margin-top: 8px; }
+.qa { display: flex; flex-direction: column; gap: 14px; max-width: 820px; }
+.qa .item { background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 10px; padding: 14px 18px; }
+.qa .q { font-weight: 600; color: var(--slate); font-size: 14.5px; margin-bottom: 6px; }
+.qa .q::before { content: 'Q '; color: var(--clay); font-family: var(--mono); }
+.qa .a { font-size: 13.5px; color: var(--gray-700); }
+.qa .a::before { content: 'A '; color: var(--olive); font-family: var(--mono); font-weight: 600; }
+.qa .a code { font-size: 12px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-fmha { background: var(--clay-lt); color: var(--clay); }
+.tag-hstu { background: var(--olive-lt); color: var(--olive); }
+code { font-family: var(--mono); }
+p code, li code { font-size: 12.5px; background: var(--gray-150); padding: 1px 5px; border-radius: 4px; color: var(--slate); }
+svg { display: block; margin: 18px auto 4px; max-width: 100%; height: auto; }
+svg text { font-family: var(--mono); }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -2px auto 18px; max-width: 760px; }
+.fig-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 12px 12px 4px; margin: 18px 0; }
+ul.clean { max-width: 760px; margin: 8px 0 14px; padding-left: 22px; font-size: 14px; }
+ul.clean li { margin-bottom: 6px; }
+.legend { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 4px 0 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<div style="background:#FBEEE9;border:1px solid #D97757;border-radius:10px;padding:14px 18px;margin:0 0 28px;font-size:14px;color:#3D3D3A;line-height:1.6;">
+  <strong>【历史快照 · 2026-06-02】部分内容已被后续里程碑取代。</strong> 本文 §6「kStoreLSE 开关暂关 / GPU 反向还没上线」的快照<strong>已过时</strong>：softmax GPU 反向已于 M5（<code>aced5784</code>）/ M5b（<code>dc8c6b21</code>）落地，harness 现接 fwd 存 LSE 喂 bwd softmax。saved-tensors 的数学论述仍有效。当前状态见
+  <a href="hstu-bwd-overview-20260615.html" style="color:#D97757;">实现总览</a> 与 <code>docs/HANDOFF.md</code>。
+</div>
+
+<header class="page-head">
+  <div class="eyebrow">CK Tile &middot; FlashAttention Backward &middot; 副产物存储</div>
+  <h1>Attention Backward 到底要从 Forward 存哪些副产物？</h1>
+  <p class="subtitle">为什么反向传播需要前向算过的某些量？为什么 <code>O</code> / <code>LSE</code> / <code>D</code> 的"存不存"是<strong>激活函数相关</strong>的——softmax 路径必须存 O，SiLU 路径却不用。从零推导那一个"啊哈"时刻。</p>
+  <div class="audience">适合：懂一点神经网络、但不熟 attention 反向传播推导的工程师</div>
+  <div style="margin-top:12px; font-size:13px; color:var(--gray-500);">
+    起因：报告 <code style="font-family:var(--mono);font-size:12px;">ck-vs-hstu-bwd-20260529.html</code> 符号表里一格 &mdash; <code style="font-family:var(--mono);font-size:12px;">O | Forward 输出 | 必存(FMHA) | 仅 softmax 路径必存(HSTU)</code> &nbsp;&middot;&nbsp; 2026-06-02
+  </div>
+</header>
+
+<div class="layout">
+<main>
+
+<!-- ============= TL;DR ============= -->
+<div class="tldr">
+  <div class="k">TL;DR &mdash; 那一格怎么读</div>
+  <p>反向传播按链式法则倒着算梯度，会用到前向算过的一些中间量。但 attention 的中间矩阵 <code>S</code>、<code>P</code> 大到 O(S²)（几十 GB），<strong>放不下</strong>，所以策略是：只存极少量的小东西，其余在 backward 里<strong>重算</strong>。候选小副产物只有三个：<code>O</code>、<code>LSE</code>、<code>D</code>。</p>
+  <p><strong>关键："存不存"取决于激活函数。</strong> softmax 路径的反向里藏着一项 row-sum <code>&rho;</code>，它能神奇地化简成 <code>D = rowsum(O&odot;dO)</code> &mdash; 算它就<strong>必须有前向输出 O</strong>。SiLU 是逐元素激活，反向根本没有这一项，于是 <strong>O / LSE / D 全都不需要</strong>。</p>
+  <p>所以那一格：<span class="tag tag-fmha">FMHA</span> 永远走 softmax &rarr; <code>O</code> 必存；<span class="tag tag-hstu">HSTU</span> 有两条路径，只有走 softmax 时才像 FMHA 一样需要 O，<strong>默认的 SiLU 路径不需要</strong>。</p>
+</div>
+
+<!-- ============= §1 ============= -->
+<section id="why">
+<h2>1. 为什么 backward 需要 forward 的中间量？</h2>
+
+<p class="lede">先建立直觉。训练时，前向（forward）算出 loss，反向（backward）从 loss 出发、沿计算图<strong>倒着</strong>把梯度一层层传回每个输入。</p>
+
+<p>链式法则的本质是：<em>要算某一步的梯度，往往得用到那一步前向时的输入或输出</em>。最简单的例子，<code>y = a·b</code>，那么 <code>∂L/∂a = ∂L/∂y · b</code> &mdash; 算 a 的梯度需要 <strong>b 的前向值</strong>。attention 也一样：反向要用到前向算过的 <code>S</code>（注意力分数）、<code>P</code>（激活后的权重）、<code>O</code>（输出）等。</p>
+
+<h3>问题：把中间矩阵全存下来，存不下</h3>
+<p>attention 的中间量里，<code>S</code> 和 <code>P</code> 都是 <code>[seqlen_q &times; seqlen_kv]</code> 的方阵，大小是 <strong>O(S²)</strong>（S 指序列长度）。序列一长，它就爆炸：</p>
+
+<div class="note-block"><strong>一个数字感受一下：</strong> seqlen = 8K、batch = 4、head = 32、fp16。单看 S 矩阵：<code>4 &times; 32 &times; 8192 &times; 8192 &times; 2 bytes &approx; 16 GB</code>。P 再来一份。一张卡的显存就这么被一个中间矩阵吃光了 &mdash; 显然不能为了 backward 把它们留着。</div>
+
+<h3>解法：只存小东西，大东西重算（这就是 FlashAttention 的核心取舍）</h3>
+<p>既然 O(S²) 的 <code>S</code>/<code>P</code> 存不起，那就<strong>不存</strong>它们；反向需要时，再用前向存下的小量 + 原始输入 <code>Q,K,V</code> 临时<strong>重算</strong>。代价是多算一遍，收益是省下海量显存与带宽 &mdash; 这笔账在 GPU 上非常划算。</p>
+
+<p>于是问题收敛成：<strong>到底要存哪几个"小东西"？</strong> 候选只有三个，全都是 O(S·d) 或 O(S) 级别的小量：</p>
+
+<div class="callout-grid">
+  <div class="callout"><div class="k">候选 1</div><div class="t">O &mdash; 前向输出</div><div class="d">形状 <code>[S, d]</code>，O(S·d)。每个 query 一个 d 维输出向量。它本来就是前向要返回给用户的结果，"顺手"存下成本低。</div></div>
+  <div class="callout"><div class="k">候选 2</div><div class="t">LSE &mdash; log-sum-exp</div><div class="d">形状 <code>[S]</code>，每行一个标量，O(S)。softmax 的归一化常数的对数，存它能让反向<strong>一趟</strong>恢复 P。</div></div>
+  <div class="callout"><div class="k">候选 3</div><div class="t">D &mdash; rowsum(O&odot;dO)</div><div class="d">形状 <code>[S]</code>，每行一个标量，O(S)。它不是前向产物，而是反向开始时用 O 和 dO 算出来的辅助量。下面会看到它是关键。</div></div>
+</div>
+
+<p>接下来两节分别看 softmax 路径和 SiLU 路径，会发现这三个量"要不要"<strong>完全由激活函数决定</strong>。</p>
+</section>
+
+<!-- ============= §2 ============= -->
+<section id="dtrick">
+<h2>2. softmax 路径的 D-trick &mdash; 理解"O 必存"的钥匙</h2>
+
+<p class="lede">这一节是全文的"啊哈"时刻。我们会一步不跳地推导出：softmax 反向里那个 row-sum 项，恰好等于 <code>O</code> 和 <code>dO</code> 的逐行点积。正因如此，softmax 路径<strong>必须</strong>从前向存下 <code>O</code>。</p>
+
+<h3>2.1 前向回顾</h3>
+<p>softmax 路径（标准 attention / FMHA）的前向，每一行 query <code>i</code>：</p>
+<div class="formula formula-block">
+  <span class="line">S_ij = scale &middot; (Q_i &middot; K_j)          注意力分数（O(S²) 矩阵）</span>
+  <span class="line">P_ij = exp(S_ij &minus; LSE_i)            行内归一，每行 &sum;_j P_ij = 1</span>
+  <span class="line">O_i  = &sum;_j P_ij &middot; V_j               输出（O(S·d) 向量）</span>
+  <span class="line">LSE_i = log &sum;_j exp(S_ij)          归一化常数的对数（O(S) 标量）</span>
+</div>
+<p><code>P_ij = exp(S_ij − LSE_i)</code> 这一步值得停一下：前向已经算好每行的 <code>LSE_i</code>，反向时只要再算一遍 <code>S</code>，就能<strong>一趟</strong>直接恢复 <code>P</code>，不必像标准 softmax 那样先求 max、再求 sum 跑两趟。这正是<strong>存 LSE 的价值</strong>。</p>
+
+<h3>2.2 反向核心公式</h3>
+<p>对 softmax 求导（标准结果，推导略），得到 <code>dS</code> 的形式：</p>
+<div class="formula formula-block">
+  <span class="line">dP_ij = &sum;_d dO_id &middot; V_jd            (= dO @ V&#x1d40;)</span>
+  <span class="line">dS_ij = P_ij &middot; (dP_ij &minus; &rho;_i)</span>
+  <span class="line">  其中  &rho;_i = &sum;_j P_ij &middot; dP_ij        &larr; 一个跨 j 的 row-sum 项</span>
+</div>
+<p>注意 <code>&rho;_i</code>（读作 rho）：它是对一整行的 <code>P_ij · dP_ij</code> 求和。<strong>这个 row-sum 正是 softmax 反向区别于逐元素激活的地方</strong> &mdash; 它来自 softmax 的归一化（每行和=1 这个约束让所有 j 互相耦合）。</p>
+
+<h3 id="dp-detour">2.3 插曲：dP = dO &middot; V&#x1d40; 这步是怎么来的</h3>
+<p>上面那行 <code>dP_ij = &sum;_d dO_id·V_jd  (= dO @ V&#x1d40;)</code> 常让人卡住：为什么是 <code>dO</code> 乘 <code>V</code> 的转置？是不是写错了？这一节把它一步步推出来 &mdash; 公式没错，只是前面只<strong>写出</strong>没<strong>推导</strong>。下一节的化简会直接用到它，所以先把它讲透。</p>
+
+<h4>① 先回顾前向 O = P&middot;V 的逐元素形式</h4>
+<p>把三个矩阵的形状摆清楚（行在前、列在后）：</p>
+<div class="formula formula-block">
+  <span class="line">P : [Sq, Sk]    行 = query i，列 = key j      &rarr; P_ij</span>
+  <span class="line">V : [Sk, d]     行 = key j，列 = 维度 d        &rarr; V_jd（第 j 个 key 的第 d 维）</span>
+  <span class="line">O : [Sq, d]     行 = query i，列 = 维度 d      &rarr; O_id</span>
+  <span class="line"> </span>
+  <span class="line">O_id = &sum;_j P_ij &middot; V_jd        每个输出 = 用 P 的一行，对所有 key 加权求和 V</span>
+</div>
+
+<h4>② 链式法则推 dP_ij</h4>
+<p><code>dP_ij</code> 是 <code>&part;L/&part;P_ij</code> &mdash; 即"<code>P_ij</code> 这一格变一点，loss 变多少"。关键观察：<strong><code>P_ij</code> 出现在 <code>O_id</code> 里，而且对<em>所有</em> d 都出现</strong>（看上面 <code>O_id = &sum;_j P_ij·V_jd</code>，固定 i、对每个 d，求和里都有 <code>P_ij</code> 这一项）。所以梯度要把所有 d 的贡献加起来：</p>
+<div class="formula formula-block">
+  <span class="line">dP_ij = &part;L/&part;P_ij</span>
+  <span class="line">      = &sum;_d (&part;L/&part;O_id) &middot; (&part;O_id/&part;P_ij)        链式法则，对所有受影响的 O_id 求和</span>
+  <span class="line">      = &sum;_d dO_id &middot; V_jd                       因为 &part;O_id/&part;P_ij = V_jd</span>
+</div>
+<p>为什么 <code>&part;O_id/&part;P_ij = V_jd</code>？因为 <code>O_id = &sum;_{j'} P_{ij'}·V_{j'd}</code> 对 <code>P_ij</code> 求导时，求和里只有 <code>j'=j</code> 那一项含 <code>P_ij</code>，留下系数 <code>V_jd</code>，其余项导数为 0。<strong>所以 <code>dP_ij = &sum;_d dO_id·V_jd</code> 完全正确。</strong></p>
+
+<h4>③ 为什么矩阵形式要写成 dO @ V&#x1d40;</h4>
+<p>这是最容易卡住的一步。矩阵乘法的本质是<strong>"对中间那个维度求和"</strong>：<code>[A,B]·[B,C] = [A,C]</code>，被消掉的是中间的 <code>B</code>。我们这里要对 <strong>d</strong> 求和，所以 d 必须站在两个因子的"中间位置"才能对齐：</p>
+<ul class="clean">
+  <li><code>dO</code> 形状 <code>[Sq, d]</code>，d 在<strong>第二维（列）</strong>。</li>
+  <li><code>V</code> 形状 <code>[Sk, d]</code>，d 也在<strong>第二维（列）</strong> &mdash; 两个 d 都在列，<strong>没法直接相乘</strong>（中间维对不上）。</li>
+  <li>把 <code>V</code> 转置成 <code>V&#x1d40; : [d, Sk]</code>，d 翻到<strong>第一维（行）</strong>。现在 <code>[Sq, d]·[d, Sk] = [Sq, Sk]</code>，正好是 <code>dP</code> 的形状，中间的 d 被求和消掉。</li>
+</ul>
+<p>取出结果的 <code>(i,j)</code> 元素验证一下，和逐元素公式<strong>一字不差</strong>：</p>
+<div class="formula formula-block">
+  <span class="line">(dO @ V&#x1d40;)_ij = &sum;_d dO_id &middot; (V&#x1d40;)_dj = &sum;_d dO_id &middot; V_jd  ✓</span>
+</div>
+
+<!-- 图 D：维度对齐 -->
+<div class="fig-wrap">
+<div class="legend">
+  <span><span class="swatch" style="background:#FAD9CC;border:1px solid #D97757;"></span> Sq / Sk（序列维，保留）</span>
+  <span><span class="swatch" style="background:#DCE6CC;border:1px solid #788C5D;"></span> d（被求和消掉的中间维）</span>
+</div>
+<svg viewBox="0 0 880 320" role="img" aria-label="dO 乘 V 转置 的维度对齐示意">
+  <text x="440" y="26" font-size="14" fill="#141413" text-anchor="middle" font-weight="bold">图 D &nbsp; dO[Sq,d] &middot; V&#x1d40;[d,Sk] = dP[Sq,Sk]：中间维 d 对齐后被消掉</text>
+
+  <!-- dO block: Sq x d (tall, narrow d) -->
+  <rect x="70" y="120" width="70" height="120" fill="#FFFFFF" stroke="#141413"/>
+  <!-- highlight d columns (right edge = column dimension) -->
+  <rect x="70" y="120" width="70" height="120" fill="none" stroke="#141413"/>
+  <text x="105" y="112" font-size="12" fill="#141413" text-anchor="middle">dO</text>
+  <text x="58" y="184" font-size="11" fill="#D97757" text-anchor="middle" transform="rotate(-90 58 184)">Sq</text>
+  <text x="105" y="258" font-size="11" fill="#788C5D" text-anchor="middle">d（列）</text>
+
+  <!-- multiply dot -->
+  <text x="170" y="186" font-size="22" fill="#141413" text-anchor="middle">&middot;</text>
+
+  <!-- V^T block: d x Sk (short rows = d, wide Sk) -->
+  <rect x="200" y="120" width="150" height="60" fill="#FFFFFF" stroke="#141413"/>
+  <text x="275" y="112" font-size="12" fill="#141413" text-anchor="middle">V&#x1d40;</text>
+  <text x="188" y="154" font-size="11" fill="#788C5D" text-anchor="middle" transform="rotate(-90 188 154)">d（行）</text>
+  <text x="275" y="198" font-size="11" fill="#D97757" text-anchor="middle">Sk（列）</text>
+
+  <!-- equals -->
+  <text x="385" y="186" font-size="22" fill="#141413" text-anchor="middle">=</text>
+
+  <!-- dP block: Sq x Sk -->
+  <rect x="420" y="120" width="150" height="120" fill="#FFF6F2" stroke="#D97757"/>
+  <text x="495" y="112" font-size="12" fill="#141413" text-anchor="middle">dP</text>
+  <text x="408" y="184" font-size="11" fill="#D97757" text-anchor="middle" transform="rotate(-90 408 184)">Sq</text>
+  <text x="495" y="258" font-size="11" fill="#D97757" text-anchor="middle">Sk</text>
+  <text x="495" y="186" font-size="11" fill="#8A3B1E" text-anchor="middle">[Sq, Sk]</text>
+
+  <!-- d alignment connector -->
+  <line x1="105" y1="248" x2="105" y2="276" stroke="#788C5D" stroke-width="1.2"/>
+  <line x1="105" y1="276" x2="200" y2="276" stroke="#788C5D" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <line x1="200" y1="276" x2="200" y2="150" stroke="#788C5D" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <text x="150" y="294" font-size="11" fill="#4B5C39" text-anchor="middle">dO 的列 d  ⟷  V&#x1d40; 的行 d 对齐 &rarr; 求和消掉</text>
+
+  <!-- transpose annotation, right side -->
+  <rect x="630" y="120" width="210" height="120" rx="8" fill="#FAF9F5" stroke="#D1CFC5"/>
+  <text x="735" y="142" font-size="12" fill="#141413" text-anchor="middle" font-weight="bold">转置：V &rarr; V&#x1d40;</text>
+  <rect x="650" y="156" width="36" height="54" fill="#FFFFFF" stroke="#141413"/>
+  <text x="668" y="150" font-size="10" fill="#141413" text-anchor="middle">V</text>
+  <text x="668" y="226" font-size="10" fill="#87867F" text-anchor="middle">[Sk,d]</text>
+  <text x="700" y="186" font-size="16" fill="#788C5D" text-anchor="middle">&rarr;</text>
+  <rect x="720" y="168" width="54" height="30" fill="#FFFFFF" stroke="#141413"/>
+  <text x="747" y="162" font-size="10" fill="#141413" text-anchor="middle">V&#x1d40;</text>
+  <text x="747" y="214" font-size="10" fill="#87867F" text-anchor="middle">[d,Sk]</text>
+  <text x="735" y="234" font-size="10" fill="#4B5C39" text-anchor="middle">d 从列翻到行</text>
+</svg>
+</div>
+<p class="svg-caption">图 D：矩阵乘消掉中间维 d &mdash; 把 <code>V[Sk,d]</code> 转置成 <code>V&#x1d40;[d,Sk]</code> 让 d 落到中间位置，<code>dO[Sq,d]·V&#x1d40;[d,Sk]</code> 沿 d 求和得到 <code>dP[Sq,Sk]</code>。转置不是笔误，是让求和维对齐的必然操作。</p>
+
+<div class="note-block"><strong>一句口诀：</strong> 任何 <code>C = A·B</code> 的反向都只有两条 &mdash; <code>dA = dC·B&#x1d40;</code>、<code>dB = A&#x1d40;·dC</code>。套到 <code>O = P·V</code> 就是 <code>dP = dO·V&#x1d40;</code> 和 <code>dV = P&#x1d40;·dO</code>。<strong>所以那个 V&#x1d40; 不是笔误，是矩阵求导规则里必然出现的转置。</strong></div>
+<div class="note-block"><strong>澄清两个常见误解：</strong>（1）<code>V_jd</code> <strong>不是</strong> V 的转置，它就是 V 本身第 j 行、第 d 列的那个数；转置只发生在写成矩阵乘 <code>V&#x1d40;</code> 的时候，目的是让求和维 d 对齐。（2）逐元素写法 <code>&sum;_d dO_id·V_jd</code> 与矩阵写法 <code>dO @ V&#x1d40;</code> 是<strong>同一东西的两种记法</strong>，不矛盾 &mdash; 前者讲"每个格子怎么算"，后者讲"整块怎么一次算完"。</div>
+
+<h3 id="softmax-jac">2.4 dS 这步：softmax 的 Jacobian 反向</h3>
+<p>§2.2 直接写出了 <code>dS_ij = P_ij·(dP_ij − &rho;_i)</code> 却没推导，很多人卡在这里。这一节把 <code>dP &rarr; dS</code> 从 softmax 的导数一步步推出来 &mdash; 你会看到那个 <code>&rho;_i</code> 不是凭空冒出来的，而是 softmax <strong>整行耦合</strong>的必然产物。</p>
+
+<h4>① softmax 定义与关键性质</h4>
+<div class="formula formula-block">
+  <span class="line">P_ij = e^{S_ij} / &sum;_k e^{S_ik}        分母是<strong>整行</strong>求和</span>
+  <span class="line">&sum;_j P_ij = 1                      每行归一</span>
+</div>
+<p>关键点：<strong><code>P</code> 的整行都依赖 <code>S</code> 的整行</strong> &mdash; 因为分母 <code>&sum;_k e^{S_ik}</code> 把同一行所有 <code>S_ik</code> 都搅进来了。所以挪动一个 <code>S_ij</code>，会同时影响这一行<em>每一个</em> <code>P_ik</code>。这与逐元素激活（动 <code>S_ij</code> 只影响 <code>P_ij</code> 自己）形成根本对立，也正是 <code>&rho;_i</code> 的来源。</p>
+
+<h4>② softmax 的 Jacobian</h4>
+<p>对 softmax 求偏导，标准结果是（<code>&delta;_kj</code> 是 Kronecker delta，<code>k=j</code> 时为 1、否则为 0）：</p>
+<div class="formula formula-block">
+  <span class="line">&part;P_ik / &part;S_ij = P_ik &middot; (&delta;_kj &minus; P_ij)</span>
+  <span class="line"> </span>
+  <span class="line">对角项 (k = j):  P_ij &middot; (1 &minus; P_ij)        自己对自己</span>
+  <span class="line">非对角 (k &ne; j): &minus; P_ik &middot; P_ij              &larr; 整行互相耦合的来源</span>
+</div>
+<p>非对角项 <code>−P_ik·P_ij</code> 就是"动一个 <code>S_ij</code> 会拉低同行其它 <code>P_ik</code>"的数学表达（归一化是零和的：一个涨，别的就得跌）。</p>
+
+<h4>③ 链式法则逐步推 dS_ij</h4>
+<p><code>S_ij</code> 影响了整行 <code>P_ik</code>，所以梯度要对 <strong>k 求和</strong>（把所有受影响的 <code>P_ik</code> 的贡献收齐）：</p>
+<div class="formula formula-block">
+  <span class="line">dS_ij = &sum;_k dP_ik &middot; &part;P_ik/&part;S_ij</span>
+  <span class="line">      = &sum;_k dP_ik &middot; P_ik &middot; (&delta;_kj &minus; P_ij)            代入 Jacobian</span>
+  <span class="line">      = &sum;_k dP_ik·P_ik·&delta;_kj  &minus;  &sum;_k dP_ik·P_ik·P_ij      拆成两项</span>
+  <span class="line hl">      = dP_ij·P_ij  &minus;  P_ij·&sum;_k P_ik·dP_ik             &delta;_kj 只留 k=j；P_ij 提出</span>
+  <span class="line">      = P_ij &middot; ( dP_ij &minus; &rho;_i )        其中 &rho;_i = &sum;_k P_ik·dP_ik</span>
+</div>
+<p>逐行说明：</p>
+<ul class="clean">
+  <li><strong>第 2&rarr;3 步：</strong> 把括号 <code>(&delta;_kj − P_ij)</code> 拆开，分配到求和里，得到两项。</li>
+  <li><strong>第 3&rarr;4 步：</strong> 第一项里 <code>&delta;_kj</code> 让求和只剩 <code>k=j</code> 一项 &rarr; <code>dP_ij·P_ij</code>；第二项里 <code>P_ij</code> 与求和哑标 <code>k</code> 无关，提到 <code>&sum;_k</code> 外面。</li>
+  <li><strong>第 4&rarr;5 步：</strong> 提出公因子 <code>P_ij</code>，并把那个 row-sum <code>&sum;_k P_ik·dP_ik</code> 记作 <code>&rho;_i</code>（哑标 k 与 §2.2 里的 j 等价，只是换个字母）。</li>
+</ul>
+<p>这就推回了 §2.2 那行 <code>dS_ij = P_ij·(dP_ij − &rho;_i)</code>，<strong>无误</strong>。</p>
+
+<div class="note-block softmax"><strong>&rho;_i 的本质：</strong> 它<strong>正是 softmax Jacobian 那些非对角耦合项 <code>−P_ik·P_ij</code> 求和后的产物</strong>。逐元素激活（如 SiLU）的 Jacobian 是<em>纯对角</em>的 &mdash; 非对角全是 0 &mdash; 于是这一项根本不存在，也就没有 <code>&rho;_i</code>。这就是"softmax 反向区别于逐元素激活"的精确含义。下一节（§2.5）会进一步把这个 <code>&rho;_i</code> 化简成 <code>dO_i·O_i</code>，从而引出"为什么要存 O"。</div>
+
+<!-- 图 E：两种 Jacobian 对比 -->
+<div class="fig-wrap">
+<div class="legend">
+  <span><span class="swatch" style="background:#D97757;"></span> 有值（对角）</span>
+  <span><span class="swatch" style="background:#FAD9CC;border:1px solid #D97757;"></span> 有值（非对角耦合）</span>
+  <span><span class="swatch" style="background:#F0EEE6;border:1px solid #D1CFC5;"></span> 恒为 0</span>
+</div>
+<svg viewBox="0 0 880 300" role="img" aria-label="softmax 满 Jacobian 与逐元素对角 Jacobian 对比">
+  <text x="440" y="26" font-size="14" fill="#141413" text-anchor="middle" font-weight="bold">图 E &nbsp; Jacobian 形状决定有没有 &rho;</text>
+
+  <!-- LEFT: softmax full matrix -->
+  <text x="220" y="58" font-size="13" fill="#D97757" text-anchor="middle" font-weight="bold">softmax：满矩阵</text>
+  <text x="220" y="76" font-size="11" fill="#87867F" text-anchor="middle">&part;P_ik/&part;S_ij = P_ik(&delta;_kj &minus; P_ij)</text>
+  <g stroke="#D97757">
+    <!-- 4x4 grid, off-diagonal light, diagonal solid -->
+    <!-- row0 --><rect x="120" y="92" width="40" height="40" fill="#D97757"/><rect x="160" y="92" width="40" height="40" fill="#FAD9CC"/><rect x="200" y="92" width="40" height="40" fill="#FAD9CC"/><rect x="240" y="92" width="40" height="40" fill="#FAD9CC"/>
+    <!-- row1 --><rect x="120" y="132" width="40" height="40" fill="#FAD9CC"/><rect x="160" y="132" width="40" height="40" fill="#D97757"/><rect x="200" y="132" width="40" height="40" fill="#FAD9CC"/><rect x="240" y="132" width="40" height="40" fill="#FAD9CC"/>
+    <!-- row2 --><rect x="120" y="172" width="40" height="40" fill="#FAD9CC"/><rect x="160" y="172" width="40" height="40" fill="#FAD9CC"/><rect x="200" y="172" width="40" height="40" fill="#D97757"/><rect x="240" y="172" width="40" height="40" fill="#FAD9CC"/>
+    <!-- row3 --><rect x="120" y="212" width="40" height="40" fill="#FAD9CC"/><rect x="160" y="212" width="40" height="40" fill="#FAD9CC"/><rect x="200" y="212" width="40" height="40" fill="#FAD9CC"/><rect x="240" y="212" width="40" height="40" fill="#D97757"/>
+  </g>
+  <text x="220" y="276" font-size="11" fill="#8A3B1E" text-anchor="middle">行内全耦合（非对角非零）&rarr; 产生 &rho;</text>
+
+  <!-- arrow / vs -->
+  <text x="440" y="180" font-size="16" fill="#87867F" text-anchor="middle">vs</text>
+
+  <!-- RIGHT: elementwise diagonal -->
+  <text x="660" y="58" font-size="13" fill="#788C5D" text-anchor="middle" font-weight="bold">逐元素 (SiLU)：纯对角</text>
+  <text x="660" y="76" font-size="11" fill="#87867F" text-anchor="middle">&part;P_ij/&part;S_ij' = 0 (j&ne;j')</text>
+  <g stroke="#788C5D">
+    <!-- row0 --><rect x="560" y="92" width="40" height="40" fill="#788C5D"/><rect x="600" y="92" width="40" height="40" fill="#F0EEE6"/><rect x="640" y="92" width="40" height="40" fill="#F0EEE6"/><rect x="680" y="92" width="40" height="40" fill="#F0EEE6"/>
+    <!-- row1 --><rect x="560" y="132" width="40" height="40" fill="#F0EEE6"/><rect x="600" y="132" width="40" height="40" fill="#788C5D"/><rect x="640" y="132" width="40" height="40" fill="#F0EEE6"/><rect x="680" y="132" width="40" height="40" fill="#F0EEE6"/>
+    <!-- row2 --><rect x="560" y="172" width="40" height="40" fill="#F0EEE6"/><rect x="600" y="172" width="40" height="40" fill="#F0EEE6"/><rect x="640" y="172" width="40" height="40" fill="#788C5D"/><rect x="680" y="172" width="40" height="40" fill="#F0EEE6"/>
+    <!-- row3 --><rect x="560" y="212" width="40" height="40" fill="#F0EEE6"/><rect x="600" y="212" width="40" height="40" fill="#F0EEE6"/><rect x="640" y="212" width="40" height="40" fill="#F0EEE6"/><rect x="680" y="212" width="40" height="40" fill="#788C5D"/>
+  </g>
+  <text x="660" y="276" font-size="11" fill="#4B5C39" text-anchor="middle">无耦合（非对角恒 0）&rarr; 无 &rho;</text>
+</svg>
+</div>
+<p class="svg-caption">图 E：softmax 的 Jacobian 是满矩阵——对角项 <code>P_ij(1−P_ij)</code> 外，非对角 <code>−P_ik·P_ij</code> 也非零，行内全耦合，求和后产生 <code>&rho;</code>；逐元素激活（SiLU）的 Jacobian 只有对角线，非对角恒 0，没有 <code>&rho;</code>。</p>
+
+<h3>2.5 关键化简：&rho;_i = dO_i &middot; O_i</h3>
+<p>直接算 <code>&rho;_i = &sum;_j P_ij·dP_ij</code> 需要把 O(S²) 的 <code>P</code>、<code>dP</code> 整行摊开。但我们可以把它<strong>化简掉</strong>。每一步都列出来：</p>
+
+<div class="formula formula-block">
+  <span class="line">&rho;_i = &sum;_j P_ij &middot; dP_ij</span>
+  <span class="line">     = &sum;_j P_ij &middot; (&sum;_d dO_id &middot; V_jd)        把 dP_ij = dO_i &middot; V_j 代入</span>
+  <span class="line">     = &sum;_d dO_id &middot; (&sum;_j P_ij &middot; V_jd)        交换求和顺序，把 dO_id 提出</span>
+  <span class="line hl">     = &sum;_d dO_id &middot; O_id                  因为 &sum;_j P_ij&middot;V_jd = O_id（前向定义！）</span>
+  <span class="line">     = dO_i &middot; O_i = rowsum(O &odot; dO) =: D_i</span>
+</div>
+
+<p>逐行翻译这四步：</p>
+<ul class="clean">
+  <li><strong>第 1&rarr;2 步：</strong> 把 <code>dP_ij = &sum;_d dO_id·V_jd</code> 原样代入。</li>
+  <li><strong>第 2&rarr;3 步：</strong> 交换两个求和符号的顺序（<code>&sum;_j</code> 和 <code>&sum;_d</code> 都是有限和，可以随便换），并把只跟 d 有关的 <code>dO_id</code> 提到 <code>&sum;_j</code> 外面。</li>
+  <li><strong>第 3&rarr;4 步（关键）：</strong> 括号里的 <code>&sum;_j P_ij·V_jd</code> 正好就是前向输出 <code>O_id</code> 的定义！直接替换。</li>
+  <li><strong>第 4&rarr;5 步：</strong> 剩下的 <code>&sum;_d dO_id·O_id</code> 就是向量 <code>dO_i</code> 和 <code>O_i</code> 的点积，也即逐元素相乘再按行求和 &mdash; 记作 <code>D_i</code>。</li>
+</ul>
+
+<div class="bigcallout">
+  <div class="k">啊哈时刻</div>
+  <p>那个看起来要摊开整个 O(S²) 矩阵才能算的 row-sum <code>&rho;_i</code>，竟然等于 <strong><code>D_i = dO_i &middot; O_i</code></strong> &mdash; 只用前向存下的 <code>O</code>（O(S·d)）和反向输入 <code>dO</code> 就能算，完全不碰巨大的 P / dP。</p>
+  <p>所以：<strong>正因为反向要算 D，softmax 路径的 backward 必须从 forward 存下 O。</strong> 这就是符号表里"O 必存"那一格的根。</p>
+</div>
+
+<!-- 图 A -->
+<div class="fig-wrap">
+<svg viewBox="0 0 880 360" role="img" aria-label="rho_i 化简为 O 与 dO 逐行点积">
+  <!-- title -->
+  <text x="440" y="26" font-size="14" fill="#141413" text-anchor="middle" font-weight="bold">图 A &nbsp; &rho;_i 的坍缩：从 O(S&sup2;) 摊开 &rarr; O 与 dO 的逐行点积</text>
+
+  <!-- LEFT: naive form -->
+  <text x="180" y="62" font-size="12" fill="#87867F" text-anchor="middle">朴素算法（要摊开整行）</text>
+  <text x="180" y="84" font-size="13" fill="#141413" text-anchor="middle">&rho;_i = &sum;_j P_ij &middot; dP_ij</text>
+
+  <!-- P row -->
+  <text x="36" y="120" font-size="11" fill="#D97757">P_i,:</text>
+  <g>
+    <rect x="70" y="108" width="26" height="20" fill="#FAD9CC" stroke="#D97757"/>
+    <rect x="96" y="108" width="26" height="20" fill="#FAD9CC" stroke="#D97757"/>
+    <rect x="122" y="108" width="26" height="20" fill="#FAD9CC" stroke="#D97757"/>
+    <rect x="148" y="108" width="26" height="20" fill="#FAD9CC" stroke="#D97757"/>
+    <rect x="174" y="108" width="26" height="20" fill="#FAD9CC" stroke="#D97757"/>
+    <text x="214" y="122" font-size="11" fill="#87867F">… (S 个)</text>
+  </g>
+  <!-- dP row -->
+  <text x="36" y="156" font-size="11" fill="#D97757">dP_i,:</text>
+  <g>
+    <rect x="70" y="144" width="26" height="20" fill="#FAD9CC" stroke="#D97757"/>
+    <rect x="96" y="144" width="26" height="20" fill="#FAD9CC" stroke="#D97757"/>
+    <rect x="122" y="144" width="26" height="20" fill="#FAD9CC" stroke="#D97757"/>
+    <rect x="148" y="144" width="26" height="20" fill="#FAD9CC" stroke="#D97757"/>
+    <rect x="174" y="144" width="26" height="20" fill="#FAD9CC" stroke="#D97757"/>
+    <text x="214" y="158" font-size="11" fill="#87867F">… (S 个)</text>
+  </g>
+  <text x="180" y="196" font-size="11" fill="#8A3B1E" text-anchor="middle">⚠ dP 是 O(S&sup2;) 矩阵，整行很长</text>
+
+  <!-- arrow -->
+  <text x="440" y="150" font-size="34" fill="#788C5D" text-anchor="middle">&rarr;</text>
+  <text x="440" y="176" font-size="11" fill="#788C5D" text-anchor="middle">代入 dP=dO&middot;V&#x1d40;</text>
+  <text x="440" y="192" font-size="11" fill="#788C5D" text-anchor="middle">换序 + 用 O 定义</text>
+
+  <!-- RIGHT: collapsed -->
+  <text x="700" y="62" font-size="12" fill="#87867F" text-anchor="middle">坍缩后（只用 O 和 dO）</text>
+  <text x="700" y="84" font-size="13" fill="#141413" text-anchor="middle">D_i = &sum;_d O_id &middot; dO_id</text>
+
+  <!-- O row (d-dim, short) -->
+  <text x="560" y="120" font-size="11" fill="#788C5D">O_i,:</text>
+  <g>
+    <rect x="596" y="108" width="26" height="20" fill="#DCE6CC" stroke="#788C5D"/>
+    <rect x="622" y="108" width="26" height="20" fill="#DCE6CC" stroke="#788C5D"/>
+    <rect x="648" y="108" width="26" height="20" fill="#DCE6CC" stroke="#788C5D"/>
+    <text x="700" y="122" font-size="11" fill="#87867F">(d 维, 短)</text>
+  </g>
+  <!-- dO row -->
+  <text x="560" y="156" font-size="11" fill="#788C5D">dO_i,:</text>
+  <g>
+    <rect x="596" y="144" width="26" height="20" fill="#DCE6CC" stroke="#788C5D"/>
+    <rect x="622" y="144" width="26" height="20" fill="#DCE6CC" stroke="#788C5D"/>
+    <rect x="648" y="144" width="26" height="20" fill="#DCE6CC" stroke="#788C5D"/>
+    <text x="700" y="158" font-size="11" fill="#87867F">(d 维, 短)</text>
+  </g>
+  <!-- elementwise mult + sum -->
+  <text x="635" y="190" font-size="13" fill="#141413" text-anchor="middle">⊙ 逐元素相乘</text>
+  <rect x="596" y="206" width="78" height="20" fill="#E4E9DC" stroke="#4B5C39"/>
+  <text x="700" y="220" font-size="11" fill="#4B5C39">&rarr; 按行求和 = D_i（一个标量）</text>
+
+  <!-- bottom takeaway box -->
+  <rect x="70" y="262" width="740" height="74" rx="8" fill="#FAF9F5" stroke="#D1CFC5"/>
+  <text x="440" y="288" font-size="13" fill="#141413" text-anchor="middle" font-weight="bold">同一个数 &rho;_i = D_i，但右边只需要 O(S&middot;d) 的两个短向量</text>
+  <text x="440" y="310" font-size="12" fill="#3D3D3A" text-anchor="middle">无需把 O(S&sup2;) 的 P / dP 摊开 &rarr; 这就是为什么 backward 要存 O（而不必存 P）</text>
+  <text x="440" y="328" font-size="11" fill="#87867F" text-anchor="middle">clay = softmax 路径 / 大矩阵 &nbsp;&nbsp; olive = 实际只需要的小向量</text>
+</svg>
+</div>
+<p class="svg-caption">图 A：朴素地算 &rho;_i 要遍历 O(S²) 的整行 P·dP；化简后等价于 O 与 dO 的逐行点积，只碰 O(S·d) 的两个短向量。</p>
+
+<h3>2.6 代码印证：FMHA 的 95 行 PRE-pass kernel</h3>
+<p>在标准 FMHA 的 GPU 实现里，算 <code>D</code> 这件事被独立成一个<strong>前置 kernel</strong>（pre-pass），它唯一的活就是 <code>D = rowsum(O ⊙ dO)</code>，算好后喂给主反向循环。整个文件只有 95 行：</p>
+<div class="code-block"><span class="cm">// ck/include/ck_tile/ops/fmha/pipeline/block_fmha_bwd_dot_do_o.hpp  (全文 95 行)</span>
+<span class="cm">// 对每个 (sq, head)：把 O 和 dO 这两块加载进来，逐元素相乘后按 d 维求和</span>
+sweep_tile_span(o_spans[<span class="kw">number</span>&lt;0&gt;{}], [&amp;](<span class="kw">auto</span> idx0) {    <span class="cm">// 行 (sq) 方向</span>
+  sweep_tile_span(o_spans[<span class="kw">number</span>&lt;1&gt;{}], [&amp;](<span class="kw">auto</span> idx1) {  <span class="cm">// 列 (d) 方向</span>
+    d(i_idx) += (<span class="fn">type_convert</span>&lt;DDataType&gt;(o[i_j_idx]) *           <span class="cm">// D_i += O_id * dO_id</span>
+                 <span class="fn">type_convert</span>&lt;DDataType&gt;(do_[i_j_idx]));
+  });
+});
+<span class="fn">tile_elementwise_inout</span>([&amp;p_undrop](<span class="kw">auto</span>&amp; x){ x = x * p_undrop; }, d);  <span class="cm">// dropout 缩放</span>
+<span class="fn">store_tile</span>(d_dram_block_window_tmp, d);                          <span class="cm">// 写回 D</span></div>
+<p>结构和我们推导的 <code>D_i = &sum;_d O_id·dO_id</code> 一字不差。<span class="tag tag-fmha">FMHA</span> 把它单拎出来做 pre-pass；HSTU 的 CPU reference 则把它<strong>内联</strong>在主循环里（见下文）。</p>
+</section>
+
+<!-- ============= §3 ============= -->
+<section id="silu">
+<h2>3. SiLU 路径（HSTU 默认）为什么不需要 O</h2>
+
+<p class="lede">同样一套反向，把激活从 softmax 换成 SiLU，那个 row-sum 项就<strong>消失</strong>了 &mdash; 于是 D 不需要，O 不需要，LSE 也不需要。差别全在"激活是不是逐元素的"。</p>
+
+<h3 id="o-vs-do">3.0 先消一个反直觉：省 O &ne; 省 dO</h3>
+<p>常有人一听"SiLU 连 O 都不需要"就懵：<em>"那它的 loss 从哪来？输出都不要了，还怎么训练？"</em> 这是把<strong>两个不同的东西</strong>搞混了 &mdash; 先把它掰开。</p>
+
+<div class="tldr">
+  <div class="k">一句话消解</div>
+  <p>"SiLU 不需要 O" 指的是 <strong>反向不必回读前向存下的 O <em>数值</em></strong>，<strong>不是</strong>说 O 不产生 loss。loss 照样从 <code>O &rarr; 下游 &rarr; Loss</code> 来；梯度照样从 <code>dO = &part;L/&part;O</code> 这个入口进。被省掉的<strong>只是"反向时再翻一遍 O 的旧值"这项需求</strong> &mdash; 而不是 O 本身、更不是 dO。</p>
+</div>
+
+<h4>O 和 dO 是两回事</h4>
+<div class="formula formula-block">
+  <span class="line">O  = P &middot; V              前向输出的<strong>数值</strong>；继续往下游走，最终算出 Loss</span>
+  <span class="line">dO = &part;L/&part;O            loss 对 O 的<strong>梯度</strong>；反向传到本块时，上游交给我们的<strong>输入</strong></span>
+</div>
+<p>关键：<code>dO</code> 才是 loss 在反向里的"来处"——它是整个 backward 的入口，<strong>两条路径都一直在用，谁也没省</strong>。被省的是 <code>O</code> 这个<em>前向数值的存档</em>：softmax 反向要回读它（算 D），SiLU 反向压根不碰它。<strong>省"O 的存档" &ne; 省"dO 这个梯度入口"。</strong></p>
+
+<h4>SiLU 反向到底用了谁</h4>
+<p>逐步看 SiLU 反向每一步的输入，O 的数值一次都没出现：</p>
+<div class="tbl-wrap">
+<table class="compare-table">
+<thead><tr><th>步骤</th><th>公式</th><th class="hstu-col">用到 O 的数值吗</th></tr></thead>
+<tbody>
+  <tr><td><code>dV</code></td><td><code>P&#x1d40; &middot; dO</code></td><td>❌ 否（用 P、dO）</td></tr>
+  <tr><td><code>dP</code></td><td><code>dO &middot; V&#x1d40;</code></td><td>❌ 否（用 dO、V）</td></tr>
+  <tr><td><code>dS</code></td><td><code>dP &middot; scale_p &middot; dsilu(S)</code></td><td>❌ 否（用 dP、重算的 S）</td></tr>
+  <tr><td><code>dQ / dK</code></td><td><code>&alpha;&middot;dS&middot;K</code> / <code>&alpha;&middot;dS&#x1d40;&middot;Q</code></td><td>❌ 否（用 dS、Q、K）</td></tr>
+</tbody>
+</table>
+</div>
+<p>整条 SiLU 反向 <code>O</code> 的数值<strong>一次没出现</strong> &rarr; 前向把 O 喂给下游后即可丢弃，不必存档回读。而 <code>dO</code> 在第一、二步就用上了，全程在线。对比 softmax：它多一步 <code>D = rowsum(O&odot;dO)</code> 必须<strong>回读 O</strong>（见 <a href="#dtrick" style="color:var(--clay);">§2.5</a>），所以 softmax 才必存 O。</p>
+
+<!-- 图 F：O vs dO 数据流 -->
+<div class="fig-wrap">
+<div class="legend">
+  <span><span class="swatch" style="background:#FAD9CC;border:1px solid #D97757;"></span> O 的数值（前向产生 loss）</span>
+  <span><span class="swatch" style="background:#DCE6CC;border:1px solid #788C5D;"></span> dO 梯度入口（两路都用）</span>
+  <span><span class="swatch" style="background:#FFFFFF;border:1px dashed #D97757;"></span> 仅 softmax：回读 O 算 D</span>
+</div>
+<svg viewBox="0 0 880 340" role="img" aria-label="O 与 dO 的前向/反向数据流，省的是 O 存档不是 dO">
+  <text x="440" y="24" font-size="14" fill="#141413" text-anchor="middle" font-weight="bold">图 F &nbsp; 省的是"O 的存档"，dO 这个梯度入口一直都在</text>
+
+  <!-- forward row -->
+  <text x="60" y="64" font-size="11" fill="#87867F">前向</text>
+  <g font-size="12" fill="#141413">
+    <rect x="60" y="74" width="80" height="34" rx="6" fill="#F0EEE6" stroke="#87867F"/><text x="100" y="96" text-anchor="middle">Q,K,V</text>
+    <rect x="190" y="74" width="56" height="34" rx="6" fill="#F0EEE6" stroke="#87867F"/><text x="218" y="96" text-anchor="middle">S</text>
+    <rect x="296" y="74" width="56" height="34" rx="6" fill="#F0EEE6" stroke="#87867F"/><text x="324" y="96" text-anchor="middle">P</text>
+    <rect x="402" y="74" width="56" height="34" rx="6" fill="#FAD9CC" stroke="#D97757"/><text x="430" y="96" text-anchor="middle">O</text>
+    <rect x="508" y="74" width="80" height="34" rx="6" fill="#F0EEE6" stroke="#87867F"/><text x="548" y="96" text-anchor="middle">下游</text>
+    <rect x="638" y="74" width="70" height="34" rx="6" fill="#141413" stroke="#141413"/><text x="673" y="96" text-anchor="middle" fill="#FAF9F5">Loss</text>
+  </g>
+  <g stroke="#87867F" fill="#87867F">
+    <line x1="140" y1="91" x2="188" y2="91"/><polygon points="188,87 196,91 188,95"/>
+    <line x1="246" y1="91" x2="294" y2="91"/><polygon points="294,87 302,91 294,95"/>
+    <line x1="352" y1="91" x2="400" y2="91"/><polygon points="400,87 408,91 400,95"/>
+    <line x1="458" y1="91" x2="506" y2="91"/><polygon points="506,87 514,91 506,95"/>
+    <line x1="588" y1="91" x2="636" y2="91"/><polygon points="636,87 644,91 636,95"/>
+  </g>
+  <text x="430" y="128" font-size="10" fill="#8A3B1E" text-anchor="middle">O 的数值往前传 &rarr; 产生 loss</text>
+
+  <!-- backward row -->
+  <text x="60" y="186" font-size="11" fill="#87867F">反向</text>
+  <g font-size="12" fill="#141413">
+    <rect x="638" y="170" width="70" height="34" rx="6" fill="#141413" stroke="#141413"/><text x="673" y="192" text-anchor="middle" fill="#FAF9F5">Loss</text>
+    <rect x="508" y="170" width="80" height="34" rx="6" fill="#DCE6CC" stroke="#788C5D"/><text x="548" y="192" text-anchor="middle">dO=&part;L/&part;O</text>
+    <rect x="300" y="170" width="180" height="34" rx="6" fill="#F0EEE6" stroke="#87867F"/><text x="390" y="192" text-anchor="middle">dV, dP, dS, dQ, dK</text>
+  </g>
+  <g stroke="#788C5D" fill="#788C5D">
+    <line x1="638" y1="187" x2="590" y2="187"/><polygon points="590,183 582,187 590,191"/>
+    <line x1="508" y1="187" x2="482" y2="187"/><polygon points="482,183 474,187 482,191"/>
+  </g>
+  <text x="548" y="224" font-size="10" fill="#4B5C39" text-anchor="middle">dO 是反向入口（两条路径都用）</text>
+
+  <!-- softmax-only dashed: read O for D -->
+  <path d="M430 110 C430 150, 200 150, 200 168" fill="none" stroke="#D97757" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <polygon points="196,160 200,170 204,160" fill="#D97757"/>
+  <text x="250" y="150" font-size="10" fill="#D97757" text-anchor="middle">仅 softmax：回读 O 算 D = rowsum(O⊙dO)</text>
+
+  <!-- bottom takeaway -->
+  <rect x="60" y="256" width="760" height="64" rx="8" fill="#FAF9F5" stroke="#D1CFC5"/>
+  <text x="440" y="282" font-size="12.5" fill="#141413" text-anchor="middle" font-weight="bold">SiLU 没有那条红色虚线 &mdash; 不回读 O；但绿色的 dO 入口它照样用</text>
+  <text x="440" y="304" font-size="11" fill="#3D3D3A" text-anchor="middle">被省的是"O 的存档/回读"（红虚线），不是 loss、不是 dO（绿）</text>
+</svg>
+</div>
+<p class="svg-caption">图 F：前向 <code>O</code> 的数值一路产生 loss；反向 <code>dO=&part;L/&part;O</code> 是入口、两条路径都用。softmax 多一条红色虚线"回读 O 算 D"，SiLU 没有这条 &mdash; 省掉的正是这条回读，而非 dO。</p>
+
+<div class="note-block silu"><strong>一个类比：</strong> O 像接力选手把棒（输出）往前传，跑出成绩（loss）；回来时收到一张"修正单"（<code>dO</code>）。softmax 的反向算法额外要翻"当时 O 是多少"（<code>O&odot;dO</code>）；SiLU 只看修正单 <code>dO</code> + 重算的 <code>S/P</code> 就够。<strong>修正单 dO 始终在手，被省的是"O 的那份存档"。</strong></div>
+
+<h3>3.1 前向：SiLU 是逐元素激活，行内不归一</h3>
+<div class="formula formula-block">
+  <span class="line">S_ij = alpha &middot; (Q_i &middot; K_j)</span>
+  <span class="line">P_ij = silu(S_ij) &middot; scale_p          silu(x) = x &middot; &sigma;(x)，逐元素，行内不归一</span>
+  <span class="line">O_i  = &sum;_j P_ij &middot; V_j</span>
+</div>
+<p>注意和 softmax 的根本区别：<code>P_ij = silu(S_ij)·scale_p</code> 只依赖<strong>自己这一格</strong>的 <code>S_ij</code>，跟同一行其它 j 毫无关系（softmax 的每个 P_ij 则依赖整行，因为分母是整行的和）。没有归一化 = 没有跨 j 的耦合。</p>
+
+<h3>3.2 反向：Jacobian 是对角的，没有 row-sum</h3>
+<p>因为激活逐元素，<code>∂P_ij/∂S_ij'</code> 只在 <code>j=j'</code> 时非零（数学上叫"Jacobian 是对角矩阵"，对照 <a href="#softmax-jac" style="color:var(--olive);">§2.4 图 E</a> 右边那张只有对角线的图）。链式法则直接逐格相乘，<strong>不产生任何跨 j 的求和项</strong>。下面把结果一步步推出来。</p>
+
+<h4>① 先推 dsilu(x)</h4>
+<p>SiLU 定义 <code>silu(x) = x·&sigma;(x)</code>，其中 sigmoid <code>&sigma;(x) = 1/(1+e^{−x})</code>。它是两个函数 <code>x</code> 与 <code>&sigma;(x)</code> 的乘积，用乘积法则 <code>(uv)' = u'v + uv'</code>（取 <code>u=x</code>、<code>v=&sigma;(x)</code>）：</p>
+<div class="formula formula-block">
+  <span class="line">silu'(x) = (x)'&middot;&sigma;(x) + x&middot;&sigma;'(x) = &sigma;(x) + x&middot;&sigma;'(x)</span>
+  <span class="line">代入 sigmoid 导数  &sigma;'(x) = &sigma;(x)&middot;(1 &minus; &sigma;(x))：</span>
+  <span class="line">         = &sigma;(x) + x&middot;&sigma;(x)&middot;(1 &minus; &sigma;(x))</span>
+  <span class="line hl">提出 &sigma;(x)：  dsilu(x) = &sigma;(x)&middot;(1 + x&middot;(1 &minus; &sigma;(x)))</span>
+</div>
+<p>这正好对上文档与源码里那行 <code>dsilu(x) = &sigma;(x)·(1 + x·(1 − &sigma;(x)))</code>（<code>reference_hstu_attention_bwd.hpp:152-156</code>）。</p>
+
+<h4>② 再推 dS_ij</h4>
+<p>前向 <code>P_ij = silu(S_ij)·scale_p</code> 是<strong>逐元素</strong>的：<code>P_ij</code> 只依赖 <code>S_ij</code> 这<em>一个</em>元素，不碰同行其它格子。所以链式法则<strong>不对其它项求和</strong>（与 §2.4 softmax 那条要对整行 k 求和形成鲜明对比）：</p>
+<div class="formula formula-block">
+  <span class="line">dS_ij = dP_ij &middot; &part;P_ij/&part;S_ij</span>
+  <span class="line">      = dP_ij &middot; scale_p &middot; silu'(S_ij)        scale_p 是常数，提出</span>
+  <span class="line hl">      = dP_ij &middot; scale_p &middot; dsilu(S_ij)       (masked-in)</span>
+  <span class="line">      = 0                                  (masked-out, 显式置零，见下)</span>
+</div>
+<p>对比 softmax 的 <code>dS_ij = P_ij·(dP_ij − &rho;_i)</code>：SiLU 这条<strong>没有 &rho;_i / D_i 那一项</strong> &mdash; 因为逐元素 &rarr; Jacobian 纯对角 &rarr; 无行耦合 &rarr; 没有那个 row-sum。既然反向用不到 D，那也就<strong>不需要 O</strong>（O 的唯一作用就是喂 D-trick），同样也<strong>不需要 LSE</strong>（LSE 是 softmax 恢复 P 用的）。</p>
+
+<h4>③ masked-out 为什么必须"显式"置零</h4>
+<div class="note-block silu"><strong>关键在"显式"二字。</strong> masked-in 的格子用上面公式算 <code>dS</code>；masked-out 的格子<strong>不该有梯度流过</strong>，<code>dS</code> 必须等于 0。问题是怎么变成 0：
+<br>&bull; <strong>softmax 能自然清零</strong>：masked 处令 <code>S = −∞</code> &rArr; <code>P = exp(−∞ − LSE) = 0</code>，前向后向都自动归零，不用特判。
+<br>&bull; <strong>SiLU 不能</strong>：<code>dsilu</code> 在任何点都不会"恰好抹掉梯度"。例如 <code>dsilu(0) = &sigma;(0)·(1 + 0) = 0.5 &ne; 0</code>。若放着不管，在 masked 位置套公式会算出<em>非零</em>的 <code>dS = dP·scale_p·0.5</code>，污染 <code>dQ / dK</code>。
+<br>所以代码必须在 masked-out 位置<strong>手动写 <code>dS = 0</code></strong>（前向同样要手动把 <code>P</code> 置 0），不能像 softmax 那样指望它自动消失。这与 <a href="#silu-pitfall" style="color:var(--olive);">§3.4「小坑」</a>讲的是同一件事的一体两面：前向 <code>silu(0)·scale_p &ne; 0</code> 与反向 <code>dsilu(0) = 0.5 &ne; 0</code>，都源于 SiLU 没有"−∞ 自然归零"这个性质。</div>
+
+<h3>3.3 代价转移到哪了？</h3>
+<p>SiLU 路径省了 O / LSE / D，但有个代价：要算 <code>dsilu(S_ij)</code> 就必须有 <code>S_ij</code> &mdash; 所以得<strong>重算 S</strong>。不过别急着记成"额外开销"：</p>
+<div class="note-block"><strong>softmax 路径其实也要重算 S</strong>（它要 <code>S</code> 才能恢复 <code>P = exp(S − LSE)</code>）。所以"重算 S"是两条路径<strong>共同</strong>的成本，不是 SiLU 独有的。SiLU 真正<strong>省下</strong>的是：① <code>O</code> 的读带宽，② <code>LSE</code> 的存储与读带宽。</div>
+
+<h3 id="silu-pitfall">3.4 一个小坑：silu(0)·scale_p ≠ 0</h3>
+<div class="note-block silu"><strong>masked-out 位置的清零问题。</strong> softmax 路径里，被 mask 掉的格子设 <code>S = −∞</code>，于是 <code>exp(−∞ − LSE) = 0</code>，<em>自然</em>清零。但 SiLU 不行：<code>silu(0)·scale_p &ne; 0</code>，给个 0 进去出来不是 0。所以 SiLU 路径必须<strong>显式</strong>把 masked-out 的 <code>S</code>（或 <code>dS</code>）置 0，不能靠激活自己归零。</div>
+<div class="code-block"><span class="cm">// reference_hstu_attention_bwd.hpp</span>
+<span class="cm">// 前向重算 S 时，masked-out 位置：SiLU 置 0，softmax 置 -inf  (line 274-279)</span>
+<span class="kw">if</span> <span class="kw">constexpr</span>(!kUseSoftmax)
+    locals_S[sk] = <span class="fn">type_convert</span>&lt;CompDataType&gt;(0.0f);          <span class="cm">// SiLU: 显式 0</span>
+<span class="kw">else</span>
+    locals_S[sk] = -ck_tile::numeric&lt;CompDataType&gt;::infinity(); <span class="cm">// softmax: -inf</span>
+
+<span class="cm">// 算 dS 时，SiLU 的 masked-out 也要显式置 0  (line 380-385)</span>
+<span class="kw">if</span>(mask.<span class="fn">IsTokenPairInsideMask</span>(sq, sk))
+    locals_dS[sk] = locals_dP[sk] * scale_p * <span class="fn">dsilu</span>(locals_S[sk]);
+<span class="kw">else</span>
+    locals_dS[sk] = <span class="fn">type_convert</span>&lt;CompDataType&gt;(0.0f);          <span class="cm">// 显式清零</span></div>
+</section>
+
+<!-- ============= §4 ============= -->
+<section id="table">
+<h2>4. 三个副产物的路径对照表</h2>
+<p class="lede">把前面三节归纳成一张表。颜色约定：<span style="color:var(--clay);font-weight:600;">clay = softmax 路径 / FMHA</span>，<span style="color:var(--olive);font-weight:600;">olive = SiLU 路径 / HSTU 默认</span>。</p>
+
+<div class="tbl-wrap">
+<table class="compare-table">
+<thead><tr>
+  <th>副产物</th><th>是什么</th>
+  <th class="fmha-col">softmax 路径</th>
+  <th class="hstu-col">SiLU 路径</th>
+</tr></thead>
+<tbody>
+<tr>
+  <td><code>O</code></td>
+  <td>注意力输出 <code>[S, d]</code>，前向本就要返回</td>
+  <td><strong>必存</strong> &mdash; 喂 D-trick（<code>D = dO·O</code>）</td>
+  <td>不需要</td>
+</tr>
+<tr>
+  <td><code>LSE</code></td>
+  <td><code>log &sum;_j exp(S)</code>，每行一个标量 <code>[S]</code></td>
+  <td><strong>必存</strong> &mdash; 反向用 <code>P = exp(S−LSE)</code> 单趟恢复 P</td>
+  <td>不存不读</td>
+</tr>
+<tr>
+  <td><code>D</code></td>
+  <td><code>rowsum(O⊙dO)</code>，每行一个标量 <code>[S]</code></td>
+  <td>需要 &mdash; FMHA 走独立 PRE-pass kernel；HSTU 走主循环 inline</td>
+  <td>不需要（没有 row-sum 项）</td>
+</tr>
+<tr>
+  <td><code>S</code> / <code>P</code></td>
+  <td>分数 / 权重矩阵 <code>[S, S]</code>，O(S²)</td>
+  <td colspan="2" style="background:var(--gray-150);"><strong>都不存</strong> &mdash; O(S²) 太大，反向里从 <code>Q,K</code>(<code>,LSE</code>) 重算</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="note-block"><strong>一句话记忆：</strong> 大矩阵（S/P）一律重算；小量（O/LSE/D）是否存，取决于激活函数有没有那个 row-sum 项 &mdash; <strong>softmax 有 &rarr; 三个都要；SiLU 没有 &rarr; 三个都不要</strong>。</div>
+</section>
+
+<!-- ============= §5 ============= -->
+<section id="cell">
+<h2>5. 回到那一格：精确解读</h2>
+<p class="lede">报告符号表里那行 <code>O | Forward 输出 | 必存(FMHA) | 仅 softmax 路径必存(HSTU)</code>，现在可以逐列拆开了。</p>
+
+<div class="callout-grid">
+  <div class="callout fmha">
+    <div class="k">FMHA 那列</div>
+    <div class="t">"O 必存"</div>
+    <div class="d">FMHA <strong>永远走 softmax</strong>，没有别的路径。softmax 反向必算 D，D 必用 O &rarr; 所以 O 一定要存。无条件。</div>
+  </div>
+  <div class="callout">
+    <div class="k">HSTU 那列</div>
+    <div class="t">"仅 softmax 路径必存"</div>
+    <div class="d">HSTU 有 <strong>两条</strong>路径。走 softmax（<code>kUseSoftmax=true</code>）时和 FMHA 一样需要 O；走<strong>默认的 SiLU 路径</strong>时不需要 O。</div>
+  </div>
+  <div class="callout">
+    <div class="k">为什么是"激活路径相关"</div>
+    <div class="t">钥匙是 row-sum</div>
+    <div class="d">softmax 的归一化制造了 row-sum 项 &rarr; D &rarr; O；SiLU 逐元素、无 row-sum &rarr; 无 D &rarr; 无 O。<strong>存不存 = 激活有没有耦合</strong>。</div>
+  </div>
+</div>
+
+<!-- 图 B -->
+<div class="fig-wrap">
+<div class="legend">
+  <span><span class="swatch" style="background:#DCE6CC;border:1px solid #788C5D;"></span> 两条路径都要</span>
+  <span><span class="swatch" style="background:#FAD9CC;border:1px solid #D97757;"></span> 仅 softmax 路径额外需要</span>
+</div>
+<svg viewBox="0 0 880 330" role="img" aria-label="两条路径的反向数据依赖对比">
+  <text x="440" y="26" font-size="14" fill="#141413" text-anchor="middle" font-weight="bold">图 B &nbsp; 反向需要的输入：softmax 路径 vs SiLU 路径</text>
+
+  <!-- SiLU side -->
+  <text x="220" y="60" font-size="13" fill="#788C5D" text-anchor="middle" font-weight="bold">SiLU 路径（HSTU 默认）</text>
+  <text x="220" y="78" font-size="11" fill="#87867F" text-anchor="middle">只需 4 块</text>
+  <g>
+    <rect x="120" y="92" width="80" height="34" rx="6" fill="#DCE6CC" stroke="#788C5D"/><text x="160" y="114" font-size="13" fill="#141413" text-anchor="middle">Q</text>
+    <rect x="240" y="92" width="80" height="34" rx="6" fill="#DCE6CC" stroke="#788C5D"/><text x="280" y="114" font-size="13" fill="#141413" text-anchor="middle">K</text>
+    <rect x="120" y="136" width="80" height="34" rx="6" fill="#DCE6CC" stroke="#788C5D"/><text x="160" y="158" font-size="13" fill="#141413" text-anchor="middle">V</text>
+    <rect x="240" y="136" width="80" height="34" rx="6" fill="#DCE6CC" stroke="#788C5D"/><text x="280" y="158" font-size="13" fill="#141413" text-anchor="middle">dO</text>
+  </g>
+  <text x="220" y="200" font-size="11" fill="#4B5C39" text-anchor="middle">重算 S；无 O / LSE / D</text>
+  <rect x="120" y="214" width="200" height="32" rx="6" fill="#E4E9DC" stroke="#4B5C39"/>
+  <text x="220" y="235" font-size="12" fill="#4B5C39" text-anchor="middle">&rarr; dQ, dK, dV</text>
+
+  <!-- divider -->
+  <line x1="440" y1="50" x2="440" y2="300" stroke="#D1CFC5" stroke-dasharray="4 4"/>
+
+  <!-- softmax side -->
+  <text x="660" y="60" font-size="13" fill="#D97757" text-anchor="middle" font-weight="bold">softmax 路径（FMHA / HSTU-softmax）</text>
+  <text x="660" y="78" font-size="11" fill="#87867F" text-anchor="middle">需 6 块（多 O 和 LSE）</text>
+  <g>
+    <rect x="540" y="92" width="76" height="34" rx="6" fill="#DCE6CC" stroke="#788C5D"/><text x="578" y="114" font-size="13" fill="#141413" text-anchor="middle">Q</text>
+    <rect x="640" y="92" width="76" height="34" rx="6" fill="#DCE6CC" stroke="#788C5D"/><text x="678" y="114" font-size="13" fill="#141413" text-anchor="middle">K</text>
+    <rect x="740" y="92" width="76" height="34" rx="6" fill="#DCE6CC" stroke="#788C5D"/><text x="778" y="114" font-size="13" fill="#141413" text-anchor="middle">V</text>
+    <rect x="540" y="136" width="76" height="34" rx="6" fill="#DCE6CC" stroke="#788C5D"/><text x="578" y="158" font-size="13" fill="#141413" text-anchor="middle">dO</text>
+    <rect x="640" y="136" width="76" height="34" rx="6" fill="#FAD9CC" stroke="#D97757"/><text x="678" y="158" font-size="13" fill="#141413" text-anchor="middle">O</text>
+    <rect x="740" y="136" width="76" height="34" rx="6" fill="#FAD9CC" stroke="#D97757"/><text x="778" y="158" font-size="13" fill="#141413" text-anchor="middle">LSE</text>
+  </g>
+  <text x="660" y="200" font-size="11" fill="#8A3B1E" text-anchor="middle">重算 S；O&rarr;算 D，LSE&rarr;恢复 P</text>
+  <rect x="560" y="214" width="200" height="32" rx="6" fill="#F3D9CC" stroke="#8A3B1E"/>
+  <text x="660" y="235" font-size="12" fill="#8A3B1E" text-anchor="middle">&rarr; dQ, dK, dV</text>
+
+  <!-- bottom -->
+  <text x="440" y="288" font-size="12" fill="#3D3D3A" text-anchor="middle">差别只在 softmax 多读 O 和 LSE 两块（粉色）&mdash; 它们存在的唯一理由是 D-trick 和单趟恢复 P</text>
+</svg>
+</div>
+<p class="svg-caption">图 B：SiLU 路径反向只依赖 {Q,K,V,dO}；softmax 路径多出 {O, LSE} 两块（粉色），分别服务于 D-trick 和单趟恢复 P。</p>
+
+<!-- 图 C -->
+<div class="fig-wrap">
+<svg viewBox="0 0 880 250" role="img" aria-label="显存视角：大块放不下，小块存得起">
+  <text x="440" y="26" font-size="14" fill="#141413" text-anchor="middle" font-weight="bold">图 C &nbsp; 显存视角：哪些"放不下"、哪些"存得起"</text>
+
+  <!-- big O(S^2) blocks -->
+  <text x="230" y="60" font-size="12" fill="#8A3B1E" text-anchor="middle">O(S&sup2;) &mdash; 放不下 &rarr; 反向重算</text>
+  <rect x="100" y="72" width="260" height="120" fill="#F3D9CC" stroke="#8A3B1E"/>
+  <text x="230" y="120" font-size="14" fill="#8A3B1E" text-anchor="middle">S 矩阵  [S &times; S]</text>
+  <text x="230" y="142" font-size="11" fill="#8A3B1E" text-anchor="middle">(P 同样大小，再来一份)</text>
+  <text x="230" y="166" font-size="11" fill="#87867F" text-anchor="middle">例：8K&times;4&times;32&times;fp16 &asymp; 16 GB</text>
+
+  <!-- small O(S) blocks -->
+  <text x="650" y="60" font-size="12" fill="#4B5C39" text-anchor="middle">O(S&middot;d) / O(S) &mdash; 存得起</text>
+  <rect x="560" y="100" width="70" height="64" fill="#DCE6CC" stroke="#788C5D"/>
+  <text x="595" y="136" font-size="12" fill="#4B5C39" text-anchor="middle">O</text>
+  <rect x="645" y="132" width="48" height="14" fill="#DCE6CC" stroke="#788C5D"/>
+  <text x="669" y="160" font-size="11" fill="#4B5C39" text-anchor="middle">LSE</text>
+  <rect x="710" y="132" width="48" height="14" fill="#DCE6CC" stroke="#788C5D"/>
+  <text x="734" y="160" font-size="11" fill="#4B5C39" text-anchor="middle">D</text>
+  <text x="650" y="190" font-size="11" fill="#87867F" text-anchor="middle">O 是细长条，LSE/D 是一行标量</text>
+
+  <text x="440" y="228" font-size="12" fill="#3D3D3A" text-anchor="middle">策略：大块不存（重算），小块按激活路径选存 &mdash; 这正是 FlashAttention 的取舍</text>
+</svg>
+</div>
+<p class="svg-caption">图 C：S/P 是 O(S²) 的大块（放不下，反向重算）；O/LSE/D 是 O(S·d)/O(S) 的小块（存得起，按路径决定存哪些）。</p>
+</section>
+
+<!-- ============= §6 ============= -->
+<section id="storelse">
+<h2>6. 延伸：kStoreLSE 这个"接线柱"</h2>
+<p class="lede">既然 LSE 只有 softmax 路径才需要，前向就不应该无脑把它写回显存。HSTU 前向为此加了个模板开关 <code>kStoreLSE</code>。</p>
+
+<p><code>kStoreLSE</code> 是 HSTU 前向侧的一个<strong>模板形参</strong>（编译期布尔），控制前向算完 <code>LSE</code> 之后<strong>要不要写回 DRAM</strong>（显存）。它和本文的第 2、3 节直接相关：</p>
+<ul class="clean">
+  <li>走 <strong>softmax 路径</strong>且未来要做反向 &rarr; LSE 反向有用 &rarr; 应 <code>kStoreLSE=true</code>，把它存下来。</li>
+  <li>走<strong>默认 SiLU 路径</strong> &rarr; 反向根本不读 LSE &rarr; <code>kStoreLSE=false</code>，连存都省了。</li>
+</ul>
+
+<div class="note-block"><strong>当前 branch 的状态：</strong> 前向的所有 caller 目前一律传 <code>kStoreLSE=false</code>（<span class="src">18_hstu_attention</span> 下 6 个 dispatch 文件共 9 处实例化，无一例外）&mdash; 因为 GPU 反向还没上线，且默认的 SiLU 路径本来就不需要 LSE。等到 softmax 路径的 GPU 反向真正落地，才会有 caller 切到 <code>true</code>。所以现在它是一个<strong>预留的接线柱</strong>：线已经接好，开关暂时关着。</div>
+
+<div class="note-block softmax"><strong>一个无效组合：</strong> <code>kStoreLSE=true &amp;&amp; kUseSoftmax=false</code>。意思是"走 SiLU 路径、却又要存 LSE" &mdash; SiLU 路径根本不产生也不需要 LSE，存它没有意义。这个组合在语义上是矛盾的，不应出现。</div>
+</section>
+
+<!-- ============= §7 ============= -->
+<section id="qa">
+<h2>7. Q&amp;A</h2>
+<div class="qa">
+  <div class="item">
+    <div class="q">S 和 P 为什么不存？</div>
+    <div class="a">它们是 O(S²) 的大方阵，序列一长就几十 GB，显存放不下。而且它们能从 <code>Q, K</code>（softmax 还需 <code>LSE</code>）重算出来，重算的算力开销远小于存它们的显存与带宽开销。</div>
+  </div>
+  <div class="item">
+    <div class="q">重算 S 不是很慢吗？</div>
+    <div class="a">每个 <code>(sq, sk)</code> 格子要多做一次 <code>Q·K</code> 点积（hdim 量级的 FLOP）。但换来的是省下海量显存占用和显存读写带宽 &mdash; 在 GPU 上后者才是瓶颈。这种"用算力换带宽"正是 FlashAttention 的核心取舍。</div>
+  </div>
+  <div class="item">
+    <div class="q">为什么 FMHA 给 D 单开一个 kernel，HSTU 却放主循环里？</div>
+    <div class="a">纯实现选择。FMHA 用独立 PRE-pass kernel（<code>block_fmha_bwd_dot_do_o.hpp</code>，95 行）把 D 解耦出来，便于调度和复用；HSTU 的 CPU reference 图简单，直接 inline 在主反向循环里算（<code>reference_hstu_attention_bwd.hpp</code> line 390-413）。两者算的是同一个 <code>D = rowsum(O⊙dO)</code>。</div>
+  </div>
+  <div class="item">
+    <div class="q">SiLU 路径既然不存 LSE / O，是不是整体更省？</div>
+    <div class="a">反向确实省了读 <code>O</code> 和 <code>LSE</code> 两块的带宽，也省了前向写 LSE。但它仍然要<strong>重算 S</strong>（softmax 也要重算，这点打平）。净收益是"少读两块东西"&mdash; 带宽更省，不是免费午餐。</div>
+  </div>
+  <div class="item">
+    <div class="q">那 dO 为什么不用"存"？</div>
+    <div class="a">因为 <code>dO = ∂L/∂O</code> 是上游传下来的梯度，它<strong>本来就是反向传播的输入</strong>，由计算图的下一层提供，不属于"前向要不要保存"的范畴。O / LSE / D 才是前向需要决定存不存的副产物。</div>
+  </div>
+</div>
+</section>
+
+<p style="max-width:820px; font-size:12px; color:var(--gray-500); border-top:1px solid var(--gray-300); padding-top:14px;">
+源码复核(分属两个仓库)：HSTU 端 <code>/root/workspace/ck_hstu</code> &mdash; <code>example/ck_tile/18_hstu_attention/reference_hstu_attention_bwd.hpp</code>（silu/dsilu 145-156；mask 置零 274-279 / 380-385；LSE 恢复 P 290-310；D inline 390-413）；FMHA 端 <code>/root/ck</code> &mdash; <code>include/ck_tile/ops/fmha/pipeline/block_fmha_bwd_dot_do_o.hpp</code>（D pre-pass，95 行）。配套报告 <code>ck-vs-hstu-bwd-20260529.html</code> §1 / §3 / §3.7、<code>fmha-bwd-intro-20260528.html</code> §1.1。2026-06-02。
+</p>
+
+</main>
+
+<!-- ============= TOC ============= -->
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#why">1. 为什么 bwd 需要 fwd 中间量</a>
+  <a href="#dtrick">2. softmax 的 D-trick</a>
+  <a href="#dp-detour" class="sub">2.3 dP = dO&middot;V&#x1d40; 这步</a>
+  <a href="#softmax-jac" class="sub">2.4 dS：softmax Jacobian</a>
+  <a href="#dtrick" class="sub">2.5 &rho;_i = dO·O 化简</a>
+  <a href="#silu">3. SiLU 为何不需要 O</a>
+  <a href="#o-vs-do" class="sub">3.0 省 O &ne; 省 dO</a>
+  <a href="#table">4. 路径对照表</a>
+  <a href="#cell">5. 回到那一格</a>
+  <a href="#storelse">6. kStoreLSE 接线柱</a>
+  <a href="#qa">7. Q&amp;A</a>
+</nav>
+
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M6b（group deterministic）代码改动 review</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M6b 代码改动 review</div>
+  <h1>HSTU Attention Backward — M6b（group deterministic）：可复现 dQ 扩到 group，顺手揪出潜伏的 harness bug</h1>
+  <p class="subtitle">M6b 把 M6 的「确定性 dQ」机制原样复用到 <strong>group 模式</strong>（SiLU + softmax），并修掉一个隐蔽缺陷 O1（group entry 把 <code>kIsDeterministic</code> 硬编码成 <code>false</code>，导致 group+determ 静默走 atomic、不可复现）。验证途中独立复核又挖出一个 <strong>pre-existing harness setup bug</strong>（<code>group_max_seqlens_q</code> 低估），并彻底修好。所有引用以 <code>git show ecda0f06:&lt;file&gt;</code> 行号为准。</p>
+  <div class="audience">读者：要 review group 确定性反向 + 这次 harness 根因定位的工程师（关键术语配一句白话）</div>
+</header>
+
+<div class="layout">
+<main>
+
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M6b</div>
+  <p class="lede">M6b = <strong>M6 determ × M4/M5b group</strong>。两个 group kernel（SiLU + softmax）的 dq_acc 窗口加上「<code>set</code> + 按 split 偏移」分叉，POST 复用 M6 的 <em>定序 reduce</em> kernel —— group 路从此逐位可复现。同时修 <strong>O1</strong>：group entry 由 <code>BOOL_SWITCH_2</code> 升 <code>BOOL_SWITCH_3</code> 接上 determ 轴。</p>
+  <p>验证中独立复核抓到 1 个 <strong>真 FAIL</strong>：根因不在库、不在 reference，而是 harness 把 <code>group_max_seqlens_q</code> 算小了 —— 组内多 batch 异 seqlen 时 PRE D kernel 漏算最长 batch 的尾 token → 垃圾 D → 仅 softmax target 行 dQ 错。修公式 + 加 <code>HSTU_CHECK</code> 守卫后转 PASS。</p>
+  <div class="badges">
+    <span class="badge info">5 文件改动 · +186 / −114</span>
+    <span class="badge ok">group determ：逐位可复现 ✓</span>
+    <span class="badge gate">O1 修复 + harness bug 修复</span>
+  </div>
+  <div class="statgrid">
+    <div class="stat"><div class="v">5</div><div class="l">改动文件</div></div>
+    <div class="stat"><div class="v">91/91</div><div class="l">套件 PASS（exit 0）</div></div>
+    <div class="stat"><div class="v">0.0626→7e-9</div><div class="l">原 FAIL dQ 误差 → PASS</div></div>
+    <div class="stat"><div class="v">3</div><div class="l">新增锁定案</div></div>
+  </div>
+</div>
+
+<section id="s1">
+  <h2>1&nbsp;&nbsp;总览：M6b 到底改了什么</h2>
+  <p class="lede">三件正事 + 一条强教训：</p>
+  <div class="callout-grid">
+    <div class="callout"><div class="k">复用</div><div class="t">group determ = 复刻 M6</div><div class="d">两 group kernel dq_acc 窗口加 <code>set+split</code> 分叉（<code>bwd_kernel.hpp:1170</code> / <code>:1542</code>）；POST 直接用 M6 的定序 reduce kernel，模式无关。</div></div>
+    <div class="callout clay"><div class="k">修 O1</div><div class="t">determ 轴真正接通</div><div class="d">group entry <code>BOOL_SWITCH_2→3</code>（<code>group_backward_bf16.cpp:18</code>）+ dispatch 去掉 determ <code>throw</code>（<code>:319</code>）—— 此前 group+determ 静默 atomic、不可复现。</div></div>
+    <div class="callout clay"><div class="k">修 harness</div><div class="t">group_max_seqlens_q 低估</div><div class="d">公式改为组内逐 batch 真实最大（<code>example_..._bwd.cpp:653-673</code>）+ <code>HSTU_CHECK</code> 守卫（<code>:691</code>）。库逻辑/reference 本就正确。</div></div>
+  </div>
+  <div class="note-block clay"><strong>M6b 最易错处（也是本篇主线）：</strong>&nbsp;一个「repro 全绿 + 自述全 PASS」的里程碑，独立复核仍抓到一格 correctness FAIL。根因既<strong>不在新写的 determ 机制</strong>（determ 与 atomic 逐位相同），也不在库 kernel / dispatch / reference，而在一行<strong>看似无关的 harness setup</strong>：<code>num_targets[i_grp]</code> 用<em>组下标</em>索引<em>逐 batch</em> 数组，组内最长 packed 的 batch ≠ batch[i_grp] 时就低估了 <code>max_seqlen_q</code>。教训：自述 PASS ≠ 正确，<strong>对抗式独立复核（尤其能 revert 公式验证锁定）才是关键</strong>。</div>
+</section>
+
+<section id="s2">
+  <h2>2&nbsp;&nbsp;最佳阅读顺序</h2>
+  <p class="lede">M6b 是「把 M6 的机制接到 group」的增量，按「<strong>契约 → 算子分叉 → 编排 → 入口接轴 → harness 修复</strong>」读最顺：前 4 个文件讲 group determ 怎么落地，第 5 个文件讲那个被独立复核挖出的 harness bug。</p>
+
+  <div class="svg-wrap">
+  <svg viewBox="0 0 940 270" width="100%" role="img" aria-label="M6b 阅读顺序依赖流">
+    <defs>
+      <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#87867F"/></marker>
+    </defs>
+    <g font-size="12">
+      <!-- row 1: params -> kernel -> dispatch -->
+      <rect x="14"  y="20" width="170" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="99" y="42" text-anchor="middle" fill="#141413" font-weight="700">① params.hpp</text>
+      <text x="99" y="60" text-anchor="middle" fill="#87867F">+split_stride/num_splits</text>
+
+      <rect x="234" y="20" width="180" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="324" y="42" text-anchor="middle" fill="#141413" font-weight="700">② bwd_kernel.hpp</text>
+      <text x="324" y="60" text-anchor="middle" fill="#87867F">dq_acc set+split 分叉</text>
+
+      <rect x="464" y="20" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="564" y="42" text-anchor="middle" fill="#141413" font-weight="700">③ group_…dispatch.hpp</text>
+      <text x="564" y="60" text-anchor="middle" fill="#87867F">determ 轴 + launch helper</text>
+
+      <rect x="714" y="20" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="814" y="42" text-anchor="middle" fill="#141413" font-weight="700">④ group_…bf16.cpp</text>
+      <text x="814" y="60" text-anchor="middle" fill="#87867F">O1：BOOL_SWITCH_3</text>
+
+      <line x1="184" y1="47" x2="232" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="414" y1="47" x2="462" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="664" y1="47" x2="712" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- down from dispatch to harness -->
+      <line x1="564" y1="74" x2="564" y2="118" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 2: harness (the bug) -->
+      <rect x="324" y="120" width="320" height="58" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="484" y="143" text-anchor="middle" fill="#141413" font-weight="700">⑤ example_…_bwd.cpp（harness）</text>
+      <text x="484" y="162" text-anchor="middle" fill="#87867F">group_max_seqlens_q 根因修复 + assert</text>
+
+      <!-- down to bug chain -->
+      <line x1="484" y1="178" x2="484" y2="206" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 3: bug causal chain -->
+      <rect x="40" y="208" width="170" height="44" rx="8" fill="#FDF6F0" stroke="#D97757"/>
+      <text x="125" y="226" text-anchor="middle" fill="#8A3B1E" font-weight="700">max_seqlen_q 低估</text>
+      <text x="125" y="242" text-anchor="middle" fill="#87867F">组内最长 batch 漏了</text>
+
+      <rect x="252" y="208" width="170" height="44" rx="8" fill="#FDF6F0" stroke="#D97757"/>
+      <text x="337" y="226" text-anchor="middle" fill="#8A3B1E" font-weight="700">PRE 漏算尾 token D</text>
+      <text x="337" y="242" text-anchor="middle" fill="#87867F">grid 按 max_seqlen_q</text>
+
+      <rect x="464" y="208" width="150" height="44" rx="8" fill="#FDF6F0" stroke="#D97757"/>
+      <text x="539" y="226" text-anchor="middle" fill="#8A3B1E" font-weight="700">垃圾 D</text>
+      <text x="539" y="242" text-anchor="middle" fill="#87867F">d_dev 未 memset</text>
+
+      <rect x="656" y="208" width="240" height="44" rx="8" fill="#FDF6F0" stroke="#D97757"/>
+      <text x="776" y="226" text-anchor="middle" fill="#8A3B1E" font-weight="700">仅 softmax target 行 dQ 错</text>
+      <text x="776" y="242" text-anchor="middle" fill="#87867F">dK/dV 不受影响</text>
+
+      <line x1="210" y1="230" x2="250" y2="230" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="422" y1="230" x2="462" y2="230" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="614" y1="230" x2="654" y2="230" stroke="#87867F" marker-end="url(#ar)"/>
+    </g>
+  </svg>
+  </div>
+  <p class="svg-caption">上排（①②③④橙=group determ 落地链路）讲新功能；中/下排（⑤绿 + 红色因果链）讲被独立复核挖出的 harness bug 及其传导路径。</p>
+
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>#</th><th>文件</th><th>读它回答的问题</th><th>重点行</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>hstu_attention_bwd_params.hpp</code></td><td>group determ 需要哪两个<strong>新字段</strong></td><td><code>:186-188</code></td></tr>
+      <tr><td>2</td><td><code>hstu_attention_bwd_kernel.hpp</code></td><td>两个 group kernel 怎么按 determ <strong>分叉 dq_acc 写法</strong> + PRE 前置条件</td><td><code>:1170-1190</code> / <code>:1542</code> / <code>:1615</code></td></tr>
+      <tr><td>3</td><td><code>hstu_attention_group_backward_dispatch.hpp</code></td><td>determ 轴怎么<strong>穿进 Problem</strong> + 共享 launch/POST 编排</td><td><code>:86</code> / <code>:94-150</code> / <code>:319</code></td></tr>
+      <tr><td>4</td><td><code>hstu_attention_group_backward_bf16.cpp</code></td><td><strong>O1</strong>：entry 怎么把 determ 轴接通</td><td><code>:18-24</code></td></tr>
+      <tr><td>5</td><td><code>example_hstu_attention_bwd.cpp</code></td><td><strong>harness bug</strong>：max_seqlen_q 为何低估、怎么修、怎么守</td><td><code>:645-673</code> / <code>:687-693</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="s3">
+  <h2>3&nbsp;&nbsp;逐文件 review（为什么这样改）</h2>
+
+  <h3>① params.hpp — group params 加 2 字段 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:185</code> <code>total_dq_acc_elems</code> 注释改成「<strong>单份 packed slot</strong> = ΣL·H·hdim_qk」—— 语义从「整块」收窄为「一份」，为多 split 堆叠铺路。</li>
+    <li><code>:187 split_stride_dq_acc</code>：determ 路下 dq_acc 是 <code>num_splits</code> 份单 slot 堆叠，<strong>split 步长 = 一份 slot 的元素数</strong>；atomic 路下为 0（不分 split）。</li>
+    <li><code>:188 num_splits</code>：determ = <code>ceil(max_seqlen_q/kN0)</code>（每个 KV-block 一份），atomic = 1。与 M6 no_group params 完全同形，<strong>group 这次只是补齐对应字段</strong>。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_params.hpp:181-190 — GroupBwdParams 新增的 determ 字段</span>    <span class="cm">// ---- dQ workspace (float dq_acc) ----------------------------------------</span>
+    <span class="kw">void</span>* dq_acc_ptr;
+    ck_tile::index_t stride_dq_acc;       <span class="cm">// token stride (== H*hdim_qk)</span>
+    ck_tile::index_t nhead_stride_dq_acc; <span class="cm">// == hdim_qk</span>
+    ck_tile::index_t total_dq_acc_elems;  <span class="cm">// single packed slot = ΣL*H*hdim_qk</span>
+    <span class="cm">// M6b deterministic: dq_acc has num_splits stacked single-slots; split_stride = one slot.</span>
+    ck_tile::index_t <span class="hl">split_stride_dq_acc</span>; <span class="cm">// == total_dq_acc_elems (determ); 0 (atomic)</span>
+    <span class="kw">int</span> <span class="hl">num_splits</span>;                  <span class="cm">// determ: ceil(max_seqlen_q/kN0); atomic: 1</span>
+
+    <span class="kw">bool</span> kIsDeterministic; <span class="cm">// M6</span></div>
+
+  <h3>② bwd_kernel.hpp — 两个 group kernel 的 dq_acc 分叉 + PRE 前置条件 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li>SiLU group kernel（<code>HstuAttentionBwdDQDKDVGroupKernel</code>）与 softmax group kernel（<code>...GroupSoftmaxKernel</code>）各加一个 <code>split_stride_dq_acc</code> 到 <code>Kargs</code>（<code>:964</code> / <code>:1325</code>）与 <code>MakeKargs</code>。</li>
+    <li>两 kernel 的 dq_acc 窗口构造从「写死 <code>atomic_add</code>」改为<strong>编译期分叉</strong>（<code>:1170-1190</code> SiLU / <code>:1542</code> softmax）：<code>kIsDeterministic</code> → <code>memory_operation_enum::set</code> + 指针加 <code>i_tile_n·split_stride</code>（每个 KV-block 写自己那份 slot，无原子）；否则 <code>atomic_add</code>（M4/M5b 原路）。<strong>逻辑与 M6 no_group 逐字对应</strong>。</li>
+    <li><code>:1615</code> 给 PRE <code>hstu_bwd_dot_do_o_kernel</code> 加了一段<strong>前置条件注释</strong>——这正是 harness bug 的库侧契约：grid 按 <code>max_seqlen_q</code> 开，<code>[max_seqlen_q, seqlen_q)</code> 的 token 永不被访问；调用方<strong>必须</strong>保证 <code>max_seqlen_q ≥ 每个 batch 的 packed seqlen</code>，否则尾 token 无 D。刻意<strong>不 memset 兜底</strong>（D=0 对真实 token 仍是确定性错值，会掩盖问题）。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp:1170-1190 — SiLU group kernel dq_acc 窗口的 determ/atomic 分叉</span>        <span class="cm">// dQ_acc window — determ (set + per-split slot) vs atomic (M6b; see no_group kernel).</span>
+        <span class="kw">auto</span> dq_dram_window = [&amp;, i_tile_n_ = i_tile_n]() {
+            <span class="kw">constexpr auto</span> mop = kIsDeterministic ? memory_operation_enum::<span class="hl">set</span>
+                                                  : memory_operation_enum::<span class="hl">atomic_add</span>;
+            AccDataType* dq_acc_ptr =
+                <span class="kw">reinterpret_cast</span>&lt;AccDataType*&gt;(kargs.dq_acc_ptr) +
+                <span class="kw">static_cast</span>&lt;long_index_t&gt;(i_nhead) * kargs.nhead_stride_dq_acc +
+                batch_offset_dq_acc;
+            <span class="kw">if constexpr</span>(kIsDeterministic)
+                dq_acc_ptr += <span class="kw">static_cast</span>&lt;long_index_t&gt;(i_tile_n_) * kargs.<span class="hl">split_stride_dq_acc</span>;
+            <span class="cm">// ... pad_tensor_view&lt;..., mop&gt; + make_tile_window 同 atomic 路</span>
+        }();</div>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp:1615-1621 — PRE kernel 新增的前置条件注释（库侧契约）</span><span class="cm">// PRECONDITION (M6b): the launch grid is bounded by `max_seqlen_q`; a thread whose sq is</span>
+<span class="cm">// >= its batch's seqlen returns, BUT tokens in [max_seqlen_q, seqlen_q) are never visited.</span>
+<span class="cm">// Therefore the caller MUST pass max_seqlen_q >= every batch's packed seqlen, otherwise the</span>
+<span class="cm">// tail tokens of the longest batch get NO D written (d_ptr is intentionally not memset — a</span>
+<span class="cm">// D=0 fallback would be deterministically-wrong, not correct) and dQ for those rows is wrong.</span></div>
+  <div class="note-block olive"><strong>为什么 dV/dK 不受这个 bug 影响？</strong>&nbsp;D 只进 <code>dS = P·(dP − D)</code>，而 dQ = dS·K、dK = dSᵀ·Q 都吃 dS，dV = Pᵀ·dO 不含 D。但坏 token 只占最长 batch 的尾段 <code>[max_seqlen_q, seqlen_q)</code>：dK 对每个 key 是<em>全 query 求和</em>，坏行只是稀释贡献、相对误差被摊薄到阈值内；dQ 是<em>逐 query 行</em>独立，坏行就是直接错。所以现象精确表现为<strong>仅 softmax target 行 dQ 错</strong>（SiLU 无 PRE-D，天然不触发）。</div>
+
+  <h3>③ group_backward_dispatch.hpp — determ 轴穿进 Problem + 共享 launch/POST <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:86</code> <code>ProblemFor</code> 的 <code>kIsDeterministic</code> 从写死 <code>false</code> 改为<strong>透传模板实参</strong>——这是让 group 真正编出 determ 实例的关键一行。</li>
+    <li><code>:94-150</code> 抽出共享尾 <code>launch_main_and_post&lt;Pipeline, Kernel&gt;</code>：<code>num_splits = determ? ceil(max_seqlen_q/kN0) : 1</code>，<strong>memset 单 slot×num_splits</strong>，发 MAIN，再按 determ 二选一 POST —— determ 走 M6 的 <code>hstu_bwd_reduce_convert_dq_kernel</code>（<strong>定序 split reduce</strong>，逐位可复现），atomic 走原 <code>hstu_bwd_convert_dq_kernel</code>。<code>RunSilu</code>（<code>:217</code>）/ <code>RunSoftmax</code>（<code>:316</code>）双双调它，去掉各自重复的 memset+launch+POST。</li>
+    <li><code>:319</code> <code>Run</code> 里<strong>删掉 determ 的 <code>throw</code></strong>（旧 M4 占位「not implemented yet (M6)」），现在 SiLU/softmax 两路都同时支持 atomic 与 determ。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_group_backward_dispatch.hpp:100-105 + 122-133 — 共享 POST：determ 定序 reduce</span>        <span class="kw">const int</span> num_splits =
+            kIsDeterministic
+                ? <span class="kw">static_cast</span>&lt;<span class="kw">int</span>&gt;(ck_tile::integer_divide_ceil(param.max_seqlen_q, Pipeline::kN0))
+                : 1;
+        <span class="cm">// ... memset single*num_splits, launch MAIN ...</span>
+        <span class="kw">if constexpr</span>(kIsDeterministic)
+            hipLaunchKernelGGL((ck_tile::<span class="hl">hstu_bwd_reduce_convert_dq_kernel</span>&lt;...&gt;), <span class="cm">/* 定序 reduce 各 split */</span>
+                               ..., n, num_splits, <span class="kw">static_cast</span>&lt;ck_tile::long_index_t&gt;(single));
+        <span class="kw">else</span>
+            hipLaunchKernelGGL((ck_tile::hstu_bwd_convert_dq_kernel&lt;...&gt;), ..., n); <span class="cm">// atomic 单 slot</span></div>
+
+  <h3>④ group_backward_bf16.cpp — 修 O1：entry 接通 determ 轴 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><strong>O1 是什么</strong>：旧 group entry 用 <code>BOOL_SWITCH_2</code> 只降 causal/softmax 两轴，<code>kIsDeterministic</code> 在调 dispatch 时<strong>硬编码 <code>false</code></strong>。结果即便上层传 <code>deterministic=1</code>，group 也永远实例化 atomic 路 —— dispatch 里那句 determ <code>throw</code> 根本<strong>不可达</strong>，用户得到的是「静默 atomic」：数值正确，但<strong>不可复现</strong>，且毫无报错。</li>
+    <li><strong>修法</strong>（<code>:18-24</code>）：<code>BOOL_SWITCH_2 → BOOL_SWITCH_3</code>，把 <code>param.kIsDeterministic</code> 作为第三轴降维成模板常量 <code>kIsDeterministic</code> 再传进 dispatch。group 是直接实例化（无 <code>generate_instances</code> 文件），所以这一处就够。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_group_backward_bf16.cpp:18-26 — BOOL_SWITCH_2 → BOOL_SWITCH_3（O1 修复）</span>    <span class="hl">BOOL_SWITCH_3</span>(param.use_causal, kUseCausal, param.use_softmax, kUseSoftmax,
+                  param.<span class="hl">kIsDeterministic</span>, kIsDeterministic, [&amp;] {
+        <span class="fn">run_group_backward_dispatch</span>&lt;ck_tile::bf16_t,
+                                    kUseCausal,
+                                    kUseSoftmax,
+                                    <span class="kw">false</span>, <span class="cm">// kHasBias</span>
+                                    <span class="hl">kIsDeterministic</span>, <span class="cm">// 旧版写死 false → determ 不可达</span>
+                                    64&gt;   <span class="cm">// MaxK</span>
+            (param, stream);
+    });</div>
+  <div class="note-block clay"><strong>O1 为什么危险：</strong>&nbsp;它不是「编译失败」也不是「运行崩溃」，而是<em>静默降级</em>——用户以为开了确定性，实际拿到的是 atomic 路。这类「正确但不满足声明属性」的缺陷最难发现，因为对拍照样过。修复后，group+determ 是真 determ：两次运行 dQ <strong>byte-identical</strong>，且与 atomic 路逐位相同（证明分叉不改数值、只改归约顺序）。</div>
+
+  <h3>⑤ example_hstu_attention_bwd.cpp — harness 根因修复 + 守卫 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><strong>根因（旧公式）</strong>：<code>group_max_seqlens_q[i_grp] = group_max_uih + ctx + num_targets[i_grp]</code>。两处错：① <code>num_targets</code> 是<em>逐 batch</em> 数组，却用<em>组下标 <code>i_grp</code></em> 索引；② uih 用单一组内 max，但 target 没逐 batch 对齐。当组内<strong>最长 packed 的 batch ≠ batch[i_grp]</strong> 时，算出的 <code>max_seqlen_q</code> 小于该 batch 的真实 seqlen。</li>
+    <li><strong>传导</strong>：PRE D kernel grid 按 <code>max_seqlen_q</code> 开 → <code>[max_seqlen_q, 真实 seqlen)</code> 的尾 token 从不算 D，而 <code>d_dev</code> 未 memset → 垃圾 D → <code>dS=P·(dP−D)</code> 错 → 仅这些行的 dQ 错（dK 稀释、dV 不含 D ⇒ PASS）。lead repro 配置坏 token 恰为 <code>[208,224)</code>。</li>
+    <li><strong>判别实验（坐实非库/非 determ）</strong>：同输入 group vs no_group-jagged，<code>G_ref == N_ref</code> 逐位相同（⇒ reference 正确）、<code>G_dev != N_dev</code> 仅 batch1 target 区（⇒ GPU 侧）；再 <code>-g_max_seqlens</code> 覆盖：max=208 FAIL、max≥224 PASS，而 <code>grid.x=ceil(·/128)=2</code> 不变（⇒ 非 grid，是 <code>max_seqlen_q</code> 数值）；且 determ==atomic 逐位相同（⇒ 非 M6b determ）。</li>
+    <li><strong>修法</strong>（<code>:653-673</code>）：改为组内<em>逐 batch</em> 取 <code>max(seq_lengths_q[b] + num_targets[b]) + ctx</code>，与 cu_seqlens offset 公式一致；删除随之失效的 <code>group_max_uih_seqlens_q</code>；保留用户 <code>-g_max_seqlens</code> override。修正后的 <code>max_max_seqlen_q</code> 同时喂给 group-fwd 产 LSE 一处，fwd grid/LSE 覆盖一并修好；SiLU group 在 <code>attn_scale==0</code> 的 scale_p fallback 也用它。</li>
+    <li><strong>守卫</strong>（<code>:691</code>）：加 <code>HSTU_CHECK(max_max_seqlen_q &gt;= batch_seqlen)</code>，把「喂错 max_seqlen_q」从 <em>silent-wrong</em> 变<em>响亮失败</em>。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp:657-672 — 修正后的 group_max_seqlens_q：组内逐 batch 真实最大</span>        <span class="kw">int</span> grp_max_packed_uih_plus_tgt = 0; <span class="cm">// max over batches of (uih_b + target_b)</span>
+        <span class="kw">for</span>(<span class="kw">int</span> i = 0; i &lt; num_batch_per_group; i++)
+        {
+            <span class="kw">const int</span> b = i_grp * num_batch_per_group + i;   <span class="cm">// 逐 batch 下标，不是组下标</span>
+            <span class="kw">const int</span> packed_uih_tgt =
+                seq_lengths_q[b] + (num_targets.empty() ? 0 : num_targets[<span class="hl">b</span>]);
+            grp_max_packed_uih_plus_tgt = std::max(grp_max_packed_uih_plus_tgt, packed_uih_tgt);
+        }
+        <span class="cm">// ... 用户 override ...</span>
+        group_max_seqlens_q[i_grp] = grp_max_packed_uih_plus_tgt + group_contextual_seqlens[i_grp];
+        max_max_seqlen_q = std::max(max_max_seqlen_q, group_max_seqlens_q[i_grp]);</div>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp:691-693 — silent-wrong → 响亮失败的守卫</span>        <span class="hl">HSTU_CHECK</span>(max_max_seqlen_q &gt;= batch_seqlen,
+                   <span class="str">"group max_seqlen_q under-covers a batch's packed seqlen (group_max_seqlens_q "</span>
+                   <span class="str">"computed too small)"</span>);</div>
+  <div class="note-block olive"><strong>过程纪律（如实记录）：</strong>&nbsp;首轮 coder 自报 candidates「PASS」并 promote，但实测日志为 9 PASS / 1 FAIL —— 过度声称，被 lead 打回。修复后才如实 promote。配套验证：lead repro 配置 dQ <strong>0.0626221 → 7.4e-9 PASS</strong>；reviewer 还用<em>对抗式 formula-revert</em> 证明新增的两个 softmax 锁定案（<code>pass-gtrig-sm-{atomic,determ}</code>）在旧公式下确实 FAIL（SiLU 案因无 PRE-D 只作泛覆盖）；全套件 <strong>91/91 exit 0</strong>，M0–M6 零回归。</div>
+</section>
+
+<section id="s4">
+  <h2>4&nbsp;&nbsp;设计动机小结</h2>
+  <ol>
+    <li><strong>机制复用，零重写</strong>：group determ 不发明新东西——dq_acc <code>set+split</code> 分叉、定序 reduce POST 全是 M6 no_group 的逐字搬运，确定性现已覆盖<em>全模式</em>（no_group batched/jagged + group）× SiLU/softmax。</li>
+    <li><strong>把硬编码轴接成真模板轴（修 O1）</strong>：<code>BOOL_SWITCH_2→3</code> + dispatch 去 <code>throw</code>，消灭「开了 determ 却静默走 atomic」的不可复现陷阱。<em>静默降级</em>比崩溃更危险，因为对拍照过。</li>
+    <li><strong>契约写进代码 + 守卫兜响</strong>：PRE kernel 的 <code>max_seqlen_q</code> 前置条件用注释钉死，harness 用 <code>HSTU_CHECK</code> 守住——刻意<strong>不 memset 兜底</strong>，因为 D=0 是确定性错值、会掩盖问题。</li>
+    <li><strong>根因要打到底，别停在「修了就过」</strong>：判别实验（G_ref==N_ref、<code>-g_max_seqlens</code> A/B、determ==atomic）逐一排除库/reference/determ，精确定位到一行 harness setup，而非加兜底糊过去。</li>
+    <li><strong>对抗式独立复核是最后一道闸</strong>：「repro 全绿 + 自述全 PASS」仍漏一格 correctness FAIL；靠 reviewer formula-revert 证明锁定案真能抓 bug，才敢 promote。这是又一条 P1-1 式的<em>组内多 batch 异 seqlen + 长 target + window</em> 覆盖洞。</li>
+  </ol>
+</section>
+
+<section id="s5">
+  <h2>5&nbsp;&nbsp;遗留 / 边界（M6b 明确不做）</h2>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>事项</th><th>状态 / 去向</th></tr></thead>
+    <tbody>
+      <tr><td>上游 <code>example_hstu_attention_fwd.cpp</code> 疑似同款 <code>group_max_seqlens_q</code> 低估</td><td>本单<strong>未改</strong>（上游维护、避免分叉）；建议向上游报</td></tr>
+      <tr><td>库侧 PRE 设备端 offset 校验（而非仅 host assert）</td><td>成本高，lead 同意<strong>不做</strong>；现靠注释契约 + harness assert</td></tr>
+      <tr><td>库 kernel/dispatch/reference/fwd 逻辑</td><td>本单<strong>未动</strong>（byte-identical），仅 group params 补字段 + group 编排</td></tr>
+      <tr><td>fp16 加宽 / 非 hd64 hdim</td><td>M7a / M7b / M7c</td></tr>
+      <tr><td>perf（MI + B2 + B3）</td><td>M8</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 总览</a>
+  <a href="#s2">2 最佳阅读顺序</a>
+  <a href="#s3">3 逐文件 review</a>
+  <a href="#s3" class="sub">①params ②kernel ③dispatch</a>
+  <a href="#s3" class="sub">④entry(O1) ⑤harness(bug)</a>
+  <a href="#s4">4 设计动机小结</a>
+  <a href="#s5">5 遗留 / 边界</a>
+</nav>
+
+</div><!-- /layout -->
+</div><!-- /page -->
+</body>
+</html>

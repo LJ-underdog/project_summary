@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M4（group 模式）代码改动 review</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M4 代码改动 review</div>
+  <h1>HSTU Attention Backward — M4（group 模式）改了哪些代码、为什么、怎么连</h1>
+  <p class="subtitle">这份文档忠实记录 M4 里程碑在仓库里真实发生的代码改动：group（多组、每组独立超参）怎么<strong>复用 M3 的 jagged 内存索引</strong>、per-group 超参怎么用 <code>i_group</code> 从设备指针读、以及 M4 最硬的难点——<strong>per-group window 无法编译期固定 → 运行时在两条 pipeline 间二选一</strong>。所有片段以当前源码为准（bwd 文件未跟踪，无 git 基线，按 M2/M3 文档同法以代码区段呈现）。</p>
+  <div class="audience">读者：要 review 这套 bwd group 实现的工程师（零基础友好，关键术语都配一句白话）</div>
+  <div style="margin-top:12px; font-size:13px; color:var(--gray-500);">
+    代码目录：<code style="font-family:var(--mono);font-size:12px;">ck_hstu/example/ck_tile/18_hstu_attention/</code> &nbsp;&middot;&nbsp; 主目标 <strong style="color:var(--clay);">gfx950 (MI350/CDNA4)</strong> &nbsp;&middot;&nbsp; 落点 2026-06-08 &nbsp;&middot;&nbsp; 接续 <a href="hstu-bwd-M3-changes-20260608.html" style="color:var(--clay)">M3 jagged 文档</a>
+  </div>
+</header>
+
+<div class="layout">
+<main>
+
+<!-- ============ TL;DR ============ -->
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M4</div>
+  <p>M4 的核心认知：<strong>group = jagged 的超集</strong>。内存布局完全一样（dim0=1 token-major packed <code>[1,ΣL,H,D]</code> + cu_seqlens），M3 的 offset 索引<strong>直接复用</strong>。差别只在「超参的粒度」：<code>scale_p</code> 和 mask 的 4 个参数（window / contextual / min_full / max_seqlen）从单标量变成 <strong>per-group 设备指针</strong>，kernel 用 <code>i_group = i_batch / num_batch_per_group</code> 取；<code>alpha</code> 仍全局、<code>num_target</code> 仍 per-batch。</p>
+  <p>最硬的难点：同一次 launch 里不同 group 的 <code>window</code> 可以是 0 或 &gt;0，<strong>无法把 <code>kUseLocal</code> 固定成编译期常量</strong>。解法是镜像 fwd kernel —— 同时实例化 <strong>with-local + without-local 两条 pipeline</strong>，kernel 内用 <code>if(window&gt;0)</code> 运行时选一条跑。</p>
+  <div class="badges">
+    <span class="badge ok">8/8 group 档对拍 PASS（含全异构 + g4）</span>
+    <span class="badge ok">测试套件 34 案 · exit 0</span>
+    <span class="badge ok">no_group 零回归</span>
+    <span class="badge info">无 instance 噪音</span>
+  </div>
+</div>
+
+<!-- ============ 1 总览 ============ -->
+<section id="s1">
+  <h2>1 &nbsp;总览：M4 到底改了什么</h2>
+  <p class="lede">M4 = 在 M3（jagged 变长）已通过的基础上，让反向支持 <strong>group（每组带独立超参）</strong>。核心理念一句话：<strong>布局复用 jagged，超参升级为 per-group 设备指针，window 维度改运行时双 pipeline 选择</strong>。</p>
+
+  <div class="statgrid">
+    <div class="stat"><div class="v">1</div><div class="l">新增 group kernel（no_group 不动）</div></div>
+    <div class="stat"><div class="v">8</div><div class="l">改动/新增文件</div></div>
+    <div class="stat"><div class="v">8/8</div><div class="l">group sweep 档 PASS</div></div>
+    <div class="stat"><div class="v">34</div><div class="l">测试套件案数（exit 0）</div></div>
+  </div>
+
+  <h3>白话：M4 的四件事</h3>
+  <ul>
+    <li><strong>① 填充 GroupBwdParams</strong>（<code>hstu_attention_bwd_params.hpp</code>）：复用 jagged 全部输入/输出/workspace，再加 5 个 <code>group_*_ptr</code> 设备指针 + <code>num_group</code>/<code>num_batch</code> + 全局 <code>alpha</code>。</li>
+    <li><strong>② 新增 group kernel</strong>（<code>hstu_attention_bwd_kernel.hpp</code> 的 <code>HstuAttentionBwdDQDKDVGroupKernel</code>）：jagged offset 复用 + <code>i_group</code> 取 per-group 超参 + <strong>运行时 <code>if(window&gt;0)</code> 双 pipeline 选择</strong> + 共享 <code>write_dkdv</code>。<strong>no_group kernel 一行没改</strong>。</li>
+    <li><strong>③ 新增 group dispatch / entry</strong>（<code>...group_backward_dispatch.hpp</code> + <code>...group_backward_bf16.cpp</code>）：组两条 Problem/Pipeline、grid、POST；entry 用 <code>BOOL_SWITCH_2</code> <strong>直接实例化</strong>（无 instance 文件）。</li>
+    <li><strong>④ harness <code>-g</code> + 测试</strong>（<code>example_hstu_attention_bwd.cpp</code> + <code>test/run_bwd_tests.py</code>）：6 个 <code>-g*</code> 参数、per-group 数组 supplement、喂 <code>reference_group_…</code>；<code>reject-group-g2</code> → 8 个 pass。</li>
+  </ul>
+
+  <div class="note-block olive"><strong>为什么 group 能复用 jagged？</strong>&nbsp;两者的内存布局完全相同 —— 都是把所有 batch 的 token 沿 dim1 紧密拼成 dim0=1 的 packed 张量。group 只是在「逻辑上」把相邻的 <code>num_batch_per_group</code> 个 batch 归为一组、共享一套超参。所以 kernel 定位 batch 的代码（base offset、per-batch seqlen、early-exit）原样照搬 M3，只多一步「从 <code>i_batch</code> 算 <code>i_group</code> 再去读 per-group 数组」。</div>
+
+  <div class="note-block clay"><strong>诚实声明（与 M3 一致）：M4 本次同样无 instance 噪音。</strong>&nbsp;group entry 用 <code>BOOL_SWITCH_2</code> 在 <code>.cpp</code> 里<strong>直接实例化</strong> <code>run_group_backward_dispatch</code>，不走 extern-template 的 instance 文件机制 —— 没有任何新 instance 文件，也没重跑 <code>generate_instances.py</code>（实测它 mtime 仍是 06-04，M4 改的文件是 06-08）。<code>git status</code> 里仍挂的 ~203 个 instance 修改是 <strong>M2 期遗留</strong>，与 M4 无关。详见 <a href="#s2" style="color:var(--clay)">§2</a>。</div>
+</section>
+
+<!-- ============ 2 文件清单 ============ -->
+<section id="s2">
+  <h2>2 &nbsp;改动文件清单（M4 新增/改动 vs 复用 vs 遗留噪音）</h2>
+  <p class="lede">全部位于 <code>ck_hstu/example/ck_tile/18_hstu_attention/</code>（测试/日志在 <code>hstu-bwd-impl/</code>）。<span class="tag tag-new">新增</span> = 本次为 group 新建（bwd 文件未跟踪，以代码区段呈现）；<span class="tag tag-mod">改动</span> = 已跟踪文件或既有 bwd 文件内加 group 部分；<span class="tag tag-reuse">复用</span> = 既有、M4 直接用；<span class="tag tag-noise">遗留噪音</span> = M2 期产物，非 M4。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>文件</th><th>状态</th><th>M4 在其中做了什么</th></tr></thead>
+    <tbody>
+      <tr><td><code>hstu_attention_bwd_params.hpp</code></td><td><span class="tag tag-mod">改动</span></td><td>填充 <code>HstuAttentionGroupBwdParams</code>：jagged 全部字段 + 5 个 <code>group_*_ptr</code> + <code>num_group/num_batch</code> + 全局 <code>alpha</code>（见 §6）。</td></tr>
+      <tr><td><code>hstu_attention_bwd_kernel.hpp</code></td><td><span class="tag tag-new">新增</span></td><td>新增 <code>HstuAttentionBwdDQDKDVGroupKernel</code>（模板含两 pipeline）：i_group 取数 + 运行时双 pipeline 选 + 共享 write_dkdv（见 §4/§5）。<strong>no_group kernel 未改</strong>。</td></tr>
+      <tr><td><code>hstu_attention_group_backward_dispatch.hpp</code></td><td><span class="tag tag-new">新增</span></td><td>两 Problem/Pipeline（同 kUseCausal）、RunSilu 组 Kernel、grid、POST、Run 门控（hdim/determ/softmax throw）（见 §4/§6）。</td></tr>
+      <tr><td><code>hstu_attention_group_backward_bf16.cpp</code></td><td><span class="tag tag-new">新增</span></td><td>group bf16 entry：<code>BOOL_SWITCH_2(causal, softmax)</code> → 直接实例化 <code>run_group_backward_dispatch</code>（见 §6）。</td></tr>
+      <tr><td><code>hstu_attention_api.hpp</code> · <code>CMakeLists.txt</code></td><td><span class="tag tag-mod">改动</span></td><td>api 加 group entry 声明；CMake <code>BWD_INTERFACES_SRCS</code> += group entry。</td></tr>
+      <tr><td><code>example_hstu_attention_bwd.cpp</code></td><td><span class="tag tag-mod">改动</span></td><td><code>run_group_hstu_bwd</code> + 6 个 <code>-g*</code> 参数；per-group 数组 supplement；喂 <code>reference_group_…</code>；SiLU 跳过 GPU fwd（见 §7）。</td></tr>
+      <tr><td><code>test/run_bwd_tests.py</code></td><td><span class="tag tag-mod">改动</span></td><td><code>reject-group-g2</code> → 8 个 group pass case（见 §8）。</td></tr>
+      <tr><td><code>hstu_attention_no_softmax_bwd_pipeline.hpp</code> · no_group kernel/dispatch</td><td><span class="tag tag-reuse">复用</span></td><td><strong>M4 未改</strong>：group 复用同一 SiLU MAIN pipeline；no_group 路径零变化。</td></tr>
+      <tr style="background:#FBF7EF;"><td><code>instances/*forward*.cpp</code> ×~203（git status 仍显示）</td><td><span class="tag tag-noise">遗留噪音</span></td><td><strong>非 M4 逻辑、非本次产生。</strong>M2 期重跑 <code>generate_instances.py</code> 的注释路径变更，里程碑间未 commit。review M4 时整体跳过。</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block"><strong>怎么确认 M4 没引入 instance？</strong>&nbsp;① <code>ls instances/ | grep group.*backward</code> → 空（没有 group backward instance 文件）；② mtime：<span class="src">generate_instances.py / instances/* = 06-04</span>，<span class="src">group kernel/dispatch/entry = 06-08</span>。group 的实例化在 entry <code>.cpp</code> 里直接发生，不经 instance 文件。</div>
+</section>
+
+<!-- ============ 3 图1 group 取数模型 ============ -->
+<section id="s3">
+  <h2>3 &nbsp;【图1】group 取数模型：i_batch → i_group</h2>
+  <p class="lede">这张图回答「group 比 jagged 多了什么」：内存索引完全复用 jagged（<span style="color:var(--olive);font-weight:600;">橄榄绿</span>），新增的是 per-group 超参按 <code>i_group</code> 从设备指针读（<span style="color:var(--clay);font-weight:600;">陶土色</span>）。注意三种粒度：<strong>alpha 全局 / scale_p+mask per-group / num_target per-batch</strong>。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 430" width="100%" role="img" aria-label="group 取数模型">
+    <defs>
+      <marker id="arr1" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto">
+        <path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/>
+      </marker>
+    </defs>
+    <!-- batches row -->
+    <text x="24" y="40" font-size="12" fill="#3D3D3A" font-weight="700">packed 张量（dim0=1, token-major） · num_batch = 4, num_group = 2 → num_batch_per_group = 2</text>
+    <g>
+      <rect x="40" y="56" width="150" height="40" rx="5" fill="var(--olive-lt)" stroke="#788C5D"/>
+      <text x="115" y="80" text-anchor="middle" font-size="11" fill="#141413">batch 0</text>
+      <rect x="194" y="56" width="190" height="40" rx="5" fill="var(--olive-lt)" stroke="#788C5D"/>
+      <text x="289" y="80" text-anchor="middle" font-size="11" fill="#141413">batch 1</text>
+      <rect x="388" y="56" width="120" height="40" rx="5" fill="var(--olive-lt)" stroke="#788C5D"/>
+      <text x="448" y="80" text-anchor="middle" font-size="11" fill="#141413">batch 2</text>
+      <rect x="512" y="56" width="170" height="40" rx="5" fill="var(--olive-lt)" stroke="#788C5D"/>
+      <text x="597" y="80" text-anchor="middle" font-size="11" fill="#141413">batch 3</text>
+    </g>
+    <text x="700" y="80" font-size="10.5" fill="#788C5D">cu_seqlens 定位（复用 M3 jagged）</text>
+
+    <!-- i_group mapping -->
+    <text x="40" y="128" font-size="11.5" fill="#8A3B1E" font-weight="700">i_group = i_batch / num_batch_per_group</text>
+    <path d="M115 100 L160 150" stroke="#87867F" stroke-width="1.3" marker-end="url(#arr1)"/>
+    <path d="M289 100 L200 150" stroke="#87867F" stroke-width="1.3" marker-end="url(#arr1)"/>
+    <path d="M448 100 L520 150" stroke="#87867F" stroke-width="1.3" marker-end="url(#arr1)"/>
+    <path d="M597 100 L560 150" stroke="#87867F" stroke-width="1.3" marker-end="url(#arr1)"/>
+
+    <rect x="120" y="152" width="120" height="40" rx="6" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.5"/>
+    <text x="180" y="176" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">group 0</text>
+    <rect x="480" y="152" width="120" height="40" rx="6" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.5"/>
+    <text x="540" y="176" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">group 1</text>
+
+    <!-- per-group device arrays -->
+    <rect x="40" y="214" width="640" height="120" rx="9" fill="#fff" stroke="#D97757" stroke-width="1.5"/>
+    <text x="56" y="236" font-size="12" fill="#141413" font-weight="700">per-group 设备指针（int32[num_group] / float[num_group]），按 i_group 取：</text>
+    <text x="56" y="258" font-size="10.5" fill="#3D3D3A">group_attn_scale_ptr[i_group]   → scale_p 源</text>
+    <text x="56" y="276" font-size="10.5" fill="#3D3D3A">group_max_seqlen_q_ptr[i_group] → scale_p fallback</text>
+    <text x="56" y="294" font-size="10.5" fill="#3D3D3A">group_window_size_ptr[i_group]  → 决定走哪条 pipeline（见图2）</text>
+    <text x="56" y="312" font-size="10.5" fill="#3D3D3A">group_contextual_seqlen_ptr / group_min_full_attn_seqlen_ptr[i_group] → mask 参</text>
+    <text x="56" y="328" font-size="10" fill="#8A3B1E">scale_p = group_attn_scale[i_group] ? : 1 / group_max_seqlen_q[i_group]</text>
+
+    <!-- three granularities -->
+    <rect x="700" y="152" width="248" height="182" rx="9" fill="var(--gray-150)" stroke="#D1CFC5" stroke-width="1.2"/>
+    <text x="716" y="174" font-size="12" fill="#141413" font-weight="700">三种粒度（关键）</text>
+    <text x="716" y="200" font-size="10.5" fill="#4B5C39">● alpha —— 全局单标量</text>
+    <text x="730" y="216" font-size="9.5" fill="#788C5D">三模式一致 (D6)，kargs.alpha</text>
+    <text x="716" y="240" font-size="10.5" fill="#8A3B1E">● scale_p + mask 4 参 —— per-group</text>
+    <text x="730" y="256" font-size="9.5" fill="#788C5D">i_group 从设备指针读</text>
+    <text x="716" y="280" font-size="10.5" fill="#3D3D3A">● num_target —— per-batch</text>
+    <text x="730" y="296" font-size="9.5" fill="#788C5D">num_targets_ptr[i_batch]（不是 i_group）</text>
+    <text x="716" y="320" font-size="9.5" fill="#87867F">取数错→异构档暴露大误差</text>
+
+    <!-- bottom global -->
+    <rect x="40" y="356" width="908" height="50" rx="9" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+    <text x="56" y="378" font-size="11.5" fill="#4B5C39" font-weight="700">复用 jagged（M3）：base offset = offsets[i_batch]×stride · per-batch seqlen = offsets[b+1]−offsets[b] · early-exit if(i_n0≥seqlen_kv)</text>
+    <text x="56" y="396" font-size="10" fill="#788C5D">group kernel 的内存定位代码 = M3 jagged 原样照搬，仅多一步 i_group 取超参</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图1：group 在 jagged 布局之上，按 <code>i_group = i_batch / num_batch_per_group</code> 从设备指针读 per-group 超参。三种粒度——alpha 全局、scale_p+mask per-group、num_target per-batch——是「全异构」对拍能验证取数正确的关键。</p>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--olive-lt);border:1px solid #788C5D;"></span>复用 jagged（M3）</span>
+    <span><span class="sw" style="background:var(--clay-lt);border:1px solid #D97757;"></span>M4 新增（per-group 取数）</span>
+  </div>
+</section>
+
+<!-- ============ 4 图2 + 运行时双 pipeline ============ -->
+<section id="s4">
+  <h2>4 &nbsp;【图2】运行时双 pipeline 选择（M4 核心难点）</h2>
+  <p class="lede">这是 M4 最硬的一处。前面里程碑里 <code>window&gt;0</code>（local）是<strong>编译期</strong>用 <code>BOOL_SWITCH</code> 定的；但 group 模式下同一次 launch 里不同 group 的 <code>window</code> 可以一个是 0、一个是 16，<strong>没法用一个编译期常量描述</strong>。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 360" width="100%" role="img" aria-label="运行时双 pipeline 选择">
+    <defs>
+      <marker id="arr2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <path d="M0,0 L7.5,3 L0,6 Z" fill="#D97757"/>
+      </marker>
+      <marker id="arr2g" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <path d="M0,0 L7.5,3 L0,6 Z" fill="#87867F"/>
+      </marker>
+    </defs>
+    <!-- dispatch instantiates two pipelines -->
+    <rect x="20" y="30" width="300" height="120" rx="9" fill="#fff" stroke="#87867F" stroke-width="1.5"/>
+    <text x="170" y="54" text-anchor="middle" font-size="12" fill="#141413" font-weight="700">dispatch 编译期实例化两条</text>
+    <text x="36" y="80" font-size="10.5" fill="#3D3D3A">LocalMask   = HstuBlockMasking&lt;…,causal,<tspan fill="#8A3B1E" font-weight="700">true</tspan>&gt;</text>
+    <text x="36" y="100" font-size="10.5" fill="#3D3D3A">NoLocalMask = HstuBlockMasking&lt;…,causal,<tspan fill="#8A3B1E" font-weight="700">false</tspan>&gt;</text>
+    <text x="36" y="122" font-size="10.5" fill="#3D3D3A">PipelineLocal / PipelineNoLocal</text>
+    <text x="36" y="140" font-size="9.5" fill="#788C5D">causal 仍是编译期轴（group 间统一）</text>
+
+    <!-- kernel runtime branch -->
+    <rect x="380" y="40" width="220" height="60" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.8"/>
+    <text x="490" y="66" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">kernel 内运行时判定</text>
+    <text x="490" y="86" text-anchor="middle" font-size="11" fill="#141413">if (window_size &gt; 0)</text>
+
+    <rect x="660" y="6" width="300" height="76" rx="9" fill="#fff" stroke="#D97757" stroke-width="1.5"/>
+    <text x="676" y="28" font-size="11.5" fill="#8A3B1E" font-weight="700">window &gt; 0 → with-local</text>
+    <text x="676" y="48" font-size="10" fill="#3D3D3A">make_…_with_local&lt;LocalMask&gt;(eff_min_full…)</text>
+    <text x="676" y="66" font-size="10" fill="#3D3D3A">PipelineLocal{}(…) 跑完</text>
+
+    <rect x="660" y="100" width="300" height="76" rx="9" fill="#fff" stroke="#87867F" stroke-width="1.5"/>
+    <text x="676" y="122" font-size="11.5" fill="#4B5C39" font-weight="700">window = 0 → without-local</text>
+    <text x="676" y="142" font-size="10" fill="#3D3D3A">make_…_without_local&lt;NoLocalMask&gt;(…)</text>
+    <text x="676" y="160" font-size="10" fill="#3D3D3A">PipelineNoLocal{}(…) 跑完</text>
+
+    <rect x="540" y="220" width="320" height="64" rx="9" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.6"/>
+    <text x="700" y="244" text-anchor="middle" font-size="12" fill="#4B5C39" font-weight="700">共享 lambda write_dkdv(dk,dv)</text>
+    <text x="700" y="264" text-anchor="middle" font-size="10" fill="#3D3D3A">两条分支跑完都用同一段写回 dk/dv</text>
+    <text x="700" y="279" text-anchor="middle" font-size="9.5" fill="#788C5D">写回与 mask 无关 → 不重复</text>
+
+    <path d="M320 90 L378 70"  stroke="#87867F" stroke-width="1.5" marker-end="url(#arr2g)"/>
+    <path d="M600 56 L658 44"  stroke="#D97757" stroke-width="1.6" marker-end="url(#arr2)"/>
+    <path d="M600 84 L658 132" stroke="#87867F" stroke-width="1.5" marker-end="url(#arr2g)"/>
+    <path d="M810 82 C 830 140, 800 200, 760 218"  stroke="#87867F" stroke-width="1.4" marker-end="url(#arr2g)"/>
+    <path d="M810 176 C 820 195, 760 205, 730 218"  stroke="#87867F" stroke-width="1.4" marker-end="url(#arr2g)"/>
+
+    <!-- note -->
+    <rect x="20" y="200" width="490" height="120" rx="9" fill="#FDF6F0" stroke="#D97757" stroke-width="1.2"/>
+    <text x="40" y="224" font-size="12" fill="#8A3B1E" font-weight="700">为什么能「只选 pipeline、不选 causal」？</text>
+    <text x="40" y="246" font-size="10.5" fill="#3D3D3A">bwd pipeline 只把 FmhaMask::IsMasking 烘进 Problem；</text>
+    <text x="40" y="264" font-size="10.5" fill="#3D3D3A">kUseLocal 不被 pipeline 本体用，只被 mask 对象方法用。</text>
+    <text x="40" y="282" font-size="10.5" fill="#3D3D3A">所以两条 pipeline 仅 Mask 类型不同、shape 一致，</text>
+    <text x="40" y="300" font-size="10.5" fill="#3D3D3A">GetSmemSize = max(两 pipeline, 两 epi)，运行时只跑一条。</text>
+    <text x="40" y="316" font-size="9.5" fill="#788C5D">causal 在 group 间统一 → 仍可作编译期轴（镜像 fwd）。</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图2：dispatch 编译期实例化 with-local / without-local 两条 pipeline（同 causal）；kernel 内按 per-group <code>window_size</code> 运行时二选一，两分支跑完共用 <code>write_dkdv</code> 写回。</p>
+
+  <h3>kernel：运行时双 pipeline 分支（真实片段）</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp（HstuAttentionBwdDQDKDVGroupKernel，~L775–798）</span>    <span class="cm">// per-group window decides which mask type / pipeline runs at runtime</span>
+    <span class="hl">if</span>(window_size &gt; 0)
+    {
+        <span class="cm">// clamp min_full like the reference (reference_hstu_attention_bwd.hpp:198)</span>
+        <span class="kw">const int</span> eff_min_full = (seqlen_q - num_target &gt; min_full_attn_seqlen)
+                                     ? min_full_attn_seqlen
+                                     : (seqlen_q - num_target);
+        <span class="kw">auto</span> mask = <span class="fn">make_hstu_self_attention_block_mask_with_local</span>&lt;<span class="hl">LocalMask</span>&gt;(
+            <span class="cm">/*is_tile_in_first_split=*/</span>true, seqlen_q, contextual_seqlen, num_target,
+            window_size, eff_min_full);
+        <span class="kw">auto</span> [dk_acc_tile, dv_acc_tile] =
+            <span class="hl">PipelineLocal</span>{}(q_dram_window, k_dram_window, v_dram_window, do_dram_window,
+                            dq_dram_window, mask, kargs.alpha, scale_p, smem_ptr);
+        <span class="fn">write_dkdv</span>(dk_acc_tile, dv_acc_tile);
+    }
+    <span class="kw">else</span>
+    {
+        <span class="kw">auto</span> mask = <span class="fn">make_hstu_self_attention_block_mask_without_local</span>&lt;<span class="hl">NoLocalMask</span>&gt;(
+            seqlen_q, contextual_seqlen, num_target);
+        <span class="kw">auto</span> [dk_acc_tile, dv_acc_tile] =
+            <span class="hl">PipelineNoLocal</span>{}(q_dram_window, k_dram_window, v_dram_window, do_dram_window,
+                              dq_dram_window, mask, kargs.alpha, scale_p, smem_ptr);
+        <span class="fn">write_dkdv</span>(dk_acc_tile, dv_acc_tile);
+    }</div>
+
+  <h3>dispatch：实例化两条 pipeline（同 causal）</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_group_backward_dispatch.hpp（RunSilu，~L98–117）</span>    <span class="cm">// both mask types share kUseCausal; window resolved at runtime in-kernel</span>
+    <span class="kw">using</span> LocalMask   = <span class="kw">typename</span> ck_tile::HstuBlockMasking&lt;false, kUseCausal, <span class="hl">true</span>&gt;::Type;
+    <span class="kw">using</span> NoLocalMask = <span class="kw">typename</span> ck_tile::HstuBlockMasking&lt;false, kUseCausal, <span class="hl">false</span>&gt;::Type;
+
+    <span class="kw">using</span> PipelineLocal   = ck_tile::HstuAttentionBwdDQDKDVPipelineKRKTRVR&lt;ProblemFor&lt;LocalMask&gt;&gt;;
+    <span class="kw">using</span> PipelineNoLocal = ck_tile::HstuAttentionBwdDQDKDVPipelineKRKTRVR&lt;ProblemFor&lt;NoLocalMask&gt;&gt;;
+    ...
+    <span class="kw">using</span> Kernel = ck_tile::HstuAttentionBwdDQDKDVGroupKernel&lt;<span class="hl">PipelineLocal, PipelineNoLocal</span>,
+                                                            DKEpilogue, DVEpilogue&gt;;</div>
+  <div class="note-block clay"><strong>代价与收益：</strong>&nbsp;代价是<strong>两条 pipeline 都被编译进二进制</strong>（代码体积↑，属 perf 项 M8），但运行时每个 block 只跑其中一条。收益是同一次 launch 能正确处理「有的 group 带 window、有的不带」的真实异构负载 —— 这正是 group 模式存在的意义。</div>
+</section>
+
+<!-- ============ 5 per-group 取数 ============ -->
+<section id="s5">
+  <h2>5 &nbsp;per-group scale_p / mask 取数（代码）</h2>
+  <p class="lede">kernel 进来先复用 jagged 定位 batch，再算 <code>i_group</code>，从 5 个设备指针读 per-group 超参，最后定 <code>scale_p</code>。注意 <code>num_target</code> 仍按 <code>i_batch</code> 取（不是 <code>i_group</code>）。</p>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp（~L643–675）</span>    <span class="cm">// jagged offsets (token-major packed; same as M3)</span>
+    <span class="kw">const long_index_t</span> query_start = q_offsets[i_batch];
+    <span class="kw">const long_index_t</span> key_start   = kv_offsets[i_batch];
+    <span class="kw">const index_t</span> seqlen_q  = q_offsets[i_batch + 1]  - q_offsets[i_batch];
+    <span class="kw">const index_t</span> seqlen_kv = kv_offsets[i_batch + 1] - kv_offsets[i_batch];
+
+    <span class="cm">// grid.x sized to the largest group seqlen -&gt; early-exit OOB KV tiles</span>
+    <span class="kw">if</span>(i_n0 &gt;= seqlen_kv) <span class="kw">return</span>;
+
+    <span class="cm">// per-group hyper-params (D6): i_group = i_batch / num_batch_per_group</span>
+    <span class="kw">const index_t</span> i_group =
+        __builtin_amdgcn_readfirstlane(<span class="hl">i_batch / kargs.num_batch_per_group</span>);
+    <span class="kw">const float</span> group_attn_scale     = ...group_attn_scale_ptr[i_group];
+    <span class="kw">const index_t</span> group_max_seqlen_q  = ...group_max_seqlen_q_ptr[i_group];
+    <span class="kw">const index_t</span> window_size         = ...group_window_size_ptr[i_group];
+    <span class="kw">const index_t</span> contextual_seqlen   = ...group_contextual_seqlen_ptr[i_group];
+    <span class="kw">const index_t</span> min_full_attn_seqlen = ...group_min_full_attn_seqlen_ptr[i_group];
+    <span class="hl">const float scale_p =</span>
+        <span class="hl">  (group_attn_scale != 0.f) ? group_attn_scale</span>
+        <span class="hl">                            : 1.0f / static_cast&lt;float&gt;(group_max_seqlen_q);</span>
+
+    <span class="kw">const int</span> num_target =
+        (kargs.num_targets_ptr != nullptr)
+            ? ...num_targets_ptr[<span class="hl">i_batch</span>]   <span class="cm">// per-BATCH，不是 i_group</span>
+            : 0;</div>
+  <div class="callout-grid">
+    <div class="callout clay">
+      <div class="k">取数 1</div>
+      <div class="t">i_group 用 readfirstlane</div>
+      <div class="d"><code>i_group</code> 在一个 wave 内对所有 lane 相同，用 <code>__builtin_amdgcn_readfirstlane</code> 提示编译器它是 scalar，省 VGPR、走标量寄存器读。</div>
+    </div>
+    <div class="callout clay">
+      <div class="k">取数 2</div>
+      <div class="t">scale_p 的 fallback</div>
+      <div class="d"><code>group_attn_scale==0</code> 时回退到 <code>1/group_max_seqlen_q</code>。GPU 与 reference 用<strong>同一向量</strong> <code>group_max_seqlens_q</code>，保证 fallback 一致。</div>
+    </div>
+    <div class="callout">
+      <div class="k">取数 3</div>
+      <div class="t">num_target 仍 per-batch</div>
+      <div class="d">同一 group 内不同 batch 可有不同 <code>num_target</code>，所以它按 <code>i_batch</code> 取；这点 group 与 jagged 一致，没升级到 per-group。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 6 params / dispatch / entry / cmake ============ -->
+<section id="s6">
+  <h2>6 &nbsp;params 填充 + dispatch / entry / cmake</h2>
+
+  <h3>GroupBwdParams（节选）</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_params.hpp（HstuAttentionGroupBwdParams 节选）</span><span class="kw">struct</span> HstuAttentionGroupBwdParams
+{
+    index_t num_group;
+    index_t num_batch;
+    <span class="kw">const void</span>* seq_q_offsets_ptr;   <span class="cm">// 复用 jagged：token-major packed cu_seqlens</span>
+    <span class="kw">const void</span>* seq_kv_offsets_ptr;
+    ...
+    <span class="hl">float alpha;</span>                       <span class="cm">// 全局单标量 (D6)，三模式一致</span>
+    <span class="kw">const void</span>* num_targets_ptr;       <span class="cm">// per-batch int32</span>
+    <span class="hl">const void</span>* group_attn_scale_ptr;          <span class="cm">// float[num_group]</span>
+    <span class="hl">const void</span>* group_max_seqlen_q_ptr;        <span class="cm">// int32[num_group]</span>
+    <span class="hl">const void</span>* group_window_size_ptr;         <span class="cm">// int32[num_group]</span>
+    <span class="hl">const void</span>* group_contextual_seqlen_ptr;   <span class="cm">// int32[num_group]</span>
+    <span class="hl">const void</span>* group_min_full_attn_seqlen_ptr;<span class="cm">// int32[num_group]</span>
+    ...
+    index_t total_dq_acc_elems;        <span class="cm">// ΣL*H*hdim_qk（整段 packed buffer）</span>
+};</div>
+
+  <h3>dispatch Run 门控 + grid + POST</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_group_backward_dispatch.hpp（~L157–198）</span>    <span class="fn">hipMemsetAsync</span>(param.dq_acc_ptr, 0,
+        <span class="kw">static_cast</span>&lt;size_t&gt;(param.<span class="hl">total_dq_acc_elems</span>) * <span class="kw">sizeof</span>(GemmAccDataType), stream);
+    <span class="cm">// grid.x covers the largest group seqlen; short groups early-exit per block</span>
+    dim3 grid = Kernel::<span class="fn">GridSize</span>(param.num_batch, param.num_head, <span class="hl">param.max_seqlen_q</span>);
+    ...
+    <span class="kw">static void</span> <span class="fn">Run</span>(HstuAttentionGroupBwdParams&amp; param, hipStream_t stream)
+    {
+        <span class="kw">if</span>(param.hdim_qk != 64 || param.hdim_v != 64)
+            <span class="kw">throw</span> std::runtime_error(<span class="str">"... group ... hdim 64 only (M7)"</span>);
+        <span class="kw">if constexpr</span>(kIsDeterministic) <span class="kw">throw</span> ...(<span class="str">"... (M6)"</span>);
+        <span class="kw">else if constexpr</span>(kUseSoftmax)  <span class="kw">throw</span> ...(<span class="str">"... (M5)"</span>);
+        <span class="kw">else</span> <span class="fn">RunSilu</span>(param, stream);
+    }</div>
+
+  <h3>entry：直接实例化（无 instance 文件）</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_group_backward_bf16.cpp（entry 全文核心）</span><span class="kw">void</span> <span class="fn">hstu_attention_group_backward_bf16</span>(HstuAttentionGroupBwdParams&amp; param, hipStream_t stream)
+{
+    <span class="hl">BOOL_SWITCH_2(param.use_causal, kUseCausal, param.use_softmax, kUseSoftmax, [&amp;] {</span>
+        run_group_backward_dispatch&lt;ck_tile::bf16_t, kUseCausal, kUseSoftmax,
+                                    false <span class="cm">/*bias*/</span>, false <span class="cm">/*determ*/</span>, 64&gt;(param, stream);
+    });
+}</div>
+  <div class="note-block olive"><strong>CMake 接入：</strong>&nbsp;<code>BWD_INTERFACES_SRCS</code> 在 no_group entry 之外 <code>+= hstu_attention_group_backward_bf16.cpp</code>；<code>hstu_attention_api.hpp</code> 加 <code>extern void hstu_attention_group_backward_bf16(...)</code> 声明。因为 entry 直接实例化，<strong>不需要任何 instance 文件</strong> —— 只编 SiLU 的 causal × {local, no-local} 组合。</div>
+</section>
+
+<!-- ============ 7 harness -g ============ -->
+<section id="s7">
+  <h2>7 &nbsp;harness 的 <code>-g</code> 路（造数据 + 喂 reference）</h2>
+  <p class="lede"><code>-g&gt;1</code> 进入 <code>run_group_hstu_bwd</code>：校验 <code>num_batch % num_group == 0</code>，per-group 数组 supplement 到 num_group、per-batch 数组 supplement 到 num_batch，再算 cu_seqlens 并喂两路。</p>
+
+  <h3>per-group / per-batch supplement + group_max_seqlens_q（驱动 fallback）</h3>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp（~L600–636）</span>    <span class="cm">// per-group 数组补齐到 num_group</span>
+    supplement_array_by_last_element(group_contextual_seqlens, num_group);
+    supplement_array_by_last_element(group_min_full_attn_seqlens, num_group);
+    supplement_array_by_last_element(group_attn_scales, num_group);
+    ...
+    <span class="cm">// group_max_seqlens_q drives scale_p fallback; identical vector on GPU + reference</span>
+    <span class="kw">for</span>(<span class="kw">int</span> i_grp = 0; i_grp &lt; num_group; i_grp++)
+        group_max_seqlens_q[i_grp] = group_max_uih_seqlens_q[i_grp] +
+            group_contextual_seqlens[i_grp] + (num_targets.empty()?0:num_targets[i_grp]);
+    ...
+    <span class="cm">// cu_seqlens：per-batch seqlen 用所属 group 的 contextual</span>
+    <span class="kw">for</span>(<span class="kw">int</span> i = 0; i &lt; num_batch; i++) {
+        <span class="kw">const int</span> i_group = i / num_batch_per_group;
+        <span class="kw">const int</span> batch_seqlen = seq_lengths_q[i] +
+            (num_targets.empty()?0:num_targets[i]) + <span class="hl">group_contextual_seqlens[i_group]</span>;
+        phy_seqlen_q += batch_seqlen;
+        seq_offsets_q.push_back(phy_seqlen_q);
+    }</div>
+
+  <h3>喂 CPU reference_group（无 kIsJagged 轴）</h3>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp（~L800–826）</span>    <span class="hl">BOOL_SWITCH_2(use_softmax, kUseSoftmax, use_causal, kUseCausal, [&amp;] {</span>
+        ck_tile::<span class="fn">reference_group_hstu_attention_bwd</span>&lt;InOutDataType, GemmAccDataType,
+            CompDataType, kUseSoftmax, kUseCausal&gt;::Run(is_cross_attention,
+                q_host, k_host, v_host, lse_host, o_host, do_host,
+                dq_host_ref, dk_host_ref, dv_host_ref,
+                num_batch, <span class="hl">num_batch_per_group</span>, scale_s,
+                seq_offsets_q, seq_offsets_kv, num_targets,
+                <span class="hl">group_max_seqlens_q, group_contextual_seqlens,</span>
+                <span class="hl">group_window_sizes, group_min_full_attn_seqlens, group_attn_scales</span>);
+    });</div>
+  <div class="note-block clay"><strong>SiLU 路跳过 GPU forward。</strong>&nbsp;SiLU 反向不需要前向的 O（O 只在 softmax 路要），所以 group harness <strong>不跑 GPU fwd</strong>，直接造随机 Q/K/V/dO + cu_seqlens 喂 bwd 与 reference。group 恒为 jagged-packed，所以 reference 模板<strong>没有 <code>kIsJagged</code> 轴</strong>（与 M3 的 <code>BOOL_SWITCH_3</code> 不同，这里是 <code>BOOL_SWITCH_2</code>）。</div>
+</section>
+
+<!-- ============ 8 测试套件 ============ -->
+<section id="s8">
+  <h2>8 &nbsp;测试套件更新</h2>
+  <p class="lede">M4 把 <code>reject-group-g2</code>（旧行为：group 直接拒绝）换成 8 个 group <strong>pass</strong> case，覆盖单维超参、fallback，以及最关键的<strong>全异构</strong>与 <strong>g4 singleton</strong>。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>case 名</th><th>形态</th><th>意图（能抓什么）</th></tr></thead>
+    <tbody>
+      <tr><td><code>pass-group-g2-nomask</code></td><td>g2, causal=0, 128,200,96,160</td><td>group 基础布局</td></tr>
+      <tr><td><code>pass-group-g2-causal</code></td><td>g2, causal=1</td><td>group × causal</td></tr>
+      <tr><td><code>pass-group-g2-pergroup-window</code></td><td>g_local 16,0</td><td><strong>验运行时双 pipeline</strong>（一组 local 一组不）</td></tr>
+      <tr><td><code>pass-group-g2-pergroup-attnscale</code></td><td>g_attn_scale 1.0,0.5</td><td>per-group scale_p 取数</td></tr>
+      <tr><td><code>pass-group-g2-attnscale-fallback</code></td><td>g_attn_scale 0,1.0</td><td>scale_p=1/group_max_seqlen_q fallback</td></tr>
+      <tr><td><code>pass-group-g2-heterogeneous</code></td><td>5 类超参各组各不同</td><td><strong>全异构</strong>：i_group 索引/设备指针全验</td></tr>
+      <tr><td><code>pass-group-g3</code></td><td>g3, window+attn_scale 含 fallback</td><td>3 组、非 2 整除布局</td></tr>
+      <tr><td><code>pass-group-g4-singleton</code></td><td>g4, 1 batch/group, 全异构</td><td>每组 1 batch 的极限，per-group=per-batch</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block clay"><strong>为什么「全异构」和「g4 singleton」最值钱？</strong>&nbsp;如果 <code>i_group</code> 算错、设备指针读错组、或 fallback 逻辑错，<strong>只要各 group 超参相同就看不出来</strong>。全异构（window/context/minfull/attn_scale/num_target 每组都不同）和 g4（每组只有 1 个 batch，<code>i_group == i_batch</code>）会让任一取数 bug 立刻放大成大误差。实测均为 bf16 舍入级 —— 证明确实按 group 取数。</div>
+  <div class="note-block olive"><strong>no_group 零回归 + 仍正确拒绝：</strong>&nbsp;套件里所有 batched / jagged / mask（M1/M2/M3）case 仍 PASS；剩余 reject 仍按设计拒绝 —— softmax(M5)、fp16 / hdim128(M7)；deterministic(M6) 为 1 个 SKIP。</div>
+</section>
+
+<!-- ============ 9 对拍结果 ============ -->
+<section id="s9">
+  <h2>9 &nbsp;对拍结果（两层证据）</h2>
+  <p class="lede">① group 专项 sweep（GPU↔CPU 逐 token）；② 全套件回归。阈值 <code>rel ≤ 2e-2 / abs ≤ 5e-2</code>。</p>
+
+  <h3>① group 专项 sweep</h3>
+  <p><code>runs/run-bwd-M4-sweep.log</code>：8 个 group 档，每档三个 <code>[PASS]</code>（dQ/dK/dV），<strong>全部 <code>numeric_pass=true</code> / <code>EXIT=0</code> / 0 FAIL</strong>。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>#</th><th>档（sweep 小节名）</th><th>形态</th><th>结果</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>group g2 no-mask</td><td>b4, 128,200,96,160</td><td><span class="status-yes">PASS ×3</span></td></tr>
+      <tr><td>2</td><td>group g2 causal</td><td>causal=1</td><td><span class="status-yes">PASS ×3</span></td></tr>
+      <tr><td>3</td><td>group g2 per-group window</td><td>g_local 16,0（混双 pipeline）</td><td><span class="status-yes">PASS ×3</span></td></tr>
+      <tr><td>4</td><td>group g2 per-group attnscale</td><td>g_attn_scale 1.0,0.5</td><td><span class="status-yes">PASS ×3</span></td></tr>
+      <tr><td>5</td><td>group g2 attnscale=0 fallback</td><td>scale_p=1/group_max_seqlen_q</td><td><span class="status-yes">PASS ×3</span></td></tr>
+      <tr><td>6</td><td>group g2 HETERO all</td><td>local 16,0 · ctx 8,0 · minfull 16,0 · scale 1.0,0.5 · targets 8,24,0,16</td><td><span class="status-yes">PASS ×3</span></td></tr>
+      <tr><td>7</td><td>group g3</td><td>window + attn_scale per-group（含 fallback）</td><td><span class="status-yes">PASS ×3</span></td></tr>
+      <tr><td>8</td><td>group g4 1 batch/group</td><td>local 0,16,0,32 · ctx 0,8,4,0 · scale 1.0,0.5,0,2.0</td><td><span class="status-yes">PASS ×3</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block"><strong>日志计数（忠实）：</strong>&nbsp;8 个 <code>=====</code> 小节、<strong>8 个 <code>numeric_pass=true</code></strong>、<strong>0 个非零 EXIT</strong>、<strong>0 个 <code>[FAIL]</code></strong>。误差 bf16 舍入级：全异构档 dQ/dK/dV 的 <code>max_abs_err ≤ ~3.9e-3</code>（<code>max|ref|</code> ~3.5–7.1），g4 档部分 dQ 逐位 0。<strong>全异构 / g4 这两档若 i_group 索引、设备指针、默认 scale_p 任一错都会暴露大误差</strong> —— 实测舍入级即确认真按 group 取数。</div>
+
+  <h3>② 全套件回归</h3>
+  <p><code>python3 test/run_bwd_tests.py</code>（<code>runs/test-20260608-032623.log</code>，与 025738 同结果）：</p>
+  <div class="statgrid">
+    <div class="stat"><div class="v">34</div><div class="l">TOTAL</div></div>
+    <div class="stat"><div class="v">33</div><div class="l">PASSED</div></div>
+    <div class="stat"><div class="v">1</div><div class="l">SKIPPED (M6)</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">exit code</div></div>
+  </div>
+  <p>含 6 个 M1 + 9 个 M2 + 8 个 M3 + 8 个 M4 pass、2 个 reject（softmax / hdim128，fp16）、1 个 skip（deterministic）。<code>RESULT: OK (all expectations met)</code>。</p>
+
+  <h3>③ 编译</h3>
+  <p><code>runs/build-bwd-M4.log</code>：<strong>0 个 <code>error:</code></strong>，末行 <code>[8/11] Linking CXX executable bin/tile_example_hstu_attention_bwd</code> 成功。</p>
+
+  <div class="gate-banner"><strong>结论：</strong>M4 在 SiLU + bf16 + hd64 下，group（g=2/3/4）× per-group 异构超参（window / contextual / min_full / attn_scale + per-batch num_target）全部对拍 PASS，含至少两档全不同超参；no_group（batched/jagged/mask）零回归，套件 exit 0，编译 0 error。</div>
+</section>
+
+<!-- ============ 10 遗留 ============ -->
+<section id="s10">
+  <h2>10 &nbsp;遗留与边界（诚实标注）</h2>
+  <ul>
+    <li><strong>M5 softmax</strong>：group / no_group 现均 throw。需 PRE（<code>D = rowsum(O·dO)</code>）+ 读 LSE + STAGE5 <code>ds = p*(dp − d)</code>。group softmax 的 O 在 harness 现被跳过，<strong>M5 要接 group GPU fwd 产 O + LSE</strong>。</li>
+    <li><strong>cross-attention</strong>：group / jagged 现仅 self（<code>kv offsets == q</code>）；cross 需独立 kv offsets + cross mask 构造（mask 成员 M2 已加），待对应里程碑。</li>
+    <li><strong>双 pipeline 代码体积（perf M8）</strong>：with-local / without-local 两条都实例化进二进制，运行时只跑一条；grid 仍按 max_seqlen 开；<code>GetTileRangeAlongY</code> 仍保守全 Q 扫描（M2 遗留）。这些是 perf，不影响正确性。</li>
+    <li><strong>M6 deterministic / M7 fp16+hdim</strong>：group dispatch 已留 throw 门；deterministic 的 dq_acc 多 split + reduce POST、fp16 / hdim96-256 待接。</li>
+    <li><strong>验证包络（口径说明）</strong>：所有 mask 因子（window / contextual / min_full / num_target）的对拍均在 <code>causal=1</code> 下进行；<code>causal=0</code> 在本系列里一直作为 <strong>no-mask 路径</strong>（M1 闸门定义）。把 mask 因子叠加到 <code>causal=0</code> 之上属当前未验证区间——已在代码 review 中单独留档交 lead 评估，<strong>不在本文档展开</strong>。</li>
+    <li><strong>无未解决阻塞点（验证包络内）。</strong>per-group 取数经「全异构 + g4 singleton」对拍交叉验证。</li>
+  </ul>
+
+  <div class="note-block olive"><strong>给 reviewer 的一句话总结：</strong>&nbsp;M4 是一次「<em>复用 jagged 布局 + 超参升 per-group + window 维度改运行时双 pipeline</em>」的扩展 —— no_group kernel 一行没改、<strong>没有 instance 噪音</strong>。要 review 的逻辑集中在 group kernel 的 <code>i_group</code> 取数（§5）和 <code>if(window&gt;0)</code> 双 pipeline 分支（§4），证据看「全异构 / g4」两档（§9）。</div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 总览</a>
+  <a href="#s2">2 改动文件清单</a>
+  <a href="#s3" class="sub">图1 group 取数模型</a>
+  <a href="#s4" class="sub">图2 运行时双 pipeline</a>
+  <a href="#s5">5 per-group 取数</a>
+  <a href="#s6">6 params/dispatch/entry</a>
+  <a href="#s7">7 harness -g</a>
+  <a href="#s8">8 测试套件</a>
+  <a href="#s9">9 对拍结果</a>
+  <a href="#s10">10 遗留</a>
+</nav>
+
+</div>
+</div>
+</body>
+</html>

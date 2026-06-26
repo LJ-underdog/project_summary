@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M7a（fp16 dtype 加宽）实现讲义</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+.warn-banner { background: linear-gradient(90deg, #FBE9D0, #FDF6EC); border: 1.5px solid #C9912F; border-radius: 10px; padding: 14px 18px; margin: 14px 0; font-size: 13.5px; color: #6E4E15; max-width: 880px; }
+.warn-banner strong { color: #5A3E10; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M7a fp16 dtype 加宽 实现讲义</div>
+  <h1>HSTU Attention Backward — M7a：fp16 怎么靠「复用 bf16 同一套模板码路」做对的</h1>
+  <p class="subtitle">这份文档讲清 M7a 如何把 bwd 从 <strong>仅 bf16</strong> 扩到 <strong>bf16 + fp16</strong>——而且<strong>不重写一行 kernel</strong>。重点：为什么 dispatch/kernel/pipeline 早就模板化于 <code>InOutDataType</code> 使 fp16 只需在边界加 dtype；fp16 容差为何<strong>比 bf16 更紧</strong>（10bit 尾数 vs 7bit）；怎么用 <strong>fp16-ULP 误差量级</strong>反证「真在跑 fp16 而非静默落回 bf16」；容差没放水的<strong>双向 revert 实验</strong>；以及零回归的 byte-level 证据。范围诚实标注：<strong>仍 hd64 + hdim_qk==hdim_v</strong>，hdim{96,128,256} 与 hdim_qk≠hdim_v 是 M7b/M7c。所有片段引磁盘真实行号（git <code>bf82a1d2</code>）。</p>
+  <div class="audience">读者：要理解 / review 这套 fp16 dtype 扩展的工程师（关键术语都配一句白话）</div>
+  <div style="margin-top:12px; font-size:13px; color:var(--gray-500);">
+    代码目录：<code style="font-family:var(--mono);font-size:12px;">ck_hstu/example/ck_tile/18_hstu_attention/</code> &nbsp;&middot;&nbsp; 主目标 <strong style="color:var(--clay);">gfx950 (MI350/CDNA4)</strong> &nbsp;&middot;&nbsp; 落点 2026-06-11 &nbsp;&middot;&nbsp; 接续 <a href="hstu-bwd-M6-deterministic-20260609.html" style="color:var(--clay)">M6 deterministic 文档</a>
+  </div>
+</header>
+
+<div class="layout">
+<main>
+
+<!-- ============ TL;DR ============ -->
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M7a</div>
+  <p>bwd 的 dispatch / kernel / pipeline 从 M0 起就<strong>模板化在 <code>InOutDataType</code></strong> 上，且内部累加恒为 <code>float</code>（<code>GemmAccDataType</code>）——dtype 只活在「读输入 / 写梯度」的边界。所以加 fp16 <strong>不是写新 kernel，而是把同一套模板换个 dtype 实例化</strong>：新增两个 fp16 entry（与 bf16 版<strong>逐字镜像</strong>，仅 <code>bf16_t→fp16_t</code>）、8 个 fp16 instance + ref、harness 按 <code>-prec</code> 运行时选类型、CMake glob 进来。库 kernel / pipeline / dispatch / reference <strong>一行未改</strong>。</p>
+  <p>fp16 尾数 10bit &gt; bf16 7bit，存储更准 → 容差<strong>收紧</strong>到 rtol5e-3 / atol1e-2（bf16 是 2e-2 / 5e-2）。实测 fp16 误差落在 <strong>fp16-ULP（2⁻¹⁴）量级</strong>，比 bf16-ULP 约小 8×——这正是「确在跑 fp16」的铁证（若静默落回 bf16，误差会大约 8 倍）。</p>
+  <div class="badges">
+    <span class="badge ok">fp16 sweep 66 / 66 PASS</span>
+    <span class="badge ok">套件 106 / 106 / 0 / 0 · exit 0</span>
+    <span class="badge ok">bf16 零回归（库文件 byte-identical）</span>
+    <span class="badge ok">容差 revert 双实验过</span>
+    <span class="badge ok">fp16 determ 逐位复现</span>
+    <span class="badge info">范围：hd64 + hdim_qk==hdim_v</span>
+  </div>
+</div>
+
+<!-- ============ 1 M7a 是什么 + 为何复用 ============ -->
+<section id="s1">
+  <h2>1 &nbsp;M7a 是什么：纯 dtype 轴，复用而非重写</h2>
+  <p class="lede">M7a 只做一件事：把反向支持的 I/O 数据类型从 <strong>{bf16}</strong> 扩成 <strong>{bf16, fp16}</strong>。<strong>不</strong>动 hdim（仍 64）、<strong>不</strong>动 hdim_qk≠hdim_v（仍相等）、<strong>不</strong>动任何 kernel 算法。能这么省，是因为整套 bwd 的数值结构早就把 dtype 隔离在边界上。</p>
+
+  <div class="formula formula-block">
+    <span class="line">关键不变式（fp16 与 bf16 完全对称）：</span>
+    <span class="line">  HstuAttentionFwdTypeConfig&lt;fp16_t&gt;:: GemmAccDataType = float ,  CompDataType = float</span>
+    <span class="line">  HstuAttentionFwdTypeConfig&lt;bf16_t&gt;:: GemmAccDataType = float ,  CompDataType = float</span>
+    <span class="line">  ⇒ 矩阵乘累加 / softmax exp / LSE / 梯度归约 全在 float 里算，fp16 只活在 load Q/K/V/dO + store dQ/dK/dV 的边界</span>
+  </div>
+
+  <h3>【图1】为什么 fp16「只在边界分叉」</h3>
+  <p class="lede">同一套 dispatch→kernel→pipeline 模板被 <code>bf16_t</code> 与 <code>fp16_t</code> 两次实例化。中间所有计算逻辑（5 个 GEMM、softmax、SiLU、mask、determ split、POST reduce）是<strong>同一份源码、同样的 float 内算</strong>；唯一不同的是最外层「读什么 dtype、写什么 dtype」。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 360" width="100%" role="img" aria-label="fp16 仅在 dtype 边界分叉">
+    <defs>
+      <marker id="aa" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/></marker>
+      <marker id="ac" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#D97757"/></marker>
+    </defs>
+    <!-- entry layer (forks) -->
+    <text x="24" y="26" font-size="12.5" fill="#3D3D3A" font-weight="700">边界层：按 -prec 实例化（唯一 dtype 分叉点）</text>
+    <rect x="40" y="40" width="180" height="44" rx="7" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.4"/>
+    <text x="130" y="60" text-anchor="middle" font-size="11" fill="#8A3B1E" font-weight="700">*_backward_bf16</text>
+    <text x="130" y="76" text-anchor="middle" font-size="9" fill="#3D3D3A">dispatch&lt;bf16_t,…&gt;</text>
+    <rect x="40" y="92" width="180" height="44" rx="7" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.4"/>
+    <text x="130" y="112" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">*_backward_fp16 <tspan font-size="8">[NEW]</tspan></text>
+    <text x="130" y="128" text-anchor="middle" font-size="9" fill="#3D3D3A">dispatch&lt;fp16_t,…&gt;</text>
+
+    <!-- shared template core -->
+    <rect x="330" y="48" width="300" height="200" rx="10" fill="#fff" stroke="#141413" stroke-width="1.6"/>
+    <text x="480" y="72" text-anchor="middle" font-size="12" fill="#141413" font-weight="700">同一套模板源码（一行未改）</text>
+    <rect x="352" y="86" width="256" height="26" rx="5" fill="var(--gray-150)" stroke="#D1CFC5"/><text x="480" y="104" text-anchor="middle" font-size="10" fill="#3D3D3A">batched / group backward dispatch</text>
+    <rect x="352" y="118" width="256" height="26" rx="5" fill="var(--gray-150)" stroke="#D1CFC5"/><text x="480" y="136" text-anchor="middle" font-size="10" fill="#3D3D3A">bwd_kernel (5 GEMM · mask · determ split)</text>
+    <rect x="352" y="150" width="256" height="26" rx="5" fill="var(--gray-150)" stroke="#D1CFC5"/><text x="480" y="168" text-anchor="middle" font-size="10" fill="#3D3D3A">no_softmax / with_softmax pipeline</text>
+    <rect x="352" y="182" width="256" height="26" rx="5" fill="var(--gray-150)" stroke="#D1CFC5"/><text x="480" y="200" text-anchor="middle" font-size="10" fill="#3D3D3A">POST reduce / convert_dq</text>
+    <rect x="352" y="214" width="256" height="24" rx="5" fill="#E9EFE0" stroke="#788C5D"/><text x="480" y="231" text-anchor="middle" font-size="10" fill="#4B5C39" font-weight="700">内算全 float（GemmAccDataType）</text>
+
+    <path d="M220 62 C 270 66, 290 90, 328 110" stroke="#D97757" stroke-width="1.4" fill="none" marker-end="url(#ac)"/>
+    <path d="M220 114 C 270 120, 290 130, 328 150" stroke="#788C5D" stroke-width="1.4" fill="none" marker-end="url(#aa)"/>
+
+    <!-- IO boundary -->
+    <text x="700" y="26" font-size="12.5" fill="#3D3D3A" font-weight="700">I/O 边界（dtype 唯一现身处）</text>
+    <rect x="700" y="86" width="250" height="44" rx="7" fill="#fff" stroke="#87867F"/>
+    <text x="825" y="106" text-anchor="middle" font-size="10.5" fill="#141413" font-weight="700">load Q/K/V/O/dO  : InOutDataType</text>
+    <text x="825" y="122" text-anchor="middle" font-size="9.5" fill="#3D3D3A">读进来立刻 type_convert→float</text>
+    <rect x="700" y="150" width="250" height="44" rx="7" fill="#fff" stroke="#87867F"/>
+    <text x="825" y="170" text-anchor="middle" font-size="10.5" fill="#141413" font-weight="700">store dQ/dK/dV : InOutDataType</text>
+    <text x="825" y="186" text-anchor="middle" font-size="9.5" fill="#3D3D3A">float 算完 convert→fp16/bf16 落地</text>
+    <path d="M630 130 L698 110" stroke="#87867F" stroke-width="1.2" marker-end="url(#aa)"/>
+    <path d="M630 168 L698 172" stroke="#87867F" stroke-width="1.2" marker-end="url(#aa)"/>
+    <text x="700" y="226" font-size="9.5" fill="#8A3B1E">把 InOutDataType 换 fp16_t，整条链自动变 fp16——这就是 M7a 的全部。</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图1：fp16 与 bf16 共享中间整套模板（dispatch/kernel/pipeline/POST），内算恒为 float。dtype 只在边界两端（读输入、写梯度）出现。M7a = 加一个 fp16 边界实例化，中间不碰。</p>
+
+  <h3>fp16 entry 与 bf16 entry 逐字镜像</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_no_group_backward_fp16.cpp:19-33（与 bf16 版仅差 bf16_t→fp16_t）</span><span class="kw">void</span> <span class="fn">hstu_attention_no_group_backward_fp16</span>(HstuAttentionNoGroupBwdParams&amp; param, hipStream_t stream)
+{
+    <span class="cm">// M6: kIsDeterministic 已是运行时模板轴（causal × softmax × determ）</span>
+    <span class="fn">BOOL_SWITCH_3</span>(param.use_causal, kUseCausal, param.use_softmax, kUseSoftmax,
+                  param.kIsDeterministic, kIsDeterministic, [&amp;] {
+        <span class="fn">run_batched_backward_dispatch</span>&lt;<span class="hl">ck_tile::fp16_t</span>,    <span class="cm">// ← 唯一改动：bf16_t → fp16_t</span>
+                                      kUseCausal, kUseSoftmax,
+                                      <span class="kw">false</span>, kIsDeterministic, <span class="hl">64</span>&gt;(param, stream);  <span class="cm">// MaxK 仍 64</span>
+    });
+}</div>
+  <div class="note-block olive"><strong>白话：</strong>&nbsp;entry 的 <code>BOOL_SWITCH_3</code> fan-out（causal × softmax × determ）与 bf16 <strong>完全一致</strong>——没有 O1 式的 hardcode-false 隐患。group entry 同样直接调 <code>run_group_backward_dispatch&lt;fp16_t,…&gt;</code>（group 是 direct-instantiation，无 instance 文件）。</div>
+</section>
+
+<!-- ============ 2 来源故事 ============ -->
+<section id="s2">
+  <h2>2 &nbsp;来源故事：孤儿 WIP → 干净边界 → 评估通过复用</h2>
+  <p class="lede">M7a 的代码不是从零写的，而是上一轮 session 留下的<strong>未提交、未测试、来源不明</strong>的 fp16 WIP。处理它的纪律是「先立干净基线，再独立验真，绝不信自述」。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 150" width="100%" role="img" aria-label="M7a 来源时间线">
+    <defs><marker id="tl" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/></marker></defs>
+    <line x1="40" y1="74" x2="940" y2="74" stroke="#D1CFC5" stroke-width="2"/>
+    <circle cx="95" cy="74" r="7" fill="#788C5D"/><text x="95" y="50" text-anchor="middle" font-size="10.5" fill="#4B5C39" font-weight="700">M6b 落点</text><text x="95" y="100" text-anchor="middle" font-size="9" fill="#3D3D3A">d4fb2884 干净</text>
+    <circle cx="285" cy="74" r="7" fill="#C9912F"/><text x="285" y="50" text-anchor="middle" font-size="10.5" fill="#6E4E15" font-weight="700">发现孤儿 WIP</text><text x="285" y="100" text-anchor="middle" font-size="9" fill="#3D3D3A">未提交/未测/来源不明</text>
+    <circle cx="475" cy="74" r="7" fill="#D97757"/><text x="475" y="50" text-anchor="middle" font-size="10.5" fill="#8A3B1E" font-weight="700">恢复进工作树</text><text x="475" y="100" text-anchor="middle" font-size="9" fill="#3D3D3A">立 M6b 为对照基线</text>
+    <circle cx="665" cy="74" r="7" fill="#D97757"/><text x="665" y="50" text-anchor="middle" font-size="10.5" fill="#8A3B1E" font-weight="700">coder 建+对拍+补套件</text><text x="665" y="100" text-anchor="middle" font-size="9" fill="#3D3D3A">reviewer 独立 build_review</text>
+    <circle cx="905" cy="74" r="7" fill="#4B5C39"/><text x="905" y="50" text-anchor="middle" font-size="10.5" fill="#4B5C39" font-weight="700">四方闭合 promote</text><text x="905" y="100" text-anchor="middle" font-size="9" fill="#3D3D3A">commit bf82a1d2</text>
+    <path d="M102 74 L278 74" stroke="#87867F" stroke-width="1.1" marker-end="url(#tl)"/>
+    <path d="M292 74 L468 74" stroke="#87867F" stroke-width="1.1" marker-end="url(#tl)"/>
+    <path d="M482 74 L658 74" stroke="#87867F" stroke-width="1.1" marker-end="url(#tl)"/>
+    <path d="M672 74 L898 74" stroke="#87867F" stroke-width="1.1" marker-end="url(#tl)"/>
+  </svg>
+  </div>
+  <p class="svg-caption">图2：M7a 时间线。WIP 来源不明 → 以 M6b（<code>d4fb2884</code>）为干净对照 → coder 建/对拍/补套件、reviewer 独立干净重建（<code>build_review</code>）、lead 亲核 → 四方闭合后才 commit。</p>
+  <div class="note-block clay"><strong>处理孤儿 WIP 的原则：</strong>&nbsp;不因为「代码已经在那」就默认它对。评估的结论是「<strong>结构忠实，可复用</strong>」——entry 逐字镜像 bf16、库文件零改动、容差物理合理——而这结论是<strong>建出来、对拍出来、独立复核出来</strong>的，不是读 WIP 自述得来的。</div>
+</section>
+
+<!-- ============ 3 fp16 vs bf16 位布局 + 容差 ============ -->
+<section id="s3">
+  <h2>3 &nbsp;为什么 fp16 容差比 bf16 更紧</h2>
+  <p class="lede">两者都是 16bit、都 1 个符号位，区别全在<strong>指数位与尾数位的分配</strong>：bf16 给指数 8bit（动态范围同 fp32）、尾数只 7bit；fp16 给指数 5bit、尾数 10bit。<strong>尾数位决定相对精度</strong>——fp16 多 3 个尾数 bit ⇒ 量化误差约小 2³=8×。所以 fp16 的对拍容差应当<strong>收紧</strong>，而不是沿用 bf16 的。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 200" width="100%" role="img" aria-label="bf16 vs fp16 位布局">
+    <!-- bf16 -->
+    <text x="24" y="30" font-size="12" fill="#3D3D3A" font-weight="700">bf16  =  1 符号 · 8 指数 · 7 尾数   （动态范围大，精度低）</text>
+    <rect x="40" y="42" width="40" height="32" fill="#141413"/><text x="60" y="63" text-anchor="middle" font-size="10" fill="#fff">S</text>
+    <rect x="82" y="42" width="320" height="32" fill="#D97757"/><text x="242" y="63" text-anchor="middle" font-size="10" fill="#fff" font-weight="700">8 指数 bit</text>
+    <rect x="404" y="42" width="280" height="32" fill="#E3DACC"/><text x="544" y="63" text-anchor="middle" font-size="10" fill="#3D3D3A" font-weight="700">7 尾数 bit</text>
+    <text x="700" y="63" font-size="10.5" fill="#8A3B1E" font-weight="700">ε ≈ 2⁻⁸ ≈ 3.9e-3</text>
+    <!-- fp16 -->
+    <text x="24" y="120" font-size="12" fill="#3D3D3A" font-weight="700">fp16  =  1 符号 · 5 指数 · 10 尾数  （动态范围小，精度高 ~8×）</text>
+    <rect x="40" y="132" width="40" height="32" fill="#141413"/><text x="60" y="153" text-anchor="middle" font-size="10" fill="#fff">S</text>
+    <rect x="82" y="132" width="200" height="32" fill="#D97757"/><text x="182" y="153" text-anchor="middle" font-size="10" fill="#fff" font-weight="700">5 指数 bit</text>
+    <rect x="284" y="132" width="400" height="32" fill="#788C5D"/><text x="484" y="153" text-anchor="middle" font-size="10" fill="#fff" font-weight="700">10 尾数 bit</text>
+    <text x="700" y="153" font-size="10.5" fill="#4B5C39" font-weight="700">ε ≈ 2⁻¹¹ ≈ 4.9e-4</text>
+    <text x="40" y="190" font-size="9.5" fill="#87867F">尾数多 3 bit ⇒ 相对量化误差小 2³=8× ⇒ 容差收紧（但指数少 3 bit：fp16 最大仅 65504，溢出风险见 §7）</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图3：bf16（8 指数 / 7 尾数）vs fp16（5 指数 / 10 尾数）。fp16 多 3 尾数 bit → 精度约高 8×，故容差收紧；代价是动态范围小（max 65504）。</p>
+
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp:146-153 — fp16 容差是 bf16 的特化收紧</span><span class="kw">template</span> &lt;<span class="kw">typename</span> DataType&gt;
+<span class="kw">auto</span> <span class="fn">get_bwd_elimit</span>()                <span class="cm">// 默认（bf16）</span>
+{ <span class="kw">return</span> ck_tile::make_tuple(<span class="cm">/*rtol*/</span> <span class="hl">2e-2</span>, <span class="cm">/*atol*/</span> <span class="hl">5e-2</span>); }
+<span class="kw">template</span> &lt;&gt;
+<span class="kw">auto</span> <span class="fn">get_bwd_elimit</span>&lt;<span class="hl">ck_tile::fp16_t</span>&gt;()    <span class="cm">// fp16 特化：更紧</span>
+{ <span class="kw">return</span> ck_tile::make_tuple(<span class="cm">/*rtol*/</span> <span class="hl">5e-3</span>, <span class="cm">/*atol*/</span> <span class="hl">1e-2</span>); }</div>
+  <div class="note-block olive"><strong>白话：</strong>&nbsp;fp16 容差（rtol 5e-3 / atol 1e-2）比 bf16（2e-2 / 5e-2）<strong>紧 4×–5×</strong>。这不是把阈值「调松来掩误差」，恰恰相反——是因为 fp16 物理上更准，所以<strong>用更严的标尺去验它</strong>。§5 用实验证明这把标尺没放水。</div>
+</section>
+
+<!-- ============ 4 真在跑 fp16 ============ -->
+<section id="s4">
+  <h2>4 &nbsp;怎么证「真在跑 fp16，而非静默落回 bf16」</h2>
+  <p class="lede">复用同一套模板有个隐患：万一 dtype 没真正切换、harness 实际还在跑 bf16，对拍照样会过（因为两侧都 bf16）。M7a 用一个<strong>误差量级反证</strong>把这条堵死——不靠「相信代码」，靠「测出来的误差只可能是 fp16 产生的」。</p>
+  <div class="formula formula-block">
+    <span class="line">反证逻辑：误差量级是 dtype 的「指纹」</span>
+    <span class="line">  若真跑 fp16 ⇒ 量化误差 ~ fp16-ULP ~ 2⁻¹⁴ 量级</span>
+    <span class="line">  若静默落回 bf16 ⇒ 量化误差 ~ bf16-ULP ~ 2⁻¹¹ 量级（约大 8×）</span>
+    <span class="line">  实测 dQ/dK max_abs_err = 6.10352e-05 = 2⁻¹⁴ ， dV = 1.22e-4 = 2⁻¹³</span>
+    <span class="line">  ⇒ 正是 fp16-ULP 量级，不是 bf16 量级 ⇒ 确在跑 fp16</span>
+  </div>
+  <div class="callout-grid">
+    <div class="callout clay">
+      <div class="k">证据 1</div>
+      <div class="t">误差是 fp16-ULP</div>
+      <div class="d">softmax 路 dQ/dK <code>max_abs_err=6.10352e-05</code>（=2⁻¹⁴）。若是 bf16 应约 8× 大。这是<strong>测量级</strong>铁证。</div>
+    </div>
+    <div class="callout clay">
+      <div class="k">证据 2</div>
+      <div class="t">代码级真分叉</div>
+      <div class="d"><code>main()</code> 按 <code>-prec</code> 真实例化 <code>run_*&lt;fp16_t&gt;</code>；4 处 fwd/bwd wiring 各有 <code>else if(fp16)→*_fp16(...)</code> 真分支，非 hardcode bf16。</div>
+    </div>
+    <div class="callout clay">
+      <div class="k">证据 3</div>
+      <div class="t">对拍两侧同 fp16</div>
+      <div class="d">harness 全模板于 <code>InOutDataType</code>：fp16 时 GPU 与 reference <strong>同走 fp16 I/O + float 内算</strong>，reference 连中间 P 都 round 回 fp16。公平、无 silent-unfair。</div>
+    </div>
+  </div>
+  <div class="note-block"><strong>为什么这条值得单列：</strong>&nbsp;它把「复用模板」最容易漏的失败模式（dtype 没真切、对拍假绿）变成<strong>可证伪</strong>的：误差量级对不上 fp16 就立刻露馅。实测对得上 ⇒ 放心。</div>
+</section>
+
+<!-- ============ 5 容差没放水 ============ -->
+<section id="s5">
+  <h2>5 &nbsp;容差没放水：双向 revert 实验</h2>
+  <p class="lede">「容差更紧」本身不等于「没被调来掩误差」。reviewer 在独立 <code>build_review</code> 上做了<strong>两个相反方向</strong>的扰动实验——放宽与收紧——来锁死这个疑点（实验后均已 revert，代码树 pristine）。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>实验</th><th>把 fp16 容差改成</th><th>结果</th><th>结论</th></tr></thead>
+    <tbody>
+      <tr><td>基线（所选）</td><td>rtol 5e-3 / atol 1e-2</td><td><span class="status-yes">PASS</span></td><td>实测误差 6e-5 ≪ atol，~160× headroom</td></tr>
+      <tr><td>A · 放宽到 bf16 容差</td><td>rtol 2e-2 / atol 5e-2</td><td><span class="status-yes">PASS（判定不变）</span></td><td>放宽不改变判定 ⇒ <strong>无被掩盖的隐藏误差</strong></td></tr>
+      <tr><td>B · 反向收紧 5–20×</td><td>rtol 1e-3 / atol 5e-4</td><td><span class="status-yes">PASS</span></td><td>更严仍过 ⇒ <strong>误差是真小</strong>，所选容差留巨大余量</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="gate-banner"><strong>双向锁死：</strong>&nbsp;实验 A（放宽到 bf16 标尺）<strong>仍 PASS</strong> = 不存在「只有紧标尺才暴露的隐藏误差」；实验 B（收紧到比所选还严 5–20×）<strong>仍 PASS</strong> = 误差量级确实远低于容差。所选 rtol5e-3/atol1e-2 <strong>既不放水、也不贴边</strong>。</div>
+  <div class="note-block olive"><strong>诚实记录：</strong>&nbsp;实验改的是 <code>get_bwd_elimit&lt;fp16_t&gt;</code> 单点、relink、跑、再 <code>cp</code> 回原文件;事后 <code>git diff</code> 确认仅原始 4 改文件、无容差残留。</div>
+</section>
+
+<!-- ============ 6 零回归 ============ -->
+<section id="s6">
+  <h2>6 &nbsp;bf16 零回归：byte-level 证据</h2>
+  <p class="lede">扩 dtype 最大的风险是「顺手碰坏了已 promoted 的 bf16 路」。M7a 的改面被严格限制在<strong>边界与构建层</strong>，库逻辑一行未动——这点用 <code>git diff</code> 直接证。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>文件</th><th>性质</th><th>改了什么</th></tr></thead>
+    <tbody>
+      <tr><td><code>example_hstu_attention_bwd.cpp</code></td><td><span class="tag tag-mod">改·加性</span></td><td>runtime <code>-prec</code> 选 fp16_t/bf16_t + 4 处 fwd/bwd wiring 加 <code>else if(fp16)</code> + <code>get_bwd_elimit&lt;fp16_t&gt;</code></td></tr>
+      <tr><td><code>generate_instances.py</code></td><td><span class="tag tag-mod">改·加性</span></td><td>dtype 轴 <code>["bf16"]→["fp16","bf16"]</code></td></tr>
+      <tr><td><code>hstu_attention_api.hpp</code></td><td><span class="tag tag-mod">改·加性</span></td><td>+2 个 fp16 bwd extern 声明</td></tr>
+      <tr><td><code>CMakeLists.txt</code></td><td><span class="tag tag-mod">改·加性</span></td><td>glob fp16 fwd/bwd entry+instance 进 bwd target</td></tr>
+      <tr><td>fp16 entry ×2 + 8 instance + ref.hpp</td><td><span class="tag tag-new">新增</span></td><td>bf16 版逐字镜像（仅 dtype）</td></tr>
+      <tr><td>kernel / 两 pipeline / 两 dispatch / reference / type_config / bool_switch</td><td><span class="tag tag-reuse">byte-identical</span></td><td><strong>一行未改</strong>（<code>git diff HEAD</code> 为空）</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block clay"><strong>硬证据：</strong>&nbsp;<code>git diff --name-only HEAD</code> 全仓<strong>仅 4 个 tracked 文件</strong>（上表前 4 行）+ 新增 fp16 文件。9 个库/kernel/pipeline/dispatch/reference 文件经逐一 <code>git diff HEAD -- &lt;file&gt;</code> 验证为<strong>空 diff</strong>（byte-identical 于 <code>d4fb2884</code>）。bf16 在 <code>main()</code> 走原 <code>else</code> 分支，逻辑等价。</div>
+  <p>结果实证：reviewer 独立 <code>build_review</code> 跑全套件，<strong>M0–M6b 全部 bf16 历史案（90 个，旧 91 套件升级 reject-fp16 后）全 PASS</strong>，加 bf16 SiLU/group-softmax spot-check <code>numeric_pass=true</code> —— 真零回归。</p>
+</section>
+
+<!-- ============ 7 验证数据 ============ -->
+<section id="s7">
+  <h2>7 &nbsp;验证数据：sweep 66/66、套件 106/106、误差量级</h2>
+  <p class="lede">铁律 <code>-attn_scale=1.0</code>，fp16 阈值 rtol5e-3 / atol1e-2。两层验证：① 专项 fp16 sweep（覆盖全模式/全 mask/determ）；② 完整回归套件（含 bf16 零回归 + fp16 determ 逐位复现）。</p>
+  <div class="statgrid">
+    <div class="stat"><div class="v">66/66</div><div class="l">fp16 sweep PASS</div></div>
+    <div class="stat"><div class="v">106</div><div class="l">套件 TOTAL=PASS</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">FAIL / SKIP / exit</div></div>
+    <div class="stat"><div class="v">2</div><div class="l">fp16 determ 逐位复现案</div></div>
+  </div>
+
+  <h3>① fp16 对拍 sweep（<code>runs/run-M7a-sweep.log</code>）= 66/66 PASS</h3>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>维度</th><th>覆盖</th><th>结果</th></tr></thead>
+    <tbody>
+      <tr><td>模式</td><td>batched / jagged（per-batch 异 seqlen）/ group（g=2,3,4）</td><td><span class="status-yes">全 PASS</span></td></tr>
+      <tr><td>activation × causal</td><td>SiLU / softmax × causal{0,1}</td><td><span class="status-yes">全 PASS</span></td></tr>
+      <tr><td>mask 5 因子</td><td>window / contextual / min_full / num_target 各自 + 组合</td><td><span class="status-yes">全 PASS</span></td></tr>
+      <tr><td>determ</td><td>no_group（SiLU/softmax, multi-split）+ group</td><td><span class="status-yes">全 PASS</span></td></tr>
+      <tr><td>非整除 seqlen</td><td>200 / 130 / 512 / 96 / 32 / 1 / 7</td><td><span class="status-yes">全 PASS</span></td></tr>
+      <tr><td>关键交叉</td><td>causal=0 + num_target（P1-1 老洞，batched/jagged/group × SiLU/softmax）</td><td><span class="status-yes">全 PASS</span></td></tr>
+      <tr><td>M6b 老洞触发</td><td>group 同组多 batch 异 seqlen + 长 batch 大 target + window</td><td><span class="status-yes">全 PASS</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>② 误差量级（max_abs_err vs max|ref|，代表性）</h3>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>路径</th><th>max_abs_err</th><th>max|ref|</th><th>相对量级</th><th>vs atol 1e-2</th></tr></thead>
+    <tbody>
+      <tr><td>SiLU 路</td><td>~5e-4 … 4e-3</td><td>~2 … 11</td><td>rel ~1e-3</td><td><span class="status-yes">远低</span></td></tr>
+      <tr><td>softmax 路</td><td>~3e-5 … 2e-4</td><td>~0.08 … 2.3</td><td>rel ~1e-4</td><td><span class="status-yes">远低</span></td></tr>
+      <tr><td>determ multi-split (seq512)</td><td>~4e-3</td><td>~10</td><td>rel ~4e-4</td><td><span class="status-yes">远低</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>③ 完整套件 + fp16 determ 逐位复现（<code>runs/test-20260611-041239.log</code>）</h3>
+  <p>套件 <strong>106 / 106 / 0 / 0 · exit 0</strong>（= 旧 91 − 1 过期 <code>reject-fp16</code> + 14 个 fp16 pass 案 + 2 个 fp16 determ byte-identical repro）。过期的 <code>reject-fp16</code>（原期望 harness 拒绝 <code>-prec=fp16</code>）已正确升级为 pass 块——否则它会变 mismatch。</p>
+  <div class="note-block olive"><strong>fp16 determinism 也成立：</strong>&nbsp;<code>repro-fp16-det-softmax-seq512</code> / <code>repro-fp16-gdet-silu-g2</code> 两案同输入跑两次 dQ <strong>byte-identical</strong>——M6 的 split + 固定序 POST 机制在 fp16 下同样构造性可复现。</div>
+</section>
+
+<!-- ============ 7b 溢出风险 ============ -->
+<section id="s7b">
+  <h2>8 &nbsp;fp16 溢出风险：当前包络内安全</h2>
+  <p class="lede">fp16 指数位少（max=65504），需确认 softmax 的 exp/LSE、大梯度不会在 I/O 边界 inf/nan。</p>
+  <ul>
+    <li>内部 exp / LSE / 归约累加全在 <strong>float</strong>（fp16 仅 I/O）——溢出只可能发生在边界 store。</li>
+    <li>sweep 全程 <code>max|ref|</code> 最高仅 <strong>~10.9</strong>（远 ≪ 65504）；输入 O(1)，alpha=0.125。<strong>所有 softmax（指数路）配置均 PASS，无一例 fp16 溢出 FAIL</strong>。</li>
+    <li>reviewer 额外压测：seqlen=1024 softmax、contextual+target+window 组合 mask、determ 多 split——均无 inf/nan，误差仍 fp16-ULP 级。</li>
+  </ul>
+  <div class="note-block"><strong>诚实边界：</strong>&nbsp;结论是「<strong>当前测试包络内无 fp16 已知边界</strong>」。若未来喂极端大 magnitude 输入需另测；现 contract 内无。reviewer 建议（非阻塞）可补一个极端 stress 案进一步压上界。</div>
+</section>
+
+<!-- ============ 8 四方闭合 + 范围 ============ -->
+<section id="s8">
+  <h2>9 &nbsp;四方闭合 + 范围（诚实标注）</h2>
+  <p class="lede">M7a 经四组<strong>相互独立</strong>的证据闭合后才 promote（commit <code>bf82a1d2</code>）：</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 200" width="100%" role="img" aria-label="四方闭合矩阵">
+    <rect x="40" y="30" width="210" height="140" rx="10" fill="#fff" stroke="#788C5D" stroke-width="1.4"/>
+    <text x="145" y="54" text-anchor="middle" font-size="12" fill="#4B5C39" font-weight="700">① coder</text>
+    <text x="145" y="78" text-anchor="middle" font-size="9.5" fill="#3D3D3A">build 0 error (422MB)</text>
+    <text x="145" y="96" text-anchor="middle" font-size="9.5" fill="#3D3D3A">fp16 sweep 66/66</text>
+    <text x="145" y="114" text-anchor="middle" font-size="9.5" fill="#3D3D3A">套件 106/106 exit0</text>
+    <text x="145" y="132" text-anchor="middle" font-size="9.5" fill="#3D3D3A">补 14 pass + 2 repro</text>
+
+    <rect x="265" y="30" width="210" height="140" rx="10" fill="#fff" stroke="#D97757" stroke-width="1.4"/>
+    <text x="370" y="54" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">② reviewer（独立 build_review）</text>
+    <text x="370" y="78" text-anchor="middle" font-size="9.5" fill="#3D3D3A">7/7 GREEN</text>
+    <text x="370" y="96" text-anchor="middle" font-size="9.5" fill="#3D3D3A">对拍公平 + 容差双实验</text>
+    <text x="370" y="114" text-anchor="middle" font-size="9.5" fill="#3D3D3A">fp16-ULP 反证</text>
+    <text x="370" y="132" text-anchor="middle" font-size="9.5" fill="#3D3D3A">9 库文件 byte-identical</text>
+
+    <rect x="490" y="30" width="210" height="140" rx="10" fill="#fff" stroke="#788C5D" stroke-width="1.4"/>
+    <text x="595" y="54" text-anchor="middle" font-size="12" fill="#4B5C39" font-weight="700">③ WIP 本体</text>
+    <text x="595" y="78" text-anchor="middle" font-size="9.5" fill="#3D3D3A">entry 逐字镜像 bf16</text>
+    <text x="595" y="96" text-anchor="middle" font-size="9.5" fill="#3D3D3A">8 instance + ref 完整</text>
+    <text x="595" y="114" text-anchor="middle" font-size="9.5" fill="#3D3D3A">改面仅边界/构建层</text>
+    <text x="595" y="132" text-anchor="middle" font-size="9.5" fill="#3D3D3A">结构忠实</text>
+
+    <rect x="715" y="30" width="225" height="140" rx="10" fill="#fff" stroke="#D97757" stroke-width="1.4"/>
+    <text x="827" y="54" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">④ lead 亲核</text>
+    <text x="827" y="78" text-anchor="middle" font-size="9.5" fill="#3D3D3A">git diff = 仅 4 文件</text>
+    <text x="827" y="96" text-anchor="middle" font-size="9.5" fill="#3D3D3A">M6b 触发配置 fp16 PASS</text>
+    <text x="827" y="114" text-anchor="middle" font-size="9.5" fill="#3D3D3A">fp16 determ 两次 cmp -s</text>
+    <text x="827" y="132" text-anchor="middle" font-size="9.5" fill="#3D3D3A">524288B 逐位相同</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图4：四方闭合。reviewer 用<strong>独立的</strong> <code>build_review</code> 干净重建（不复用 coder 的 build），构成与 coder 互不依赖的证据链。</p>
+
+  <h3>能力边界（M7a 后）</h3>
+  <div class="note-block olive">SiLU + softmax <strong>全模式（batched / jagged / group）</strong> × 全 5 因子 mask × causal{0,1} × <strong>bf16 + fp16</strong> × hd64 × atomic + deterministic（全模式）。</div>
+
+  <h3>范围限定（WIP 本就如此，非缺口隐瞒）</h3>
+  <div class="warn-banner"><strong>M7a 仍 hd64 + hdim_qk == hdim_v。</strong>&nbsp;hdim{96,128,256} 与 hdim_qk ≠ hdim_v 仍属 <strong>M7b / M7c</strong>，套件 <code>reject-hdim128</code> 仍守 dispatch 运行时 throw。本文档不把范围夸大成「任意 hdim」。</div>
+  <ul>
+    <li><strong>盲区继承 M5/M5b</strong>：LSE 数值由 GPU fwd 产、对拍两侧共用同一份（无法独立验 LSE 数值），靠 fwd 里程碑兜底——fp16 未改变此结构。</li>
+    <li><strong>非阻塞观察</strong>：CMake 把完整 fwd fp16 instance 矩阵（含 maxk 96/128/256）全 glob 进来，hd64 下是构建期 dead weight → 可作 build-time 瘦身候选（M8）。</li>
+  </ul>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 M7a 是什么 · 复用</a>
+  <a href="#s1" class="sub">图1 dtype 边界分叉</a>
+  <a href="#s2">2 来源故事</a>
+  <a href="#s2" class="sub">图2 时间线</a>
+  <a href="#s3">3 fp16 vs bf16 容差</a>
+  <a href="#s3" class="sub">图3 位布局</a>
+  <a href="#s4">4 真在跑 fp16</a>
+  <a href="#s5">5 容差没放水</a>
+  <a href="#s6">6 bf16 零回归</a>
+  <a href="#s7">7 验证数据</a>
+  <a href="#s7b">8 溢出风险</a>
+  <a href="#s8">9 四方闭合 + 范围</a>
+  <a href="#s8" class="sub">图4 闭合矩阵</a>
+</nav>
+
+</div>
+</div>
+</body>
+</html>
