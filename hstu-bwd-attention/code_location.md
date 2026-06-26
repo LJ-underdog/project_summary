@@ -14,9 +14,11 @@ HSTU 代码目录:`example/ck_tile/18_hstu_attention/`
 ## 克隆(新机器)
 
 ```bash
+# 推荐 clone 到绝对路径 /root/workspace/ck_hstu —— 回归脚本 run_bwd_tests.py 的
+# DEFAULT_BIN/DEFAULT_BUILD_DIR 默认就指这里,照此布局可零改跑通(见 REPRODUCTION_GUIDE)
 git clone --branch hstu_attention_fwd_bwd_v2 \
-  https://github.com/LJ-underdog/composable_kernel.git ck_hstu
-cd ck_hstu && git log --oneline -1    # 应为 a86529dc
+  https://github.com/LJ-underdog/composable_kernel.git /root/workspace/ck_hstu
+cd /root/workspace/ck_hstu && git log --oneline -1    # 应为 a86529dc
 ```
 
 > push 需要你自己的 fine-grained PAT(user LJ-underdog,Contents:write,**且 `composable_kernel` 本仓库必须在 repository access 里**,只加 fork 不够否则 403)。本 summary 库不含任何 token。
@@ -47,7 +49,7 @@ cd ck_hstu && git log --oneline -1    # 应为 a86529dc
 SiLU + softmax × 全模式(batched/jagged/group)× self + cross-attention(seqlen_q≠seqlen_kv 全方向)× 全 5 因子 mask × causal{0,1} × bf16 + fp16 × hdim_qk/hdim_v ∈ (0,256] 任意(对称+非对称+非典范 via head-dim pad)× dQ atomic + deterministic(全模式)。
 
 - 对拍套件:**253/253 exit 0**
-- perf(M8):MAIN causal 1.6× / window ~10×
+- perf(M8):MAIN causal ~1.3–1.6×(silu 峰值 1.6× / softmax 1.3×)/ window ~4.7–9.8×(窄窗最高,window16 实测 10.4×)
 - **真 reject**:hdim>256
 - **out-of-scope(未做,需拍板)**:target_in_kv、独立 dO layout、非方形 tile
 - 尚未对上游 ROCm 提 PR

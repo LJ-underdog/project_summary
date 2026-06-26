@@ -19,7 +19,7 @@
 | head dim | hdim_qk/hdim_v ∈ (0,256] 任意(对称 + 非对称 + 非典范 via head-dim pad) |
 | dQ 归约 | atomic + deterministic(全模式) |
 
-- 对拍套件:**253/253 exit 0**;perf(M8):MAIN causal 1.6× / window ~10×。
+- 对拍套件:**253/253 exit 0**;perf(M8):MAIN causal ~1.3–1.6×(silu 峰值 1.6×/softmax 1.3×)/ window ~4.7–9.8×(窄窗最高,window16 实测 10.4×)。
 - **真 reject**:hdim>256。**out-of-scope(需拍板)**:target_in_kv、独立 dO layout、非方形 tile。
 - **尚未对上游 ROCm 提 PR。**
 
@@ -39,7 +39,7 @@
 | `memory/` | 当时 cc 的持久 memory(MEMORY.md + 项目 memory)+ `INSTALL.md`(放回 ~/.claude) |
 | `design-notes/` | 设计 + 每里程碑 done/review/draft/findings(`/tmp/hstu-bwd-design` 的 .md;含讲义系列硬规格 `doc-series-spec.md` 与派单卡) |
 | `impl/` | 回归套件 `test/`(+离线校验器 validate_tile_range_y、co_symbols)+ `candidates.jsonl` 候选账本 + `benchmark.csv` + `docs/`(**不含 GB 级 build log**) |
-| `reports/` | 37 篇图文 HTML 讲义(浏览器直接开) |
+| `reports/` | 37 篇图文 HTML(浏览器直接开):**14 篇 `-20260625` 统一里程碑系列**(M0–M8+cross,克隆 M0 体例,首选看这套)+ 23 篇旧版/总览/基础篇(早期日期,保留参考) |
 
 ## 快速接手(TL;DR)
 
@@ -55,5 +55,5 @@ git clone --branch hstu_attention_fwd_bwd_v2 \
 ## 进度快照(2026-06-26)
 
 - **代码**:M0–M8 + cross 全 promoted、已提交、工作树干净。
-- **讲义系列**(克隆 M0 体例的统一 HTML,在 `reports/`):14 篇里程碑,**11 篇已成稿**;M4(含 M4b)、M6b、M8 三篇收尾中(派给团队 pane 写,卡片在 `design-notes/doc-*-dispatch.md`)。
+- **讲义系列**(克隆 M0 体例的统一 HTML,在 `reports/` 的 `-20260625` 篇):**14 篇里程碑全部成稿**(M0–M8 + cross,M4b 折在 M4 内),均已 lead review 抽查行号通过。派单卡/硬规格留在 `design-notes/doc-*-dispatch.md` / `doc-series-spec.md`(供新机器复用体例)。
 - **下一步候选**(见 HANDOFF §6):M8 perf 残项(B1 group TU 拆分/B6 trload/近似 sigmoid,均低 ROI)、out-of-scope 扩展(target_in_kv 等,需拍板)、对上游提 PR。

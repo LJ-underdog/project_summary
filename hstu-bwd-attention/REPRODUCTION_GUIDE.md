@@ -1,6 +1,6 @@
 # 复现指南 — 新机器上接手 HSTU bwd
 
-> 目标:在另一台 gfx950 机器的 Claude Code 上,快速恢复到当前工作进度(M0–M8 + cross 全 promoted,讲义系列收尾中)。
+> 目标:在另一台 gfx950 机器的 Claude Code 上,快速恢复到当前工作进度(M0–M8 + cross 全 promoted,14 篇里程碑讲义全部成稿)。
 
 ## 0. 前置:硬件 / 环境
 
@@ -43,6 +43,8 @@ cmake --build build --target tile_example_hstu_attention     -j$(nproc)   # fwd(
 
 测试套件在本库 `impl/test/`(**不在 fork 的 git 里**,务必从这里取)。它会调用上面 build 出的可执行文件对拍 CPU reference。
 
+> **路径约定**:下文及 §5 出现的裸 `test/...` 都指**第 4 节 `cp` 之后的 workspace 内相对路径**(`/root/workspace/hstu-bwd-impl/test/`)。在本 bundle 里这些文件位于 `impl/test/`。
+
 ```bash
 # 把 impl/test 放到一个 workspace(脚本里路径假设 /root/workspace/hstu-bwd-impl/)
 mkdir -p /root/workspace/hstu-bwd-impl && cp -r impl/* /root/workspace/hstu-bwd-impl/
@@ -50,8 +52,8 @@ cd /root/workspace/hstu-bwd-impl
 python3 test/run_bwd_tests.py    # 期望 253/253 exit 0
 ```
 
-- 脚本里若硬编码了 build 路径 / 可执行文件位置,按你的实际路径改(grep `build` / `tile_example`)。
-- 离线 mask 校验器:`test/validate_tile_range_y.cpp`(GetTileRangeAlongY superset,~1.97M checks GREEN);收紧类优化的 silent-wrong 硬 gate。
+- 脚本默认路径(`run_bwd_tests.py` 顶部):`DEFAULT_BIN=/root/workspace/ck_hstu/build/bin/tile_example_hstu_attention_bwd`、`DEFAULT_BUILD_DIR=/root/workspace/ck_hstu`、`LOG_DIR=/root/workspace/hstu-bwd-impl/runs`。**照第 2/3 节的布局 clone+build 即与默认值吻合,无需改文件**。布局不同就用 CLI 覆盖:`python3 test/run_bwd_tests.py --bin <path> --build-dir <dir> --log-dir <dir>`(比改脚本干净)。
+- 离线 mask 校验器:`test/validate_tile_range_y.cpp`(GetTileRangeAlongY superset,~1.97M checks GREEN);收紧类优化的 silent-wrong 硬 gate。**需单独编译**(独立 host 程序,不依赖 GPU):`g++ -std=c++17 -O2 test/validate_tile_range_y.cpp -o /tmp/vtry && /tmp/vtry`(对达成 253/253 非必需,仅在改 GetTileRangeAlongY 类收紧时跑)。
 - co_symbols 零回归校验:`test/co_symbols.py`(gfx950 设备符号 byte-identity)。
 
 ## 5. 验证铁律(改代码前必读)
@@ -76,5 +78,5 @@ bash /root/.claude/skills/agent-team/readiness.sh               # 等 pane 就�
 ## 7. 当前进度快照(写于 2026-06-26)
 
 - **代码**:M0–M8 + cross-attention 全部 promoted、已提交、工作树干净(a86529dc)。
-- **讲义系列**(克隆 M0 体例的统一图文 HTML,在 `reports/`):M0–M8 共 14 篇里程碑,**11 篇已成稿**;**M4(含 M4b)、M6b、M8 三篇收尾中**(2026-06-26 派给团队 pane 写)。派单卡在 `design-notes/doc-*-dispatch.md`,硬规格 `design-notes/doc-series-spec.md`。
+- **讲义系列**(克隆 M0 体例的统一图文 HTML,在 `reports/` 的 `-20260625` 篇):M0–M8 共 **14 篇里程碑全部成稿**(2026-06-26 完成,均经 lead review 抽查行号)。派单卡在 `design-notes/doc-*-dispatch.md`,硬规格 `design-notes/doc-series-spec.md`(供新机器复用体例)。
 - 活状态以 `HANDOFF.md` 为准。
