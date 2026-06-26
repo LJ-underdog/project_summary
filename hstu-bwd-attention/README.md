@@ -1,5 +1,7 @@
 # HSTU Attention Backward — GPU kernel 实现(gfx950 / CDNA4)
 
+> 🧭 **接手的 Claude Code 先读 [`guide.md`](./guide.md)** —— 它讲清按什么顺序读这些文档、想干某件事翻哪里、有哪些坑。
+
 ## 背景
 
 - **任务**:为 HSTU(Hierarchical Sequential Transduction Units)attention 的 **backward** 实现 GPU kernel。起始状态:仓库只有 855 行 CPU 参考(`reference_hstu_attention_bwd.hpp`),**无任何 GPU bwd**。
