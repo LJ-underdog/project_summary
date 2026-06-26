@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M6（deterministic dQ）代码改动 review</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M6 代码改动 review</div>
+  <h1>HSTU Attention Backward — M6（deterministic dQ）：把 dQ 从「偶然一致」做成「构造可复现」</h1>
+  <p class="subtitle">M6 给 no_group（batched + jagged）× SiLU + softmax 的 dQ 加一条 <strong>bit-reproducible</strong> 路：每个 KV-block 用 <code>set</code>（非 atomic）把自己的 dQ 贡献 plain-store 到<strong>专属 split 副本</strong>，再由一个新 POST kernel 按固定升序归约 + 转换。所有引用以 <code>git show 48673726:&lt;file&gt;</code> 行号为准。</p>
+  <div class="audience">读者：要 review 这条确定性 dQ 路径的工程师（含浮点结合律 / atomic 归约序背景一句白话）</div>
+</header>
+
+<div class="layout">
+<main>
+
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M6</div>
+  <p class="lede">默认（atomic）dQ 把所有 KV-block 的贡献 <code>atomic_add</code> 进<strong>同一份</strong> dq_acc → 归约顺序随调度抖动 → 浮点加法不满足结合律 → <strong>不可逐位复现</strong>。M6 deterministic：每个 KV-block 写<strong>自己的</strong> split 副本（无竞争），POST 按 <code>s=0..num_splits-1</code> 固定序求和 → <strong>构造上 bit-reproducible</strong>。代价是 dq_acc workspace 扩到 <code>num_splits</code> 倍。</p>
+  <div class="badges">
+    <span class="badge info">5 源文件改 · +285 / −122</span>
+    <span class="badge ok">对拍 10/10 PASS · 同 case 两跑 dQ BYTE-IDENTICAL</span>
+    <span class="badge ok">套件 77/77 exit 0 · atomic 零回归</span>
+  </div>
+  <div class="statgrid">
+    <div class="stat"><div class="v">5</div><div class="l">改动源文件 + 4 新实例</div></div>
+    <div class="stat"><div class="v">8</div><div class="l">no_group 实例（4 atomic + 4 determ）</div></div>
+    <div class="stat"><div class="v">10/10</div><div class="l">对拍 PASS（含 seq512 多 split）</div></div>
+    <div class="stat"><div class="v">77/77</div><div class="l">套件 PASS exit 0</div></div>
+  </div>
+</div>
+
+<section id="s1">
+  <h2>1&nbsp;&nbsp;总览：M6 到底改了什么</h2>
+  <p class="lede">一句话四件事：</p>
+  <div class="callout-grid">
+    <div class="callout clay"><div class="k">机制</div><div class="t">每 split 独立写 + 固定序 reduce</div><div class="d">KV-block 用 <code>set</code> 写第 <code>i_tile_n</code> 份副本（<code>bwd_kernel.hpp:360-385</code>），POST 升序归约（<code>:1666-1687</code>）。</div></div>
+    <div class="callout"><div class="k">编译期分叉</div><div class="t">dq_acc 窗口 constexpr mop</div><div class="d">determ <code>mop=set</code>+split 偏移，atomic <code>atomic_add</code> 无偏移——同一 kernel 两条路靠 <code>kIsDeterministic</code> 编译期切。</div></div>
+    <div class="callout"><div class="k">选型</div><div class="t">真模板轴 + 共享 helper</div><div class="d"><code>kIsDeterministic</code> 成真轴穿进 Problem；dispatch 抽 <code>launch_main_and_post</code>（<code>dispatch:70-130</code>）统一两路收尾。</div></div>
+    <div class="callout"><div class="k">实例 / 构建</div><div class="t">determ 轴 → 8 实例</div><div class="d">generator determ 轴 <code>[False]→[False,True]</code>（<code>generate_instances.py:183/234</code>）；entry <code>BOOL_SWITCH_2→_3</code>。</div></div>
+  </div>
+  <div class="note-block clay"><strong>M6 核心张力：</strong>&nbsp;浮点加法<strong>不满足结合律</strong>，<code>(a+b)+c ≠ a+(b+c)</code>。atomic_add 把多个 KV-block 的部分 dQ 累进同一地址，硬件调度决定到达顺序 → 同一输入两次跑可能得到<strong>逐位不同</strong>的 dQ（数值都对，只是末位 bit 抖）。M6 用「<em>每 split 独立写 + 单线程固定序 reduce</em>」把归约序钉死，换来逐位可复现——代价是 workspace 从 1 份变 <code>num_splits</code> 份。</div>
+</section>
+
+<section id="s2">
+  <h2>2&nbsp;&nbsp;最佳阅读顺序</h2>
+  <p class="lede">按数据流向读：<strong>MAIN 怎么写 dq_acc（kernel）→ POST 怎么归约（kernel）→ dispatch 怎么算 num_splits 串起两段 → 入口怎么把 determ 降为模板轴 → 实例/harness 怎么补齐</strong>。下图是依赖流，表格是逐步导引。</p>
+
+  <div class="svg-wrap">
+  <svg viewBox="0 0 940 300" width="100%" role="img" aria-label="M6 阅读顺序依赖流 + 确定性机制">
+    <defs>
+      <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#87867F"/></marker>
+    </defs>
+    <g font-size="12">
+      <!-- row 1: kernel main -> post -> dispatch -> entry -->
+      <rect x="14"  y="20" width="166" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="97" y="42" text-anchor="middle" fill="#141413" font-weight="700">① bwd_kernel MAIN</text>
+      <text x="97" y="60" text-anchor="middle" fill="#87867F">set+split 写 dq_acc</text>
+
+      <rect x="224" y="20" width="166" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="307" y="42" text-anchor="middle" fill="#141413" font-weight="700">② reduce_convert POST</text>
+      <text x="307" y="60" text-anchor="middle" fill="#87867F">固定升序归约</text>
+
+      <rect x="434" y="20" width="180" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="524" y="42" text-anchor="middle" fill="#141413" font-weight="700">③ dispatch helper</text>
+      <text x="524" y="60" text-anchor="middle" fill="#87867F">num_splits/memset/串接</text>
+
+      <rect x="658" y="20" width="166" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="741" y="42" text-anchor="middle" fill="#141413" font-weight="700">④ entry .cpp</text>
+      <text x="741" y="60" text-anchor="middle" fill="#87867F">BOOL_SWITCH_3</text>
+
+      <line x1="180" y1="47" x2="222" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="390" y1="47" x2="432" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="614" y1="47" x2="656" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="741" y1="74" x2="741" y2="108" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 2: instances + harness -->
+      <rect x="658" y="110" width="166" height="48" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="741" y="130" text-anchor="middle" fill="#141413" font-weight="700">⑤ generate + 实例</text>
+      <text x="741" y="148" text-anchor="middle" fill="#87867F">determ 轴 → 8 instance</text>
+
+      <rect x="434" y="110" width="180" height="48" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="524" y="130" text-anchor="middle" fill="#141413" font-weight="700">⑥ harness</text>
+      <text x="524" y="148" text-anchor="middle" fill="#87867F">workspace=单份×num_splits</text>
+      <line x1="658" y1="134" x2="616" y2="134" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- determ vs atomic mechanism schematic -->
+      <text x="20" y="200" fill="#3D3D3A" font-weight="700">确定性机制：</text>
+      <!-- atomic -->
+      <text x="20" y="224" fill="#8A3B1E" font-weight="700">atomic</text>
+      <rect x="86"  y="212" width="40" height="22" rx="4" fill="#F3D9CC" stroke="#D97757"/>
+      <text x="106" y="227" text-anchor="middle" fill="#8A3B1E" font-size="11">slot</text>
+      <line x1="148" y1="198" x2="130" y2="210" stroke="#8A3B1E" marker-end="url(#ar)"/>
+      <line x1="178" y1="198" x2="134" y2="210" stroke="#8A3B1E" marker-end="url(#ar)"/>
+      <line x1="208" y1="198" x2="138" y2="210" stroke="#8A3B1E" marker-end="url(#ar)"/>
+      <text x="150" y="193" fill="#87867F" font-size="10">block0</text>
+      <text x="185" y="193" fill="#87867F" font-size="10">block1</text>
+      <text x="220" y="193" fill="#87867F" font-size="10">…顺序不定</text>
+      <text x="280" y="227" fill="#8A3B1E" font-size="11">→ bit 抖动 ✗</text>
+
+      <!-- determ -->
+      <text x="20" y="270" fill="#4B5C39" font-weight="700">determ</text>
+      <rect x="86"  y="258" width="40" height="22" rx="4" fill="#E4E9DC" stroke="#788C5D"/>
+      <text x="106" y="273" text-anchor="middle" fill="#4B5C39" font-size="11">s0</text>
+      <rect x="134" y="258" width="40" height="22" rx="4" fill="#E4E9DC" stroke="#788C5D"/>
+      <text x="154" y="273" text-anchor="middle" fill="#4B5C39" font-size="11">s1</text>
+      <rect x="182" y="258" width="40" height="22" rx="4" fill="#E4E9DC" stroke="#788C5D"/>
+      <text x="202" y="273" text-anchor="middle" fill="#4B5C39" font-size="11">s2</text>
+      <text x="240" y="251" fill="#87867F" font-size="10">各 block 写专属副本(set)</text>
+      <line x1="106" y1="258" x2="320" y2="244" stroke="#788C5D"/>
+      <line x1="154" y1="258" x2="320" y2="246" stroke="#788C5D"/>
+      <line x1="202" y1="258" x2="320" y2="248" stroke="#788C5D"/>
+      <rect x="322" y="258" width="150" height="22" rx="4" fill="#FFFFFF" stroke="#788C5D"/>
+      <text x="397" y="273" text-anchor="middle" fill="#4B5C39" font-size="11">POST Σ s=0→N 固定序</text>
+      <text x="486" y="273" fill="#4B5C39" font-size="11">→ 逐位可复现 ✓</text>
+    </g>
+  </svg>
+  </div>
+  <p class="svg-caption">上排：阅读顺序（橙=确定性三件套核心，绿=构建/验证）。下排：atomic 多 block 竞写同一 slot（序不定）vs determ 各写专属副本 + POST 固定序归约。</p>
+
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>#</th><th>文件</th><th>读它回答的问题</th><th>重点行</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>hstu_attention_bwd_kernel.hpp</code></td><td>MAIN 怎么把 dq_acc 写法<strong>编译期分叉</strong>成 set+split / atomic</td><td><code>:360-385</code> / <code>:790-818</code></td></tr>
+      <tr><td>2</td><td><code>hstu_attention_bwd_kernel.hpp</code></td><td>新 POST 怎么<strong>固定序归约</strong>各 split → bit-reproducible</td><td><code>:1666-1687</code></td></tr>
+      <tr><td>3</td><td><code>hstu_attention_batched_backward_dispatch.hpp</code></td><td><code>num_splits</code> 怎么算、两路收尾怎么<strong>共享 helper</strong></td><td><code>:70-130</code> / <code>:380-415</code></td></tr>
+      <tr><td>4</td><td><code>hstu_attention_no_group_backward_bf16.cpp</code></td><td>入口怎么把 determ 升成<strong>第三条 BOOL_SWITCH 轴</strong></td><td><code>:24-32</code></td></tr>
+      <tr><td>5</td><td><code>generate_instances.py</code> + <code>instances/*determ*</code></td><td>determ 实例怎么<strong>随轴生成</strong>（extern template）</td><td><code>:183</code> / <code>:234</code></td></tr>
+      <tr><td>6</td><td><code>example_hstu_attention_bwd.cpp</code></td><td>harness 怎么把 workspace 扩到 <code>单份×num_splits</code></td><td><code>:297-307</code> / <code>:478-481</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="s3">
+  <h2>3&nbsp;&nbsp;逐文件 review（为什么这样改）</h2>
+
+  <h3>① bwd_kernel.hpp — MAIN：dq_acc 窗口编译期分叉 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:115</code> SiLU kernel 的 <code>Kargs</code> 加 <code>split_stride_dq_acc</code>（per-split 单份元素数）；<code>:160</code> <code>MakeKargs</code> 加同名形参，<code>:205</code> 落盘。softmax kernel 同款：<code>:546 / :594 / :642</code>。</li>
+    <li><code>:360-385</code> <strong>dq_acc 窗口改成 lambda 即调</strong>，把 <code>i_tile_n</code>/<code>i_nhead</code> 按值捕进去：<code>:364</code> <code>constexpr auto mop = kIsDeterministic ? set : atomic_add</code>；<code>:370-372</code> determ 时基址 <code>+= i_tile_n_ * split_stride_dq_acc</code>（即「写第 <code>split_idx=i_tile_n</code> 份副本」）。atomic 不加偏移（共用单份）。</li>
+    <li><code>:790-818</code> softmax kernel <strong>同一处理</strong>（注释明写「see SiLU kernel」），两个 kernel 各一处，逻辑对称。</li>
+    <li>pipeline <strong>未改</strong>：<code>set</code> vs <code>atomic_add</code> 的实际写动作由 pipeline 既有的 <code>if constexpr(kIsDeterministic) store_tile else update_tile</code> 落地（no_softmax <code>:523-531</code>、with_softmax <code>:561</code>），M1 起就在位——M6 只是把上游 <code>mop</code> 与 split 偏移接上。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp:360-374 — dq_acc 窗口：constexpr mop + split 偏移</span><span class="cm">// dQ_acc window. Deterministic (M6): plain store (set) into THIS KV-block's own</span>
+<span class="cm">// split slot (base += i_tile_n * split_stride_dq_acc) -&gt; no atomic, bit-reproducible;</span>
+<span class="cm">// POST reduces over splits. Atomic (default, nsplits=1): atomic_add into one slot.</span>
+<span class="kw">auto</span> dq_dram_window = [&amp;, i_tile_n_ = i_tile_n, i_nhead_ = i_nhead]() {
+    <span class="kw">constexpr auto</span> mop = kIsDeterministic ? <span class="hl">memory_operation_enum::set</span>
+                                          : memory_operation_enum::atomic_add;
+    AccDataType* dq_acc_ptr =
+        <span class="kw">reinterpret_cast</span>&lt;AccDataType*&gt;(kargs.dq_acc_ptr) +
+        <span class="kw">static_cast</span>&lt;long_index_t&gt;(i_nhead_) * kargs.nhead_stride_dq_acc +
+        batch_offset_dq_acc;
+    <span class="kw">if constexpr</span>(kIsDeterministic)
+        dq_acc_ptr +=
+            <span class="kw">static_cast</span>&lt;long_index_t&gt;(i_tile_n_) * <span class="hl">kargs.split_stride_dq_acc</span>;   <span class="cm">// 第 i_tile_n 份副本</span></div>
+
+  <h3>② bwd_kernel.hpp — 新 POST：固定序归约 + 转换 <span class="tag tag-new">新增</span></h3>
+  <ul>
+    <li><code>:1672-1687</code> 新 <code>hstu_bwd_reduce_convert_dq_kernel</code>：每线程负责单份里的一个元素 <code>i</code>，<code>:1684</code> <code>for(s=0..num_splits-1) acc += dq_acc[s*split_stride + i]</code>，<code>:1686</code> 转回 <code>QGradDataType</code> 写 <code>dq[i]</code>。</li>
+    <li><strong>为什么可复现</strong>：求和序固定为 <code>s</code> 升序，与 block 调度无关 → 同输入同输出，逐位一致（<code>:1667-1670</code> 注释明写「summation order is fixed … bit-reproducible」）。</li>
+    <li>atomic 的旧 <code>hstu_bwd_convert_dq_kernel</code>（单份纯 convert，<code>num_splits=1</code>）<strong>保留不动</strong>，两路 POST 并存。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp:1672-1687 — 固定升序 split 归约（构造上 bit-reproducible）</span><span class="kw">template</span> &lt;<span class="kw">typename</span> QGradDataType, <span class="kw">typename</span> AccDataType&gt;
+__global__ <span class="kw">void</span> <span class="fn">hstu_bwd_reduce_convert_dq_kernel</span>(<span class="kw">const</span> AccDataType* __restrict__ dq_acc,
+                                              QGradDataType* __restrict__ dq,
+                                              long_index_t n,        <span class="cm">// 单份元素数</span>
+                                              <span class="kw">int</span> num_splits,
+                                              long_index_t split_stride)
+{
+    <span class="kw">const</span> long_index_t i = <span class="kw">static_cast</span>&lt;long_index_t&gt;(blockIdx.x) * blockDim.x + threadIdx.x;
+    <span class="kw">if</span>(i &gt;= n) <span class="kw">return</span>;
+    <span class="kw">float</span> acc = 0.f;
+    <span class="kw">for</span>(<span class="kw">int</span> s = 0; s &lt; num_splits; ++s)                         <span class="cm">// 固定 s 升序,与调度无关</span>
+        acc += type_convert&lt;<span class="kw">float</span>&gt;(dq_acc[<span class="hl">static_cast&lt;long_index_t&gt;(s) * split_stride + i</span>]);
+    dq[i] = type_convert&lt;QGradDataType&gt;(acc);
+}</div>
+
+  <h3>③ batched_backward_dispatch.hpp — 真模板轴 + 共享 helper <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:39</code> 类模板新增 <code>bool kIsDeterministic</code> 轴；<code>:170 / :278</code> 把它穿进 SiLU / softmax 两个 Problem（原来硬编 <code>false</code>）。</li>
+    <li><code>:70-130</code> <strong>新抽 <code>launch_main_and_post&lt;Pipeline,Kernel&gt;</code></strong> 把两路收尾统一：<code>:84-87</code> determ 时 <code>num_splits = ceil(grid_seqlen_kv / Pipeline::kN0)</code>，atomic 时 <code>=1</code>；<code>:89-93</code> memset <code>单份×num_splits</code>；launch MAIN；<code>:106-126</code> POST 走 reduce（determ）/ convert（atomic）变体。</li>
+    <li><code>:241 / :377</code> SiLU/softmax 路收尾都改调这个 helper，<strong>消重</strong>（原本两段几乎一样的 memset+launch+convert 代码）。</li>
+    <li><code>:380-415</code> <code>Run</code> <strong>去掉 determ throw</strong>：原 M0-M5 在此对 <code>kIsDeterministic</code> 占位报错，M6 起 determ 是穿进 pipeline 的模板轴，<code>Run</code> 里<strong>不再单列分支</strong>，SiLU/softmax 两路都同时支持 atomic &amp; determ。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_batched_backward_dispatch.hpp:81-93 — num_splits 推导 + workspace memset</span><span class="cm">// grid.x covers the largest seqlen_kv; split_idx = i_tile_n -&gt; num_splits = grid.x</span>
+<span class="kw">const</span> ck_tile::index_t grid_seqlen_kv =
+    param.is_jagged ? param.max_seqlen_q : param.seqlen_kv;
+<span class="kw">const int</span> num_splits =
+    kIsDeterministic
+        ? <span class="kw">static_cast</span>&lt;<span class="kw">int</span>&gt;(ck_tile::integer_divide_ceil(grid_seqlen_kv, <span class="hl">Pipeline::kN0</span>))
+        : 1;
+HIP_CHECK_ERROR(<span class="fn">hipMemsetAsync</span>(param.dq_acc_ptr, 0,
+                               <span class="hl">single * static_cast&lt;size_t&gt;(num_splits)</span> *
+                                   <span class="kw">sizeof</span>(<span class="kw">typename</span> TC::GemmAccDataType), stream));</div>
+  <div class="note-block olive"><strong>num_splits = grid.x：</strong>&nbsp;grid block 沿 KV 维铺，<code>split_idx = i_tile_n = i_n0 / kN0</code>。每个 KV-block 对应一个 split 副本,所以 <code>num_splits = ceil(grid_seqlen_kv / kN0)</code> = grid 在 KV 维的 block 数。这也是 workspace 放大 <code>num_splits</code> 倍的来源。</div>
+
+  <h3>④ no_group_backward_bf16.cpp — 入口加第三条轴 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:24-25</code> <code>BOOL_SWITCH_2 → BOOL_SWITCH_3</code>，把 <code>param.kIsDeterministic</code> 也降为模板常量 <code>kIsDeterministic</code>。</li>
+    <li><code>:26-31</code> 调 <code>run_batched_backward_dispatch&lt;bf16, kUseCausal, kUseSoftmax, false /*bias*/, kIsDeterministic, 64&gt;</code>：causal × softmax × determ 三轴 fan-out（bias 仍硬编 false、MaxK=64）。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_no_group_backward_bf16.cpp:24-32 — BOOL_SWITCH_3 三轴降维</span><span class="cm">// M6: kIsDeterministic is now a runtime-selected template axis (causal × softmax × determ).</span>
+<span class="fn">BOOL_SWITCH_3</span>(use_causal, kUseCausal, param.use_softmax, kUseSoftmax,
+              <span class="hl">param.kIsDeterministic, kIsDeterministic</span>, [&amp;] {
+    <span class="fn">run_batched_backward_dispatch</span>&lt;ck_tile::bf16_t,
+                                  kUseCausal,
+                                  kUseSoftmax,
+                                  <span class="kw">false</span>, <span class="cm">// kHasBias</span>
+                                  <span class="hl">kIsDeterministic</span>,
+                                  64&gt;    <span class="cm">// MaxK</span>
+        (param, stream);
+});</div>
+
+  <h3>⑤ generate_instances.py + instances/* — determ 实例随轴生成 <span class="tag tag-mod">改动</span> <span class="tag tag-new">+4 实例</span></h3>
+  <ul>
+    <li><code>:183</code>（instance）+ <code>:234</code>（ref）把 backward determ 轴 <code>for is_deterministic in [False] → [False, True]</code>，重生成 → no_group bwd <strong>8 个 instance（4 atomic + 4 determ）</strong> + 对应 8 个 <code>extern template</code>（ref hpp，<code>:12-73</code>）。</li>
+    <li>4 个新 determ <code>.cpp</code>（如 <code>instances/hstu_attention_batched_backward_bf16_has_causal_softmax_false_no_bias_deterministic_maxk_64.cpp</code>）各<strong>显式实例化一个</strong> <code>run_batched_backward_dispatch&lt;bf16, …, true, 64&gt;</code>。</li>
+    <li><strong>为什么必须生成</strong>：no_group backward 用 <strong>extern template instance</strong> 模型（非头内直接实例化），entry 的 BOOL_SWITCH 一旦把 <code>kIsDeterministic=true</code> 选出来，链接期就需要那个符号——不补实例 = undefined symbol link error。</li>
+  </ul>
+  <div class="note-block clay"><strong>易踩坑（M6-done §7）：</strong>&nbsp;CMake <code>file(GLOB)</code> 缓存陈旧——重生成 4 个 determ instance 后若不动 <code>CMakeLists.txt</code>，glob 不重算 → 新 instance 没编进 → link error。需 <code>touch CMakeLists.txt</code> 触发 reconfigure 重 glob。后续每加 instance 都要留意。</div>
+
+  <h3>⑥ example_hstu_attention_bwd.cpp — harness workspace = 单份×num_splits <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:297-307</code> 读 <code>-deterministic</code>，按 <code>kN0_bwd=128</code> 算 <code>num_splits = ceil(grid_seqlen_kv / 128)</code>（与 dispatch 一致），<code>dq_acc_elems = 单份 × num_splits</code>（atomic 仍 1 份）。</li>
+    <li><code>:478-481</code> determ 时 <code>bp.split_stride_dq_acc = 单份元素数</code>、<code>bp.num_splits = num_splits</code>、<code>bp.kIsDeterministic = true</code>；atomic 保持 <code>split_stride=0 / num_splits=1</code>。</li>
+    <li><code>params.hpp</code> <strong>未改</strong>：<code>split_stride_dq_acc</code>（<code>:102</code>）/ <code>num_splits</code>（<code>:103</code>）/ <code>kIsDeterministic</code>（<code>:106</code>）字段 M0 就预留好了——这是 M0「params 字段一次定死」的红利,M6 只填值不重构。</li>
+  </ul>
+</section>
+
+<section id="s4">
+  <h2>4&nbsp;&nbsp;设计动机小结</h2>
+  <ol>
+    <li><strong>用结构换确定性</strong>：浮点加法非结合 → atomic 归约序不定 → 非确定。M6 让<strong>每 KV-block 写专属副本（无竞争）+ POST 单线程固定升序求和</strong>，把归约序从「硬件调度决定」变成「代码写死」，构造上保证逐位可复现（<code>bwd_kernel.hpp:1672-1687</code>）。</li>
+    <li><strong>编译期分叉，零运行时开销</strong>：dq_acc 写法靠 <code>constexpr mop</code> + <code>if constexpr</code>（<code>:364-372</code>）在编译期切 set/atomic，determ 与 atomic 各成独立实例,互不拖累。</li>
+    <li><strong>复用既有 store_tile 分支</strong>：pipeline 的 <code>if constexpr(kIsDeterministic) store_tile else update_tile</code> M1 起就在位,M6 只把上游 <code>mop</code> 与 split 偏移接上——pipeline 字节不改。</li>
+    <li><strong>抽 helper 消重</strong>：<code>launch_main_and_post</code> 把 SiLU/softmax 两路的 num_splits/memset/MAIN/POST 统一（<code>:70-130</code>),两路只剩一行调用。</li>
+    <li><strong>实例随生成器同步</strong>：determ 轴一改,4 个 instance + 8 个 extern ref 由 generator 一并产出（<code>:183/:234</code>),杜绝手写漂移与缺符号。</li>
+  </ol>
+</section>
+
+<section id="s5">
+  <h2>5&nbsp;&nbsp;验证 &amp; 遗留 / 边界</h2>
+
+  <h4>两维验收（来源：M6-done.md + candidates.jsonl「M6-deterministic」）</h4>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>维度</th><th>结果</th><th>覆盖 / 出处</th></tr></thead>
+    <tbody>
+      <tr><td>① 正确性（对拍 CPU reference）</td><td><span class="status-yes">10/10 PASS</span></td><td>determ × {SiLU,softmax} × {batched,jagged} × causal{0,1} × 因子，含非整除 seq200、多 KV-block seq512；误差 bf16 舍入级（dQ max_abs ≤ 8e-3）。<code>runs/run-M6-correctness.log</code></td></tr>
+      <tr><td>② 可复现性（M6 核心）</td><td><span class="status-yes">BYTE-IDENTICAL</span></td><td>同 case <code>-deterministic=1</code> 跑两次,<code>cmp</code> dq：SiLU(seq512,4 split)/softmax(seq512)/jagged-softmax 全逐位相等。<code>runs/run-M6-repro.log</code></td></tr>
+      <tr><td>atomic-vs-determ 交叉</td><td><span class="status-yes">max_abs_diff = 0</span></td><td>determ 与已验证 atomic 路<strong>逐位同梯度</strong>（同正确解,只是 determ 额外保证可复现）。</td></tr>
+      <tr><td>套件 + 零回归</td><td><span class="status-yes">77/77 exit 0</span></td><td>skip-deterministic 升级为真断言 + in-runner 两跑 filecmp；60 个 M1–M5b atomic 案全 PASS。<code>runs/test-20260609-093735.log</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block olive">本机 atomic 路两次<em>恰也</em>相等——该规模 HW 上 atomic 顺序未发散；但那是<strong>偶然</strong>,determ 是<strong>构造上保证</strong>。M6 验收点 = determ byte-identical,已满足。</div>
+
+  <h4>明确不做的（留给后续 M）</h4>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>能力</th><th>落地里程碑</th></tr></thead>
+    <tbody>
+      <tr><td>group 模式的 deterministic dQ（group 现 determ <strong>silently 走 atomic</strong>：group entry 硬编 <code>kIsDeterministic=false</code> → group dispatch 的 determ throw 不可达）</td><td>M6b</td></tr>
+      <tr><td>fp16 dtype 加宽</td><td>M7a</td></tr>
+      <tr><td>非 hd64 / 非对称 hdim</td><td>M7b / M7c</td></tr>
+      <tr><td>perf（trload / GetTileRange 收紧等)</td><td>M8</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="gate-banner"><strong>M6b 预告：</strong>&nbsp;group + determ 当前<strong>静默退化为 atomic</strong>（梯度正确但不可复现）。M6b 须给 group kernel dq_acc 加同款 set+split 分叉 + group POST reduce + group workspace sizing,并把 group entry 的 <code>BOOL_SWITCH_2 → _3</code> 让 determ 轴可达。</div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 总览</a>
+  <a href="#s2">2 最佳阅读顺序</a>
+  <a href="#s3">3 逐文件 review</a>
+  <a href="#s3" class="sub">①MAIN set+split ②POST 归约</a>
+  <a href="#s3" class="sub">③dispatch ④entry</a>
+  <a href="#s3" class="sub">⑤实例 ⑥harness</a>
+  <a href="#s4">4 设计动机小结</a>
+  <a href="#s5">5 验证 &amp; 遗留 / 边界</a>
+</nav>
+
+</div><!-- /layout -->
+</div><!-- /page -->
+</body>
+</html>

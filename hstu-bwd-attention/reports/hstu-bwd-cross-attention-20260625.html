@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — cross-attention（seqlen_q≠seqlen_kv）代码改动 review</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; cross-attention 代码改动 review</div>
+  <h1>HSTU Attention Backward — cross-attention（seqlen_q≠seqlen_kv）：mask 解钉，几何放开</h1>
+  <p class="subtitle">本里程碑让 bwd 正确处理 <strong>q 与 kv 各自独立、长度不等</strong>的注意力。机制极轻:bwd 在内存/grid/loop 上<strong>本就 cross-ready</strong>（kv offsets 早已接线），唯一的钉子是 mask 被硬编码成 self（<code>HstuBlockMasking&lt;false&gt;</code>）。修法 = 把它换成运行时 <code>BOOL_SWITCH(is_cross_attention)</code> 选的 <code>kIsCrossAttention</code> 轴。所有行号锚定 commit <code>f2f55622</code>。</p>
+  <div class="audience">读者：要 review 这套 bwd cross 支持的工程师（关注「为什么改动这么小却覆盖全矩阵」）</div>
+</header>
+
+<div class="layout">
+<main>
+
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 cross</div>
+  <p class="lede">cross-attention = <strong>把一个钉子拔掉</strong>。dispatch 5 处 mask typedef 的硬编码 <code>&lt;false&gt;</code> 包进 <code>BOOL_SWITCH(is_cross_attention)</code>，kernel 4 处 mask 构造用 <code>if constexpr(kIsCrossAttention)</code> 分叉到 <code>make_hstu_cross_attention_block_mask_*</code>（把 <code>seqlen_kv</code> 喂进 <code>seqlen_k</code> 槽），再给 params 加 1 个<strong>纯 host 字段</strong> <code>max_seqlen_kv</code>（device <code>MakeKargs</code> 不读 → 设备码不变）。</p>
+  <p>两大利好:① cross 是<strong>运行时 switch、不是 instance 轴</strong> → 零 instance 增长;② CPU reference 本就 cross-ready → 对拍 oracle <strong>一行未改</strong>。self 腿 <code>max_seqlen_kv==max_seqlen_q</code> → byte-identical 零回归。</p>
+  <div class="badges">
+    <span class="badge ok">self 零回归 · co_symbols 870/870 byte-identical</span>
+    <span class="badge ok">cross sweep 32/32 PASS · 套件 253/253 exit 0</span>
+    <span class="badge info">5 源文件 · 零 instance 增长</span>
+    <span class="badge gate">out-of-scope: target_in_kv / 独立 dO layout</span>
+  </div>
+  <div class="statgrid">
+    <div class="stat"><div class="v">5</div><div class="l">改动源文件</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">新增 instance</div></div>
+    <div class="stat"><div class="v">32/32</div><div class="l">cross 对拍 PASS</div></div>
+    <div class="stat"><div class="v">253/253</div><div class="l">套件 exit 0</div></div>
+  </div>
+</div>
+
+<section id="s1">
+  <h2>1&nbsp;&nbsp;总览：cross-attention 到底改了什么</h2>
+  <p class="lede">本质只有一处语义改动（mask 的 self/cross 选择），其余都是把它喂进既有机器:</p>
+  <div class="callout-grid">
+    <div class="callout clay"><div class="k">核心</div><div class="t">mask 解钉为运行时轴</div><div class="d">dispatch 把 <code>HstuBlockMasking&lt;false&gt;</code> 包进 <code>BOOL_SWITCH(is_cross_attention)</code>;5 处 mask-typedef（batched 1 + group 2×2）统一处理。</div></div>
+    <div class="callout"><div class="k">kernel</div><div class="t">4 处 cross builder 分叉</div><div class="d"><code>if constexpr(FmhaMask::kIsCrossAttention)</code> 切到 <code>make_hstu_cross_attention_block_mask_*</code>，把 <code>seqlen_kv</code> 喂进 <code>seqlen_k</code> 槽;self 腿逐字保留。</div></div>
+    <div class="callout"><div class="k">契约</div><div class="t">+1 纯 host 字段</div><div class="d">params 加 <code>max_seqlen_kv</code>（<code>bwd_params.hpp:33-34</code>/<code>:128-130</code>）;device <code>MakeKargs</code> 不读 → 设备码不变;bwd 是 KV-block 并行,故 grid/num_splits 按它。</div></div>
+    <div class="callout"><div class="k">验证</div><div class="t">harness 解钉独立 kv</div><div class="d">harness 加 <code>-seqlens_kv</code> + 独立 kv offsets + <code>max_seqlen_kv</code>;reference 本就 cross-ready,只多喂 kv 维度。</div></div>
+  </div>
+  <div class="note-block olive"><strong>为什么改动这么小?</strong>&nbsp;jagged（M3）早就把<strong>独立的 q/kv offsets</strong> 接进了内存视图与循环边界——bwd 处理「两条独立序列」的骨架其实<strong>从 M3 起就在</strong>。cross 与 self 的唯一真区别是 <em>mask 几何</em>:self 假设 q、kv 同一条序列（对角线对齐 row=col），cross 必须用独立 <code>seqlen_kv</code> 计算 row↔col 偏移。所以本里程碑只需放开那个被钉死的 mask 模板形参，其余全是复用。</div>
+</section>
+
+<section id="s2">
+  <h2>2&nbsp;&nbsp;最佳阅读顺序</h2>
+  <p class="lede">按「<strong>契约字段 → dispatch 选轴 → kernel 喂几何 → harness 解钉 → 验证</strong>」读。下图是依赖流（橙=核心 mask 链路，绿=验证），表格是逐步导引。</p>
+
+  <div class="svg-wrap">
+  <svg viewBox="0 0 940 260" width="100%" role="img" aria-label="cross-attention 阅读顺序依赖流">
+    <defs>
+      <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#87867F"/></marker>
+    </defs>
+    <g font-size="12">
+      <!-- row 1 -->
+      <rect x="14"  y="20" width="170" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="99" y="42" text-anchor="middle" fill="#141413" font-weight="700">① params.hpp</text>
+      <text x="99" y="60" text-anchor="middle" fill="#87867F">+max_seqlen_kv (host)</text>
+
+      <rect x="232" y="20" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="332" y="42" text-anchor="middle" fill="#141413" font-weight="700">② dispatch ×2</text>
+      <text x="332" y="60" text-anchor="middle" fill="#87867F">BOOL_SWITCH 选 cross 轴</text>
+
+      <rect x="480" y="20" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="580" y="42" text-anchor="middle" fill="#141413" font-weight="700">③ bwd_kernel.hpp</text>
+      <text x="580" y="60" text-anchor="middle" fill="#87867F">4× cross builder 分叉</text>
+
+      <rect x="728" y="20" width="190" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="823" y="42" text-anchor="middle" fill="#141413" font-weight="700">④ block_masking.hpp</text>
+      <text x="823" y="60" text-anchor="middle" fill="#87867F">cross mask 模板(复用)</text>
+
+      <line x1="184" y1="47" x2="230" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="432" y1="47" x2="478" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="680" y1="47" x2="726" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- down -->
+      <line x1="332" y1="74" x2="332" y2="120" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 2: grid sizing -->
+      <rect x="232" y="122" width="280" height="48" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="372" y="143" text-anchor="middle" fill="#141413" font-weight="700">⑤ grid / num_splits ← max_seqlen_kv</text>
+      <text x="372" y="160" text-anchor="middle" fill="#87867F">bwd KV-block 并行;self 路 == max_seqlen_q</text>
+
+      <line x1="372" y1="170" x2="372" y2="210" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 3: harness -> verify -->
+      <rect x="118" y="212" width="250" height="40" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="243" y="236" text-anchor="middle" fill="#141413" font-weight="700">⑥ harness: -seqlens_kv + 独立 kv offsets</text>
+
+      <rect x="392" y="212" width="280" height="40" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="532" y="236" text-anchor="middle" fill="#141413" font-weight="700">⑦ reference(cross-ready,未改) → 32/32 对拍</text>
+
+      <line x1="368" y1="232" x2="390" y2="232" stroke="#87867F" marker-end="url(#ar)"/>
+    </g>
+  </svg>
+  </div>
+  <p class="svg-caption">读法:先看契约字段(①)与两条 mask 链路(②③橙=核心,④是复用的现成 cross mask),再看 grid 怎么按 kv 维度放大(⑤),最后看 harness 解钉(⑥)接上未改的 reference 做全矩阵对拍(⑦绿)。</p>
+
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>#</th><th>文件</th><th>读它回答的问题</th><th>重点行</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>hstu_attention_bwd_params.hpp</code></td><td>cross 新增什么<strong>契约字段</strong>、为何是纯 host</td><td><code>:33-34</code> / <code>:128-130</code></td></tr>
+      <tr><td>2</td><td><code>hstu_attention_batched_backward_dispatch.hpp</code></td><td>mask 怎么从硬编码 self <strong>解钉成运行时轴</strong>、grid 怎么按 kv 放大</td><td><code>:393-400</code> / <code>:65-69</code></td></tr>
+      <tr><td>3</td><td><code>hstu_attention_group_backward_dispatch.hpp</code></td><td>group 双 pipeline（local/no-local）如何<strong>共包一个 cross switch</strong></td><td><code>:147-151</code> / <code>:217-221</code> / <code>:101</code></td></tr>
+      <tr><td>4</td><td><code>hstu_attention_bwd_kernel.hpp</code></td><td>4 个 mask builder 如何 <code>if constexpr</code> <strong>喂 seqlen_kv 进 seqlen_k 槽</strong></td><td><code>:407</code> / <code>:854</code> / <code>:1267</code> / <code>:1652</code></td></tr>
+      <tr><td>5</td><td><code>hstu_block_masking.hpp</code></td><td><code>kIsCrossAttention</code> 模板轴 + cross mask 构造器（<strong>复用，未改</strong>）</td><td><code>:1006-1007</code> / <code>:1029</code></td></tr>
+      <tr><td>6</td><td><code>example_hstu_attention_bwd.cpp</code></td><td>harness 怎么<strong>解钉</strong>:独立 kv offsets + cross reference 调用</td><td><code>:206-217</code> / <code>:540</code> / <code>:654-668</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="s3">
+  <h2>3&nbsp;&nbsp;逐文件 review（为什么这样改）</h2>
+
+  <h3>① params.hpp — +max_seqlen_kv（纯 host 字段）<span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:33-34</code>（no_group）/ <code>:128-130</code>（group）各加 <strong>1 个字段 <code>max_seqlen_kv</code></strong>。注释点死设计意图:<em>「bwd is KV-block-parallel … self path: caller sets max_seqlen_kv == max_seqlen_q → grid/num_splits unchanged → byte-identical」</em>。</li>
+    <li><strong>为什么是 host-only</strong>:device 的 <code>MakeKargs</code> 不读这个字段,它只在 host 端用来算 grid/num_splits。<em>device kargs 不变 ⇒ 设备符号一字未动</em>——这正是 self 腿 byte-identical 的根。</li>
+    <li>没有改 q/k/v 任何指针或 stride:jagged 的独立 kv offsets（<code>seq_kv_offsets_ptr</code>）从 M3 起就在,cross 不需要新内存契约。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_params.hpp:31-34 — no_group params 的 cross 字段</span>    ck_tile::index_t max_seqlen_q;  <span class="cm">// jagged mode only</span>
+    <span class="cm">// cross-attention KV grid sizing (bwd is KV-block-parallel). self path: caller sets</span>
+    <span class="cm">// max_seqlen_kv == max_seqlen_q -&gt; grid/num_splits unchanged -&gt; byte-identical.</span>
+    ck_tile::index_t <span class="hl">max_seqlen_kv</span>; <span class="cm">// jagged mode only</span></div>
+
+  <h3>② batched_backward_dispatch.hpp — mask 解钉 + grid 按 kv 放大 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:393-400</code> <strong>解钉的核心一拳</strong>:原本 <code>using Mask = HstuBlockMasking&lt;false /*cross*/, …&gt;</code> 现在外包一层 <code>BOOL_SWITCH(param.is_cross_attention, kIsCrossAttention)</code>,模板首参由硬编码 <code>false</code> 变成 <code>kIsCrossAttention</code>。注释言明这镜像 fwd dispatch（cross 是<strong>运行时 switch、不是 instance 轴</strong>,两腿编进同一 .cpp）。</li>
+    <li><strong>包在哪一层很关键</strong>:该 switch 嵌在 <code>BOOL_SWITCH_2(pad)</code> + <code>BOOL_SWITCH(use_local)</code> <em>内层</em>,只包 mask typedef + 下游 Pipeline/Kernel——false 腿解析成与 M7c 完全相同的 <code>HstuBlockMasking&lt;false,…&gt;::Type</code> ⇒ byte-identical。</li>
+    <li><code>:65-69</code> <strong>grid 按 kv 维度放大</strong>:<code>grid_seqlen_kv = is_jagged ? max_seqlen_kv : seqlen_kv</code>（原来 jagged 路用的是 <code>max_seqlen_q</code>）。bwd 是 KV-block 并行,当 <code>seqlen_kv &gt; seqlen_q</code> 时若仍按 q 维度铺 grid,尾部 KV-block 会被静默漏掉 → 静默错误。self 路 <code>max_seqlen_kv==max_seqlen_q</code> ⇒ 数值不变。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_batched_backward_dispatch.hpp:388-400 — mask 从硬编码 self 解钉成运行时 cross 轴</span>        BOOL_SWITCH(use_local, kUseLocal, [&amp;] {
+            <span class="cm">// cross-attention is a RUNTIME switch (mirrors fwd dispatch :97), not an</span>
+            <span class="cm">// instance axis: both legs compile in the same .cpp. ...</span>
+            <span class="kw">BOOL_SWITCH</span>(param.<span class="hl">is_cross_attention</span>, <span class="hl">kIsCrossAttention</span>, [&amp;] {
+                <span class="kw">using</span> Mask = <span class="kw">typename</span> ck_tile::
+                    HstuBlockMasking&lt;<span class="hl">kIsCrossAttention</span>, kUseCausal, kUseLocal&gt;::Type;
+                <span class="kw">if constexpr</span>(kUseSoftmax)
+                    <span class="fn">RunSoftmax</span>&lt;Mask, kPadHeadDimQ, kPadHeadDimV&gt;(param, stream);
+                <span class="kw">else</span>
+                    <span class="fn">RunSilu</span>&lt;Mask, kPadHeadDimQ, kPadHeadDimV&gt;(param, stream);
+            });
+        });</div>
+  <div class="note-block clay"><strong>cross 最精妙处:零 instance 增长。</strong>&nbsp;cross/self 编进<em>同一个 .cpp 同一个 instance</em>,靠运行时 <code>BOOL_SWITCH</code> 在两腿间选,而非新增 codegen 轴。这意味着既有 64 个 batched bwd instance 数量<strong>一个不多</strong>,编译矩阵不膨胀;代价仅是每个 instance 内多一个 <code>if constexpr</code> 分支(false 腿被死代码消除,故 self byte-identical)。</div>
+
+  <h3>③ group_backward_dispatch.hpp — 双 pipeline 共包一个 cross switch <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li>group 的 <code>RunSilu</code>（<code>:147-151</code>）与 <code>RunSoftmax</code>（<code>:217-221</code>）各把 <strong>local + no-local 两条 mask typedef</strong> 一起包进同一个 <code>BOOL_SWITCH(param.is_cross_attention)</code>——因为 group kernel 在运行时按「是否 with-local」二选一双 pipeline,两条都得同步走 cross。</li>
+    <li><code>:101</code> grid + num_splits 改用 <code>max_seqlen_kv</code>:<code>GridSize(num_batch, num_head, param.max_seqlen_kv)</code> 与 <code>integer_divide_ceil(param.max_seqlen_kv, kN0)</code>（原本都是 <code>max_seqlen_q</code>）。self 路别名回 <code>max_seqlen_q</code> ⇒ 不变。</li>
+    <li>这是<strong>这 5 处 mask-typedef 站点</strong>的最后两处（batched 1 + group RunSilu 的 local/no-local 2 + group RunSoftmax 的 local/no-local 2 = 5）。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_group_backward_dispatch.hpp:147-151 — group RunSilu 把 local/no-local 双 mask 一起 cross 化</span>        <span class="kw">BOOL_SWITCH</span>(param.<span class="hl">is_cross_attention</span>, <span class="hl">kIsCrossAttention</span>, [&amp;] {
+        <span class="kw">using</span> LocalMask =
+            <span class="kw">typename</span> ck_tile::HstuBlockMasking&lt;<span class="hl">kIsCrossAttention</span>, kUseCausal, <span class="kw">true</span>&gt;::Type;
+        <span class="kw">using</span> NoLocalMask =
+            <span class="kw">typename</span> ck_tile::HstuBlockMasking&lt;<span class="hl">kIsCrossAttention</span>, kUseCausal, <span class="kw">false</span>&gt;::Type;</div>
+
+  <h3>④ bwd_kernel.hpp — 4 处 mask builder 喂 seqlen_kv 进 seqlen_k 槽 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li>4 个 kernel 各在 mask 构造处加 <code>if constexpr(FmhaMask::kIsCrossAttention)</code> 分叉:<strong>no_group SiLU <code>:407</code>、no_group softmax <code>:854</code>、group SiLU <code>:1267</code>、group softmax <code>:1652</code></strong>。每处又分 with-local / without-local 两子调用。</li>
+    <li>cross 腿走 <code>make_hstu_cross_attention_block_mask_with_local / _without_local</code>,把 <code>kargs.seqlen_kv</code> 喂进 <code>seqlen_k</code> 槽;self 腿逐字保留原 <code>make_hstu_self_attention_*</code> 调用。</li>
+    <li><strong>为什么必须走 wrapper</strong>:cross/self 两个 mask 构造器的<em>参数顺序不同</em>（cross 多一个 <code>seqlen_kv</code> 实参,with-local 包装器把 <code>num_target</code> 重排到末位）——直接拼 ctor 极易错位。统一走 <code>make_hstu_*</code> wrapper 保证参序与 reference 调用点逐字对齐（done §3 R2/R3）。</li>
+    <li><code>if constexpr</code> 让 self（false）腿被死代码消除 ⇒ self 编出来与 M7c byte-identical。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp:407-422 — no_group SiLU with-local mask builder 的 cross 分叉</span>                <span class="kw">if constexpr</span>(FmhaMask::<span class="hl">kIsCrossAttention</span>)
+                {
+                    <span class="kw">return</span> <span class="fn">make_hstu_cross_attention_block_mask_with_local</span>&lt;FmhaMask&gt;(
+                        <span class="cm">/*is_tile_in_first_split=*/</span><span class="kw">true</span>,
+                        kargs.seqlen_q,
+                        kargs.<span class="hl">seqlen_kv</span>,          <span class="cm">// &lt;- 喂进 seqlen_k 槽</span>
+                        kargs.contextual_seqlen,
+                        num_target, kargs.max_attn_len, eff_min_full);
+                }
+                <span class="kw">else</span>
+                {
+                    <span class="kw">return</span> <span class="fn">make_hstu_self_attention_block_mask_with_local</span>&lt;FmhaMask&gt;(
+                        <span class="cm">/*is_tile_in_first_split=*/</span><span class="kw">true</span>,
+                        kargs.seqlen_q, kargs.contextual_seqlen,
+                        num_target, kargs.max_attn_len, eff_min_full);
+                }</div>
+
+  <h3>⑤ hstu_block_masking.hpp — cross mask 模板（复用，未改）<span class="tag tag-reuse">复用</span></h3>
+  <ul>
+    <li><code>:1006-1007</code> <code>template &lt;bool kIsCrossAttention, bool kUseCausal, bool kUseLocal&gt; struct HstuBlockMasking</code>——<strong>cross/self 早已是模板首参</strong>,只是 bwd dispatch 一直传死 <code>false</code>。本里程碑没动这个文件,只是<em>开始传 true</em>。</li>
+    <li><code>:1029</code> <code>make_hstu_cross_attention_block_mask_with_local</code> 等构造器同样早就存在（fwd 在用）。bwd 之所以「结构上本就 cross-ready」,正因为这套 mask 设施是 fwd/bwd 共享的。</li>
+    <li>列在此处是为了说明:cross 真正<strong>新写的语义为零</strong>——全是接线既有模板。</li>
+  </ul>
+
+  <h3>⑥ example_hstu_attention_bwd.cpp — harness 解钉 + 独立 kv <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:206-217</code> 新 CLI <code>-seqlens_kv</code>:空 = self（kv 别名 q,byte-identical）;给了且 != seqlens = cross,置 <code>is_cross_attention=true</code>。另有 <code>-max_seqlen_kv</code>/<code>-g_max_seqlens_kv</code> 覆写。</li>
+    <li>独立 KV 维度:<code>seq_offsets_kv</code> 前缀和向量 + <code>seq_offsets_kv_dev</code> 设备 buffer（<code>:397</code>）,<code>bp.max_seqlen_kv</code> 接线（<code>:540</code>）。<strong>target_in_kv == false</strong>——cross 的 KV 只含 uih + contextual,无 targets（targets 仍留 Q 侧）。</li>
+    <li><code>:654-668</code> CPU reference 的 <code>Run(...)</code> <strong>本就接收 <code>is_cross_attention</code> 与 <code>max_seqlen_kv</code> 形参</strong>——reference 早是 cross-ready,harness 只多喂独立 kv offsets/max,reference 一行未改。这就是「对拍 oracle 零成本」的来源。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp:654-668 — reference 本就吃 is_cross_attention（未改）</span>                              ...kUseCausal&gt;::<span class="fn">Run</span>(<span class="hl">is_cross_attention</span>,
+                                          q_r, k_r, v_r, lse_host, o_r, do_r,
+                                          dq_host_ref, dk_host_ref, dv_host_ref,
+                                          num_batch, scale_s, attn_scale,
+                                          max_seqlen_q, <span class="hl">max_seqlen_kv</span>,
+                                          ref_q_offsets, ref_kv_offsets, ...);</div>
+</section>
+
+<section id="s4">
+  <h2>4&nbsp;&nbsp;设计动机小结</h2>
+  <ol>
+    <li><strong>拔钉而非重写</strong>:bwd 内存/grid/loop 从 M3 起就吃独立 q/kv offsets,唯一阻碍是 mask 被钉死 <code>HstuBlockMasking&lt;false&gt;</code>。cross = 把这颗钉子换成运行时轴,语义新写量为零。</li>
+    <li><strong>运行时 switch 而非 instance 轴</strong>:<code>BOOL_SWITCH(is_cross_attention)</code> 把 cross/self 编进同一 instance（<code>dispatch:393-400</code>），<em>零 instance 增长</em>、编译矩阵不膨胀。</li>
+    <li><strong>纯 host 字段保 byte-identical</strong>:<code>max_seqlen_kv</code>（<code>params:33-34</code>）device <code>MakeKargs</code> 不读,self 腿 <code>== max_seqlen_q</code> ⇒ 设备符号一字未动。</li>
+    <li><strong>统一走 mask wrapper</strong>:4 处 kernel builder（<code>:407/:854/:1267/:1652</code>）都经 <code>make_hstu_cross_attention_block_mask_*</code> 而非直拼 ctor,保参序与 reference 逐字对齐（R2/R3）。</li>
+    <li><strong>reference 复用为 oracle</strong>:CPU reference 早接收 <code>is_cross_attention</code>（<code>harness:654</code>）⇒ 对拍 oracle 零改动,cross 与 self 同一把尺子量。</li>
+  </ol>
+  <div class="note-block olive"><strong>R1 反证（mask 开关确实承重）:</strong>&nbsp;reviewer 把 cross mask 篡改回 self 几何 → cross 案 FAIL（误差 4.70 vs 正常 1.95e-3）。证明这个 <code>BOOL_SWITCH</code> 不是装饰,是真正在分叉几何。（done §3 R1）</div>
+</section>
+
+<section id="s5">
+  <h2>5&nbsp;&nbsp;验证 &amp; 遗留 / 边界</h2>
+
+  <h4>验证矩阵（数值出处:candidates.jsonl <code>Mcross-cross-attention</code> + <code>docs/cross-attn-done.md</code>）</h4>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>项目</th><th>结果</th><th>说明 / 出处</th></tr></thead>
+    <tbody>
+      <tr><td>self 零回归</td><td><span class="status-yes">870/870 byte-identical</span></td><td>co_symbols vs 净 M7c 构建（reviewer 自产 870-符号基线，含 batched kentry wrapper）;self 套件 220 不变</td></tr>
+      <tr><td>cross 全矩阵对拍</td><td><span class="status-yes">32/32 PASS</span></td><td>双向 × {batched/jagged/group} × SiLU/softmax × causal{0,1} × P1-1 × atomic/determ × kv&gt;q multi-block × fp16;<code>-attn_scale=1.0</code> 容差未松</td></tr>
+      <tr><td>套件总数</td><td><span class="status-yes">253/253 exit 0</span></td><td>220 self + 33 cross(31 MATRIX + 2 determ-repro),14 bit-repro byte-identical</td></tr>
+      <tr><td>R1 反证</td><td><span class="status-yes">cross FAIL on sabotage</span></td><td>篡改 cross mask 回 self → 误差 4.70 vs 1.95e-3 → 开关承重</td></tr>
+      <tr><td>R4 determ grid</td><td><span class="status-yes">kv=512&gt;q=128 PASS</span></td><td>determ grid/num_splits 按 max_seqlen_kv,multi-KV-block + 2 repro byte-identical</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>cross 明确不做（out-of-scope）</h4>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>能力</th><th>状态 / 去向</th></tr></thead>
+    <tbody>
+      <tr><td><code>target_in_kv</code>（targets 放 KV 侧）</td><td>不做;targets 恒留 Q 侧（<code>hstu_block_masking.hpp:53,:566</code> 硬假设)。测试均 targets-in-Q。</td></tr>
+      <tr><td>独立 dO layout（R7）</td><td>未做;测试 dO 与 O 同 layout,PRE 用 O stride 读 dO。留后续。</td></tr>
+      <tr><td>contextual &gt; min(seqlen_q, seqlen_kv)</td><td>不支持;contextual 须 ≤ min(q,kv)（测试守此）。</td></tr>
+      <tr><td>group entry 单 TU 14min（R11）</td><td>cross 子腿令 group entry = {local,nolocal}×{cross,self} 4 腿,单 TU 14m9s = build 瓶颈;per-hdim 拆 TU 留 M8。</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 总览</a>
+  <a href="#s2">2 最佳阅读顺序</a>
+  <a href="#s3">3 逐文件 review</a>
+  <a href="#s3" class="sub">①params ②batched-dispatch</a>
+  <a href="#s3" class="sub">③group-dispatch ④kernel</a>
+  <a href="#s3" class="sub">⑤masking ⑥harness</a>
+  <a href="#s4">4 设计动机小结</a>
+  <a href="#s5">5 验证 &amp; 边界</a>
+</nav>
+
+</div><!-- /layout -->
+</div><!-- /page -->
+</body>
+</html>

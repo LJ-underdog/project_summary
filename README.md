@@ -50,6 +50,23 @@ V01-V07 验证 pipeline **全部 PASS**。详见：
 
 **跨 topic 资产**：[verification_pipeline/](./step35-flash-support/verification_pipeline/) — V01-V07 验证 pipeline（覆盖 01-07），含 `MASTER_PIPELINE.md` / `PIPELINE_REVIEW_FINAL.md` / `results/SUMMARY.md`。
 
+### HSTU Attention Backward — GPU kernel 实现（gfx950 / CDNA4，2026-06）
+
+**背景**：为 HSTU attention 的 **backward** 从零实现 GPU kernel（原仓库只有 855 行 CPU 参考、无 GPU bwd），复用 ck_tile FMHA bwd 基建。代码在 fork `LJ-underdog/composable_kernel` 分支 `hstu_attention_fwd_bwd_v2` @ `a86529dc`。
+
+| 里程碑 | 内容 | 状态 |
+|--------|------|------|
+| M0–M4b | 脚手架 + SiLU 闸门 + 5 因子 mask + jagged + group + 修 P1-1 | ✅ |
+| M5/M5b | softmax 路径 + group softmax | ✅ |
+| M6/M6b | deterministic dQ + group determ（+修 O1+harness bug） | ✅ |
+| M7a/b/c | fp16 + 对称 hdim{64..256} + 非对称/非典范 hdim via pad | ✅ |
+| cross | cross-attention（seqlen_q≠seqlen_kv 全方向） | ✅ |
+| M8 | perf（MI 计时基建 + B2 causal + B3 window 紧致化） | ✅ |
+
+能力边界：SiLU+softmax × batched/jagged/group × self+cross × 全 5 mask × bf16+fp16 × hdim∈(0,256] 任意 × atomic+determ。对拍 **253/253 exit 0**;perf MAIN causal 1.6×/window ~10×。真 reject:hdim>256;未做:target_in_kv/独立 dO/非方形 tile;尚未提上游 PR。
+
+**详情 + 新机器复现**：[hstu-bwd-attention/README.md](./hstu-bwd-attention/README.md)（含 `HANDOFF.md` 活状态、`REPRODUCTION_GUIDE.md`、`code_location.md`、memory、回归套件、37 篇图文 HTML 讲义）。
+
 ---
 
 ## 调试方法论

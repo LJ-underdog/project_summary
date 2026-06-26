@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>主反向 Pipeline 七阶段详解（kr_ktr_vr）</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+section#hstu h2, section#compare h2 { border-bottom-color: var(--olive); }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+section#hstu h3 { border-left-color: var(--olive); }
+section#compare h3 { border-left-color: var(--slate); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 740px; margin-bottom: 10px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc a.hstu:hover { color: var(--olive); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 800px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 820px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 900px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+table.compare-table th.fmha-col { background: var(--clay-lt); color: var(--clay); }
+table.compare-table th.hstu-col { background: var(--olive-lt); color: var(--olive); }
+table.compare-table td:nth-child(2) { background: rgba(217,119,87,.03); }
+table.compare-table td:nth-child(3) { background: rgba(120,140,93,.04); }
+table.compare-table td:first-child { font-weight: 600; color: var(--slate); white-space: nowrap; }
+.code-annotated { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin: 14px 0; max-width: 920px; }
+@media (max-width: 760px) { .code-annotated { grid-template-columns: 1fr; } }
+.code-annotated pre { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.55; margin: 0; white-space: pre; }
+.code-annotated .annotation { background: var(--white); border: 1px solid var(--gray-300); border-left: 3px solid var(--olive); border-radius: 8px; padding: 12px 14px; font-size: 13px; color: var(--gray-700); align-self: start; }
+.code-annotated .annotation.fmha { border-left-color: var(--clay); }
+.code-annotated .annotation strong { color: var(--slate); }
+.code-annotated .annotation code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 900px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 820px; }
+.note-block strong { color: var(--slate); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 940px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.qa { display: flex; flex-direction: column; gap: 14px; max-width: 820px; }
+.qa .item { background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 10px; padding: 14px 18px; }
+.qa .q { font-weight: 600; color: var(--slate); font-size: 14.5px; margin-bottom: 6px; }
+.qa .q::before { content: 'Q '; color: var(--clay); font-family: var(--mono); }
+.qa .a { font-size: 13.5px; color: var(--gray-700); }
+.qa .a::before { content: 'A '; color: var(--olive); font-family: var(--mono); font-weight: 600; }
+.qa .a code { font-size: 12px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.path-list { display: flex; flex-direction: column; gap: 8px; max-width: 820px; }
+.path-list .row { display: grid; grid-template-columns: 1fr 240px; gap: 12px; background: var(--white); border: 1px solid var(--gray-300); border-radius: 8px; padding: 10px 14px; align-items: center; }
+.path-list .row .p { font-family: var(--mono); font-size: 12px; color: var(--slate); overflow: hidden; text-overflow: ellipsis; }
+.path-list .row .d { font-size: 12.5px; color: var(--gray-500); }
+.path-list .row.hstu { border-left: 3px solid var(--olive); }
+.path-list .row.fmha { border-left: 3px solid var(--clay); }
+@media (max-width: 700px) { .path-list .row { grid-template-columns: 1fr; } }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-fmha { background: var(--clay-lt); color: var(--clay); }
+.tag-hstu { background: var(--olive-lt); color: var(--olive); }
+.tag-todo { background: #F3D9CC; color: #8A3B1E; }
+.tag-done { background: #E4E9DC; color: #4B5C39; }
+svg text { font-family: var(--mono); }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.dec-tree { background: var(--white); border: 1px solid var(--gray-300); border-radius: 10px; padding: 18px 22px; margin: 14px 0; max-width: 820px; font-family: var(--mono); font-size: 12.5px; color: var(--slate); white-space: pre; overflow-x: auto; }
+details.fold { background: var(--white); border: 1px solid var(--gray-300); border-radius: 8px; padding: 8px 14px; margin: 10px 0; max-width: 880px; }
+details.fold > summary { cursor: pointer; font-weight: 600; color: var(--slate); font-size: 13.5px; padding: 4px 0; }
+details.fold[open] > summary { margin-bottom: 8px; border-bottom: 1px solid var(--gray-300); padding-bottom: 8px; }
+</style>
+</head>
+
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; FMHA Backward</div>
+  <h1>主反向 Pipeline 七阶段详解（kr_ktr_vr）</h1>
+  <p class="subtitle">标准 FMHA 反向的主力 kernel：一个 workgroup 钉住一块 KV、沿 query 扫一遍，靠 5 个 Block GEMM + 2 个 elementwise 一趟算出 dQ / dK / dV。从全局图景到七阶段逐行、再到三级存储搬运与 dQ 写回。</p>
+  <div class="audience">读者：想搞懂 FMHA bwd 主 kernel 数据流与计算的工程师</div>
+  <div class="reading-time" style="margin-top:12px; font-size:13px; color:var(--gray-500);">
+    源码 <code style="font-family:var(--mono);font-size:12px;">block_fmha_bwd_dq_dk_dv_pipeline_kr_ktr_vr.hpp</code>（779 行）&nbsp;&middot;&nbsp; 2026-06-02
+  </div>
+</header>
+
+<div class="layout">
+<main>
+
+<div class="tldr">
+  <div class="k">TL;DR</div>
+  <p>这是标准 FMHA 反向的<strong>主 kernel（MAIN）</strong>，承接 PRE-pass 算好的 <code>D = rowsum(O&odot;dO)</code>，在一趟主循环里一次产出 <code>dQ / dK / dV</code>。变体名 <code>kr_ktr_vr</code> = K / K&#x1d40; / V 三者都常驻寄存器。</p>
+  <p>并行划分：grid 按 <code>(seqlen_k, nhead, batch)</code> 切，<strong>每个 workgroup 独占一个 KV tile</strong> —— <strong>KV 外循环固定不动、Q 内循环扫所有 query</strong>。<code>dk_acc / dv_acc</code> 常驻寄存器逐轮累加，循环末一次写出，因独占而<strong>无需 atomic</strong>。</p>
+  <p>一圈 hot loop = <strong>STAGE 1–7</strong> = <strong>5 个 Block GEMM</strong>（gemm_0..4）+ <strong>2 个 elementwise</strong>（STAGE 2 softmax 恢复 P、STAGE 5 算 dS）。中枢分叉点是 P 与 dS。</p>
+  <p>唯独 <code>dQ</code> 特殊：<code>dQ&#x1d62; = &Sigma;</code><sub>(所有 KV 块)</sub> 会被<strong>多个 workgroup 写同一行</strong>，必须 <code>update_tile</code> = atomicAdd（默认，line 755），或开 <code>kIsDeterministic</code> 走 <code>store_tile</code> split-workspace（line 751）再由 <code>convert_dq</code> kernel 按固定顺序归约。</p>
+</div>
+
+<!-- ============================== 第 1 部分：总览与并行骨架 ============================== -->
+<section id="part1">
+<h2>1. 总览：主反向 pipeline 的全局图景</h2>
+<p class="lede">
+  本节给"没什么 GPU kernel 基础"的读者先建立<strong>全局图景</strong>：这个 kernel 在反向链路里处于什么位置、一个 GPU workgroup 到底负责什么、整段计算被拆成哪 5 个矩阵乘、哪些量在寄存器里常驻累加。看懂这张全局图，再去看后面逐阶段的细节才不会迷路。
+</p>
+
+<h3 id="p1-locate">1.1 一句话定位：它是反向的"主力 kernel"</h3>
+<p>
+  标准 FMHA（Flash-Multi-Head-Attention）的反向被拆成三个 GPU kernel 接力跑：<strong>PRE → MAIN → POST</strong>。
+</p>
+<div class="formula formula-block">
+  <span class="line">PRE  (预处理)  : 算出 D&#x1d62; = &sum;&#x2090; dO&#x1d62;&#x2090; O&#x1d62;&#x2090;     —— 每行一个标量，喂给主循环</span>
+  <span class="line">MAIN (主力)    : 一次产出 dQ / dK / dV          &lt;&lt;&lt; 本文讲的就是它</span>
+  <span class="line">POST (可选收尾): kIsDeterministic 时把 split-workspace 的 dQ 归约成最终 dQ</span>
+</div>
+<p>
+  本文讲的就是 <strong>MAIN</strong>，对应源码结构体 <code>BlockFmhaBwdDQDKDVPipelineKRKTRVR</code>（文件 779 行，包装它的主 kernel 是 <code>FmhaBwdDQDKDVKernel</code>）。它<strong>承接 PRE 算好的 <code>D</code></strong>，在一趟主循环里把 <code>dQ / dK / dV</code> 三个梯度全部算出来。
+</p>
+<div class="note-block">
+  <strong>变体名 <code>kr_ktr_vr</code> 怎么读</strong>（<code>name = "kr_ktr_vr"</code>，line 78）：拆成三段 —— <code>kr</code> = <strong>K</strong> 驻<strong>r</strong>egister（K 常驻寄存器）、<code>ktr</code> = <strong>K</strong>ᵀ 驻<strong>r</strong>egister（K 的转置也常驻寄存器）、<code>vr</code> = <strong>V</strong> 驻<strong>r</strong>egister。一句话：<em>把本 workgroup 负责的那块 K、Kᵀ、V 一次性搬进寄存器待命，整个 Q 循环反复复用，不再回显存取</em>。这就是这个变体名字的全部含义。
+</div>
+
+<h3 id="p1-parallel">1.2 并行划分：为什么"KV 在外、Q 在内"</h3>
+<p>
+  GPU 把整个任务切成很多个 <strong>workgroup</strong>（一个 workgroup ≈ 一队协同工作的线程，独占一块片上资源）。本 kernel 的切法是：grid 按 <code>(seqlen_k 块, nhead, batch)</code> 三个维度切分 —— 也就是说，<strong>每个 workgroup 认领一个 KV tile</strong>（沿 key 序列方向 <code>seqlen_k</code> 取一块，块大小 <code>kN0</code>）。
+</p>
+<p>
+  认领之后，这个 workgroup 内部是一个<strong>双层循环</strong>：
+</p>
+<div class="callout-grid">
+  <div class="callout">
+    <strong style="color:#D97757;">外循环：KV 固定不动</strong><br>
+    我负责的这块 K/V 在整个生命周期里<em>钉死不变</em>，搬进寄存器后就一直在那儿。
+  </div>
+  <div class="callout">
+    <strong style="color:#788C5D;">内循环：沿 Q 扫一遍</strong><br>
+    沿 query 序列 <code>seqlen_q</code> 一块块（每块 <code>kM0</code>）地扫过所有 Q，每轮处理一个 Q tile。<br>
+    <code>num_total_loop = ceil((seqlen_q_end − seqlen_q_start)/kM0)</code>（mask 早退裁剪后的 Q 区间，见 §1.4；line 163），热循环 <code>while(i_total_loops &lt; num_total_loop)</code>（line 494）。
+  </div>
+  <div class="callout">
+    <strong>累加器常驻</strong><br>
+    扫 Q 的过程中，<code>dk_acc / dv_acc</code> 一直留在寄存器里把每个 Q tile 的贡献累加上去。
+  </div>
+</div>
+<div class="note-block">
+  <strong>为什么是 KV 外、Q 内？（生活化类比）</strong>把它想成"<em>给一批快递按收件人归集</em>"。dK/dV 的本质是"<strong>对某一个 key，累加所有 query 对它的贡献</strong>"（数学上 <code>dK&#x2c7c; = &sum;&#x1d62; dS&#x1d62;&#x2c7c; Q&#x1d62;</code>，对 query 下标 i 求和）。既然结果是"按 key 归集、对所有 query 求和"，那就<strong>把这个 key（KV）固定在手边，一个个 query 拿过来累加</strong>最自然 —— 累加器 <code>dk_acc/dv_acc</code> 可以全程待在寄存器里，扫完所有 Q 再一次性写出。反过来若把 Q 固定在外、KV 在内，每换一个 KV 都要把半成品的 dK/dV 写回显存再读回来，得不偿失。
+</div>
+
+<svg viewBox="0 0 760 470" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:760px;display:block;margin:14px auto 6px;">
+  <defs>
+    <marker id="p1arr" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#D97757"/></marker>
+    <marker id="p1arrg" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#87867F"/></marker>
+  </defs>
+
+  <!-- 顶部轴标签 -->
+  <text x="330" y="30" text-anchor="middle" font-size="13" fill="#141413" font-weight="600">seqlen_k 方向（所有 Key/Value，按 kN0 分块）&rarr;</text>
+  <!-- 左侧轴标签（竖排） -->
+  <text x="34" y="208" text-anchor="middle" font-size="13" fill="#141413" font-weight="600" transform="rotate(-90 34 208)">seqlen_q（所有 Query，按 kM0 分块）&darr;</text>
+
+  <!-- 网格 5 列 x 6 行；列 = KV tile，行 = Q tile -->
+  <!-- 普通列 -->
+  <g>
+    <!-- 列 0,1,3,4 普通灰；列 2 高亮 clay -->
+    <!-- 行 y: 60,106,152,198,244,290 ; 列 x: 170,234,298,362,426 ; cell 64x46 -->
+    <!-- 非高亮单元 -->
+    <g fill="#F0EEE6" stroke="#D1CFC5" stroke-width="1">
+      <rect x="170" y="60" width="64" height="46"/><rect x="170" y="106" width="64" height="46"/><rect x="170" y="152" width="64" height="46"/><rect x="170" y="198" width="64" height="46"/><rect x="170" y="244" width="64" height="46"/><rect x="170" y="290" width="64" height="46"/>
+      <rect x="234" y="60" width="64" height="46"/><rect x="234" y="106" width="64" height="46"/><rect x="234" y="152" width="64" height="46"/><rect x="234" y="198" width="64" height="46"/><rect x="234" y="244" width="64" height="46"/><rect x="234" y="290" width="64" height="46"/>
+      <rect x="362" y="60" width="64" height="46"/><rect x="362" y="106" width="64" height="46"/><rect x="362" y="152" width="64" height="46"/><rect x="362" y="198" width="64" height="46"/><rect x="362" y="244" width="64" height="46"/><rect x="362" y="290" width="64" height="46"/>
+      <rect x="426" y="60" width="64" height="46"/><rect x="426" y="106" width="64" height="46"/><rect x="426" y="152" width="64" height="46"/><rect x="426" y="198" width="64" height="46"/><rect x="426" y="244" width="64" height="46"/><rect x="426" y="290" width="64" height="46"/>
+    </g>
+    <!-- 高亮列 2（x=298） = 一个 workgroup -->
+    <g fill="#FDF6F0" stroke="#D97757" stroke-width="1.5">
+      <rect x="298" y="60" width="64" height="46"/><rect x="298" y="106" width="64" height="46"/><rect x="298" y="152" width="64" height="46"/><rect x="298" y="198" width="64" height="46"/><rect x="298" y="244" width="64" height="46"/><rect x="298" y="290" width="64" height="46"/>
+    </g>
+  </g>
+
+  <!-- 每个 Q 块标注（高亮列内） -->
+  <g font-size="9" fill="#D97757" text-anchor="middle">
+    <text x="330" y="88">Q tile 0</text><text x="330" y="134">Q tile 1</text><text x="330" y="180">Q tile 2</text><text x="330" y="226">&#8942;</text><text x="330" y="272">Q tile n-1</text><text x="330" y="318">扫完</text>
+  </g>
+
+  <!-- 内循环扫描箭头：沿高亮列向下 -->
+  <line x1="478" y1="66" x2="478" y2="330" stroke="#D97757" stroke-width="2" marker-end="url(#p1arr)" stroke-dasharray="2,3"/>
+  <text x="500" y="200" font-size="11" fill="#D97757" font-weight="600">内循环：沿 seqlen_q 逐个 kM0 块扫</text>
+
+  <!-- workgroup 指示 -->
+  <text x="330" y="362" text-anchor="middle" font-size="11" fill="#D97757" font-weight="600">1 个 workgroup = 1 列 KV tile（外循环固定不动）</text>
+
+  <!-- 累加器框 -->
+  <rect x="150" y="392" width="460" height="58" rx="8" fill="#FAF9F5" stroke="#141413" stroke-width="1.2"/>
+  <text x="380" y="414" text-anchor="middle" font-size="12" fill="#141413" font-weight="600">dk_acc / dv_acc &mdash; 常驻寄存器</text>
+  <text x="380" y="434" text-anchor="middle" font-size="10.5" fill="#3D3D3A">沿 Q 逐块累加所有 query 的贡献 &rarr; 循环结束写一次（本块独占，无需 atomic）</text>
+</svg>
+<div class="svg-caption">图 1 &mdash; 并行划分：一个 workgroup 钉住一列 KV，沿 seqlen_q 逐块扫所有 Q；dk_acc/dv_acc 在寄存器里累加。</div>
+
+<h3 id="p1-gemms">1.3 全程只有 5 个矩阵乘（Block GEMM 总表）</h3>
+<p>
+  别被七个 STAGE 吓到 —— 整个主循环的"重活"其实只有 <strong>5 次矩阵乘法</strong>（Block GEMM）。它们在循环开始前就被声明好（line 141-145），每个由一个编译期 Policy 决定如何拆 tile。先记住这张表，后面每个 STAGE 不过是"做其中一两个 GEMM + 一些逐元素处理"。
+</p>
+<div class="tbl-wrap">
+<table class="compare-table">
+<thead>
+  <tr><th>GEMM 变量</th><th>Policy 取法</th><th>数学式</th><th>所在 STAGE</th><th>产出</th></tr>
+</thead>
+<tbody>
+  <tr><td><code>gemm_0</code></td><td><code>GetQKBlockGemm</code></td><td>S = Q @ Kᵀ</td><td>STAGE 1</td><td>分数矩阵 S</td></tr>
+  <tr><td><code>gemm_1</code></td><td><code>GetPTOGradTBlockGemm</code></td><td>dV += Pᵀ @ dO</td><td>STAGE 3</td><td>累加 dv_acc</td></tr>
+  <tr><td><code>gemm_2</code></td><td><code>GetOGradVBlockGemm</code></td><td>dP = dO @ Vᵀ</td><td>STAGE 4</td><td>dP</td></tr>
+  <tr><td><code>gemm_3</code></td><td><code>GetSGradTQTBlockGemm</code></td><td>dK += dSᵀ @ Q</td><td>STAGE 6</td><td>累加 dk_acc</td></tr>
+  <tr><td><code>gemm_4</code></td><td><code>GetSGradKTBlockGemm</code></td><td>dQ += dS @ K</td><td>STAGE 7</td><td>dq_acc &rarr; 写回</td></tr>
+</tbody>
+</table>
+</div>
+<div class="note-block">
+  <strong>一句话串起来</strong>：先 <code>gemm_0</code> 还原分数 S，softmax 恢复出 P；然后 <code>gemm_1</code> 用 P 攒 dV、<code>gemm_2</code> 用 dO 算出 dP，<code>gemm_3</code> 攒 dK、<code>gemm_4</code> 算 dQ。<strong>5 个 GEMM 对应了反向 5 条梯度公式</strong>，剩下的都是 scale / mask / softmax / 逐元素这些"配菜"。术语：<code>P</code> = softmax 概率矩阵，<code>S</code> = 未归一化分数，<code>dX</code> = 对 X 的梯度，上标 <code>ᵀ</code> = 转置。Policy 名里的 <code>T</code>（<code>GetPTOGradT</code>/<code>SGradTQT</code>/<code>SGradKT</code>）指 MFMA（CDNA3/4 矩阵核心指令）操作数布局转置，与上方"数学式"列是同一运算的两种记法，详见 §2 图4 下注。
+</div>
+
+<h3 id="p1-acc">1.4 常驻累加器 &amp; 早退优化</h3>
+<p>
+  <strong>常驻累加器（line 148-149）</strong>：<code>dv_acc</code>（<code>gemm_1</code> 的输出）和 <code>dk_acc</code>（<code>gemm_3</code> 的输出）在循环开始前就声明在寄存器里，<em>跨整个 Q 内循环存活</em>，把每个 Q tile 算出的贡献一路累加上去，循环结束后一次性写出。
+</p>
+<div class="callout-grid">
+  <div class="callout">
+    <strong>为什么 dK/dV 不用 atomic？</strong><br>
+    本 workgroup <em>独占</em>这一块 KV，没有别的 workgroup 会往同一块 dK/dV 写 —— 所以寄存器里安静累加、最后落盘即可，<strong>无需原子操作</strong>。
+  </div>
+  <div class="callout">
+    <strong>而 dQ 为什么特殊？</strong><br>
+    同一行 dQ 会被<em>多个</em> KV 块（多个 workgroup）共同贡献，存在写冲突 —— 所以 dQ 必须靠 atomicAdd 或独立 split-workspace（详见后续 STAGE 7 部分）。
+  </div>
+  <div class="callout">
+    <strong>早退优化（line 165-173）</strong><br>
+    若该 KV 块被 mask 完全挡住（没有任何 Q 与它交互，<code>num_total_loop &le; 0</code>），就把 <code>dk_acc/dv_acc</code> 清零直接 <code>return</code>，跳过整段循环。
+  </div>
+</div>
+
+<h3 id="p1-dataflow">1.5 数据流分层小抄（HBM / LDS / Register）</h3>
+<p>
+  GPU 的存储是三层金字塔，越往下越快越小。看懂"什么东西放在哪一层、谁常驻谁流式"，是理解这个 pipeline 性能取舍的钥匙：
+</p>
+<div class="formula formula-block">
+  <span class="line">HBM（显存，大而慢）   : 读入 Q/K/V/O/dO/LSE/D ; 写出 dQ/dK/dV</span>
+  <span class="line">LDS（片上共享内存）   : 转置中转站（Kᵀ/Qᵀ/dOᵀ 的 shuffle）+ tile 暂存（dS 也借 LDS 重切）</span>
+  <span class="line">Register（寄存器最快） : GEMM 的输入/输出 tile ; dk_acc/dv_acc/dq_acc 累加器</span>
+  <span class="line">典型搬运链            : HBM &rarr; Reg &rarr; LDS(shuffle 转置) &rarr; Reg &rarr; GEMM</span>
+</div>
+<p>
+  关键区分是<strong>常驻 vs 流式</strong>：
+</p>
+<ul>
+  <li><strong style="color:#D97757;">常驻（一次载入、整循环复用）</strong>：K、Kᵀ、V —— 即 <code>kr_ktr_vr</code> 三件套，循环开始前搬进寄存器就钉住不动。</li>
+  <li><strong style="color:#788C5D;">流式（每轮循环重新载入）</strong>：Q、dO、LSE、D —— 每处理一个 Q tile 就从 HBM 拉一份新的进来。</li>
+</ul>
+
+<svg viewBox="0 0 760 440" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:760px;display:block;margin:14px auto 6px;">
+  <defs>
+    <marker id="p2clay" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#D97757"/></marker>
+    <marker id="p2olive" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#788C5D"/></marker>
+  </defs>
+
+  <!-- 三条层带 -->
+  <rect x="40" y="36" width="680" height="74" rx="10" fill="#F0EEE6" stroke="#D1CFC5" stroke-width="1.5"/>
+  <text x="58" y="60" font-size="13" fill="#3D3D3A" font-weight="600">HBM 显存</text>
+  <rect x="40" y="170" width="680" height="60" rx="10" fill="#FAF9F5" stroke="#D1CFC5" stroke-width="1.5"/>
+  <text x="58" y="196" font-size="13" fill="#3D3D3A" font-weight="600">LDS 片上</text>
+  <text x="58" y="212" font-size="9.5" fill="#87867F">shuffle 转置中转</text>
+  <rect x="40" y="290" width="680" height="116" rx="10" fill="#FDF6F0" stroke="#D97757" stroke-width="1.5"/>
+  <text x="58" y="314" font-size="13" fill="#D97757" font-weight="600">Register 寄存器</text>
+
+  <!-- HBM 内容块 -->
+  <g font-size="10" text-anchor="middle">
+    <rect x="150" y="50" width="120" height="44" rx="5" fill="#FDF6F0" stroke="#D97757"/>
+    <text x="210" y="70" fill="#D97757" font-weight="600">K / V</text>
+    <text x="210" y="85" fill="#87867F" font-size="9">常驻源（载一次）</text>
+    <rect x="300" y="50" width="150" height="44" rx="5" fill="#E4E9DC" stroke="#788C5D"/>
+    <text x="375" y="70" fill="#4B5C39" font-weight="600">Q / dO / LSE / D</text>
+    <text x="375" y="85" fill="#87867F" font-size="9">每轮流式载入</text>
+    <rect x="480" y="50" width="130" height="44" rx="5" fill="#F0EEE6" stroke="#D1CFC5"/>
+    <text x="545" y="70" fill="#3D3D3A" font-weight="600">dQ / dK / dV</text>
+    <text x="545" y="85" fill="#87867F" font-size="9">写出</text>
+  </g>
+
+  <!-- 寄存器内容：常驻 + 5 GEMM + 累加器 -->
+  <g font-size="9.5" text-anchor="middle">
+    <rect x="60" y="330" width="120" height="30" rx="5" fill="#FAF9F5" stroke="#D97757"/>
+    <text x="120" y="349" fill="#D97757" font-weight="600">k_reg / kt_reg / v_reg</text>
+    <rect x="196" y="330" width="300" height="30" rx="5" fill="#FFFFFF" stroke="#D1CFC5"/>
+    <text x="346" y="349" fill="#3D3D3A">5 个 Block GEMM 在此发生：gemm_0 &hellip; gemm_4</text>
+    <rect x="512" y="330" width="190" height="30" rx="5" fill="#FAF9F5" stroke="#141413"/>
+    <text x="607" y="349" fill="#141413" font-weight="600">dk_acc / dv_acc / dq_acc</text>
+    <text x="346" y="384" fill="#87867F" font-size="9.5">（GEMM 输入/输出 tile 与累加器都活在最快的寄存器层）</text>
+  </g>
+
+  <!-- KV 常驻箭头：HBM -> LDS -> Register（clay，实线，标"一次"） -->
+  <line x1="210" y1="94" x2="210" y2="168" stroke="#D97757" stroke-width="2.2" marker-end="url(#p2clay)"/>
+  <line x1="160" y1="230" x2="130" y2="328" stroke="#D97757" stroke-width="2.2" marker-end="url(#p2clay)"/>
+  <text x="222" y="135" font-size="10" fill="#D97757" font-weight="600">KV 一次载入 &rarr; 常驻</text>
+
+  <!-- Q/dO 流式箭头：HBM -> LDS -> Register（olive，虚线，标"每轮"） -->
+  <line x1="375" y1="94" x2="375" y2="168" stroke="#788C5D" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#p2olive)"/>
+  <line x1="375" y1="230" x2="346" y2="328" stroke="#788C5D" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#p2olive)"/>
+  <text x="388" y="135" font-size="10" fill="#788C5D" font-weight="600">Q/dO 每轮流式</text>
+
+  <!-- 写出箭头：Register 累加器 -> HBM dQ/dK/dV -->
+  <line x1="607" y1="328" x2="560" y2="96" stroke="#87867F" stroke-width="1.6" marker-end="url(#p2olive)" stroke-dasharray="2,2"/>
+  <text x="630" y="220" font-size="9.5" fill="#87867F" text-anchor="middle">累加完写回</text>
+</svg>
+<div class="svg-caption">图 2 &mdash; 数据流三层：KV（clay）一次载入常驻寄存器；Q/dO（olive）每轮流式；5 个 GEMM 与累加器都在寄存器层。</div>
+
+<div class="note-block">
+  <strong>承上启下</strong>：到这里你已经有了全局图景 —— 一个 workgroup 钉住一块 KV、沿 Q 扫一遍、靠 5 个 GEMM 攒出三个梯度、KV 常驻 Q 流式。接下来的部分会<em>逐个 STAGE 拆开</em>看这趟主循环里到底发生了什么（gemm_0 怎么算 S、softmax 怎么单趟恢复 P、dQ 两条写回路怎么选），以及显存搬运/转置的更深细节。
+</div>
+
+</section>
+
+<section id="stages">
+<h2>2. 七阶段逐阶段拆解</h2>
+
+<p class="lede">
+本节是全篇核心。<strong>hot loop</strong>（<code>while(i_total_loops &lt; num_total_loop)</code>，line 494）每转一圈处理<strong>一个 Q tile（kM0 行）</strong>，与本 workgroup 固定不动的 KV tile（kN0 行）做一整套反向计算，把贡献累加进常驻寄存器 <code>dv_acc / dk_acc</code>，并把 <code>dQ</code> 写回显存。一圈之内顺序执行 <strong>STAGE 1–7</strong>。
+</p>
+
+<div class="note-block">
+<strong>承上：循环顶部的搬运（line 496–513）</strong>。进入七阶段前，先把本轮 Q tile 与对应的 <code>LSE</code> 从 HBM 流式载入：<code>load_tile(q_dram_window)</code> → 写 LDS → <code>shuffle_tile</code> 转置出 Qᵀ 也一并存好 → 再 <code>load_tile</code> 回寄存器得 <code>q_reg_tensor</code> 与 <code>lse</code>。两次 <code>block_sync_lds()</code> 夹着 LDS 读写以保证可见性。Qᵀ 此刻就备好，STAGE 6 直接取用。
+</div>
+
+<h4>依赖链一眼看懂（不是孤立 7 步）</h4>
+<p class="lede">
+真正的脉络是一条<strong>依赖链</strong>：<code>S</code>(1) → <code>P</code>(2)，然后 <code>P</code> 同时喂给 <strong>dV</strong>(3) 和 <strong>dS</strong>(5)；<code>dP</code>(4) 也喂给 <strong>dS</strong>(5)；<code>dS</code>(5) 再同时喂给 <strong>dK</strong>(6) 和 <strong>dQ</strong>(7)。中枢是 <strong>P（STAGE 2）</strong>与 <strong>dS（STAGE 5）</strong>——前者是 softmax 概率，后者是 softmax 的反向梯度（Jacobian 落地）。看懂这两个分叉点，整套 pipeline 的排布顺序就顺理成章。
+</p>
+
+<!-- ============ 图3：七阶段流水 + 依赖链 ============ -->
+<svg viewBox="0 0 980 250" width="100%" role="img" aria-label="七阶段流水与依赖链">
+  <defs>
+    <marker id="ah-c" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#D97757"/>
+    </marker>
+    <marker id="ah-o" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#788C5D"/>
+    </marker>
+    <marker id="ah-g" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/>
+    </marker>
+  </defs>
+
+  <!-- 7 stage boxes, y=95 -->
+  <!-- S1 -->
+  <g>
+    <rect x="10"  y="95" width="125" height="72" rx="9" fill="rgba(217,119,87,.10)" stroke="#D97757" stroke-width="1.6"/>
+    <text x="72"  y="118" text-anchor="middle" font-size="12" font-weight="700" fill="#141413">STAGE 1</text>
+    <text x="72"  y="135" text-anchor="middle" font-size="10.5" fill="#3D3D3A">gemm_0 · Q@K</text>
+    <text x="72"  y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#D97757">→ S</text>
+  </g>
+  <!-- S2 -->
+  <g>
+    <rect x="150" y="95" width="125" height="72" rx="9" fill="rgba(120,140,93,.12)" stroke="#788C5D" stroke-width="1.6"/>
+    <text x="212" y="118" text-anchor="middle" font-size="12" font-weight="700" fill="#141413">STAGE 2</text>
+    <text x="212" y="135" text-anchor="middle" font-size="10.5" fill="#3D3D3A">softmax (elt)</text>
+    <text x="212" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#788C5D">→ P</text>
+  </g>
+  <!-- S3 -->
+  <g>
+    <rect x="290" y="95" width="125" height="72" rx="9" fill="rgba(217,119,87,.10)" stroke="#D97757" stroke-width="1.6"/>
+    <text x="352" y="118" text-anchor="middle" font-size="12" font-weight="700" fill="#141413">STAGE 3</text>
+    <text x="352" y="135" text-anchor="middle" font-size="10.5" fill="#3D3D3A">gemm_1 · Pᵀ@dOᵀ</text>
+    <text x="352" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#D97757">+= dV</text>
+  </g>
+  <!-- S4 -->
+  <g>
+    <rect x="430" y="95" width="125" height="72" rx="9" fill="rgba(217,119,87,.10)" stroke="#D97757" stroke-width="1.6"/>
+    <text x="492" y="118" text-anchor="middle" font-size="12" font-weight="700" fill="#141413">STAGE 4</text>
+    <text x="492" y="135" text-anchor="middle" font-size="10.5" fill="#3D3D3A">gemm_2 · dO@V</text>
+    <text x="492" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#D97757">→ dP</text>
+  </g>
+  <!-- S5 -->
+  <g>
+    <rect x="570" y="95" width="125" height="72" rx="9" fill="rgba(120,140,93,.12)" stroke="#788C5D" stroke-width="1.6"/>
+    <text x="632" y="118" text-anchor="middle" font-size="12" font-weight="700" fill="#141413">STAGE 5</text>
+    <text x="632" y="135" text-anchor="middle" font-size="10.5" fill="#3D3D3A">P⊙(dP−D) (elt)</text>
+    <text x="632" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#788C5D">→ dS</text>
+  </g>
+  <!-- S6 -->
+  <g>
+    <rect x="710" y="95" width="125" height="72" rx="9" fill="rgba(217,119,87,.10)" stroke="#D97757" stroke-width="1.6"/>
+    <text x="772" y="118" text-anchor="middle" font-size="12" font-weight="700" fill="#141413">STAGE 6</text>
+    <text x="772" y="135" text-anchor="middle" font-size="10.5" fill="#3D3D3A">gemm_3 · dSᵀ@Qᵀ</text>
+    <text x="772" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#D97757">+= dK</text>
+  </g>
+  <!-- S7 -->
+  <g>
+    <rect x="850" y="95" width="125" height="72" rx="9" fill="rgba(217,119,87,.10)" stroke="#D97757" stroke-width="1.6"/>
+    <text x="912" y="118" text-anchor="middle" font-size="12" font-weight="700" fill="#141413">STAGE 7</text>
+    <text x="912" y="135" text-anchor="middle" font-size="10.5" fill="#3D3D3A">gemm_4 · dS@Kᵀ</text>
+    <text x="912" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#D97757">→ dQ ↟</text>
+  </g>
+
+  <!-- sequential connectors (gray, along midline y=131) -->
+  <line x1="135" y1="131" x2="148" y2="131" stroke="#87867F" stroke-width="1.4" marker-end="url(#ah-g)"/>
+  <line x1="415" y1="131" x2="428" y2="131" stroke="#87867F" stroke-width="1.4" marker-end="url(#ah-g)"/>
+
+  <!-- dependency arcs (top): P→dV, P→dS, dS→dQ -->
+  <!-- P(S2) → dV(S3) : adjacent, draw colored straight on midline -->
+  <line x1="275" y1="131" x2="288" y2="131" stroke="#788C5D" stroke-width="1.8" marker-end="url(#ah-o)"/>
+  <!-- dP(S4) → dS(S5) : adjacent -->
+  <line x1="555" y1="131" x2="568" y2="131" stroke="#D97757" stroke-width="1.8" marker-end="url(#ah-c)"/>
+  <!-- dS(S5) → dK(S6) : adjacent -->
+  <line x1="695" y1="131" x2="708" y2="131" stroke="#788C5D" stroke-width="1.8" marker-end="url(#ah-o)"/>
+
+  <!-- P(S2) → dS(S5) : arc over top -->
+  <path d="M212,95 C212,40 632,40 632,93" fill="none" stroke="#788C5D" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#ah-o)"/>
+  <text x="422" y="36" text-anchor="middle" font-size="10" fill="#788C5D">P → dS（softmax 概率参与梯度）</text>
+
+  <!-- dS(S5) → dQ(S7) : arc under bottom -->
+  <path d="M632,167 C632,215 912,215 912,169" fill="none" stroke="#D97757" stroke-width="1.6" stroke-dasharray="5,4" marker-end="url(#ah-c)"/>
+  <text x="772" y="235" text-anchor="middle" font-size="10" fill="#D97757">dS → dQ（同一个 dS 喂 dK 与 dQ）</text>
+
+  <!-- D → dS : D loaded at S4, feeds dS at S5 -->
+  <text x="500" y="188" text-anchor="middle" font-size="9.5" fill="#87867F">D 载入 →</text>
+  <path d="M535,184 C575,184 600,178 612,169" fill="none" stroke="#87867F" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#ah-g)"/>
+
+  <!-- legend -->
+  <rect x="10" y="10" width="14" height="14" rx="3" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+  <text x="30" y="21" font-size="10.5" fill="#3D3D3A">GEMM 阶段 (clay)</text>
+  <rect x="170" y="10" width="14" height="14" rx="3" fill="rgba(120,140,93,.12)" stroke="#788C5D"/>
+  <text x="190" y="21" font-size="10.5" fill="#3D3D3A">Elementwise 阶段 (olive)：STAGE 2 / 5</text>
+  <text x="470" y="21" font-size="10.5" fill="#87867F">↟ = dQ 写回 HBM（atomic / split-workspace）</text>
+</svg>
+<p class="svg-caption">图3 · 七阶段流水与依赖链：实线灰=代码顺序流；彩色实/虚线=数据依赖。中枢分叉点是 P（STAGE 2）与 dS（STAGE 5）。</p>
+
+<!-- ============ STAGE 1 ============ -->
+<h3 id="s-stage1">2.1 STAGE 1 — Q@K（gemm_0）→ 分数矩阵 S</h3>
+<table class="compact"><tbody>
+<tr><td><strong>① 输入</strong></td><td><code>q_reg_tensor</code>（本轮 Q tile，[kM0,d]，循环顶部载入）、<code>k_reg_tensor</code>（KV tile 的 K，[kN0,d]，hot loop 前已常驻寄存器）</td></tr>
+<tr><td><strong>② 计算</strong></td><td><strong>GEMM</strong>（gemm_0，Policy <code>GetQKBlockGemm</code>）：<code>S = Q · Kᵀ</code></td></tr>
+<tr><td><strong>③ 输出</strong></td><td><code>s_acc</code>：分数矩阵 <code>S</code>，tile 形状 <code>[kM0, kN0]</code>（AccDataType，fp32 累加）</td></tr>
+<tr><td><strong>④ 行号</strong></td><td>line 515–518</td></tr>
+</tbody></table>
+<div class="formula">S<sub>[kM0,kN0]</sub> = Q<sub>[kM0,d]</sub> · Kᵀ<sub>[d,kN0]</sub></div>
+<div class="code-block"><span class="cm">// STAGE 1, Q@K Gemm0                              line 515</span>
+<span class="kw">auto</span> s_acc = SPBlockTileType{};
+s_acc = <span class="fn">gemm_0</span>(q_reg_tensor, k_reg_tensor);   <span class="cm">// 518</span></div>
+<div class="note-block">这一步等价于前向第一颗 GEMM——但反向里 S 不需要重算 max/sum，因为 PRE-pass 已把 <code>LSE</code> 存好，STAGE 2 一趟就能还原概率。</div>
+
+<!-- ============ STAGE 2 ============ -->
+<h3 id="s-stage2">2.2 STAGE 2 — Scale / +Bias / Mask / Softmax / Dropout → 概率 P</h3>
+<table class="compact"><tbody>
+<tr><td><strong>① 输入</strong></td><td><code>s_acc</code>（STAGE 1 的 S）、<code>lse</code>（PRE-pass 存的 row-LSE）、可选 <code>bias</code> tile</td></tr>
+<tr><td><strong>② 计算</strong></td><td><strong>Elementwise</strong>（无 GEMM）：乘 scale → 可选加 bias → mask 置 -inf → <code>p = exp2(scale·s − row_lse)</code> → 可选 dropout</td></tr>
+<tr><td><strong>③ 输出</strong></td><td><code>p</code> / <code>p_gemm</code>：注意力概率 <code>P</code>，[kM0,kN0]，转成 GemmDataType 供后续 GEMM</td></tr>
+<tr><td><strong>④ 行号</strong></td><td>line 520–621</td></tr>
+</tbody></table>
+<div class="formula formula-block">
+<span class="line">scale·s + bias        // 可选：ELEMENTWISE_BIAS / ALIBI（521–555）</span>
+<span class="line">s[i,j] = -∞           // mask 越界位置（557–566）</span>
+<span class="line">P[i,j] = exp2( scale·s[i,j] − log2e·LSE[i] )   // 单趟还原（587–604）</span>
+</div>
+<div class="code-block"><span class="cm">// softmax 用 PRE 存的 LSE 单趟还原 P          line 587–604</span>
+sweep_tile_span(p_spans[number&lt;0&gt;{}], [&amp;](<span class="kw">auto</span> idx0){
+  <span class="kw">auto</span> row_lse = log2e_v&lt;LSEDataType&gt; * get_validated_lse(lse[i_idx]);
+  sweep_tile_span(p_spans[number&lt;1&gt;{}], [&amp;](<span class="kw">auto</span> idx1){
+    <span class="cm">// 无 bias 分支：scale 内联进 exp2</span>
+    p(i_j_idx) = <span class="fn">exp2</span>(scale * s_acc[i_j_idx] - row_lse);   <span class="cm">// 601</span>
+  });
+});</div>
+<div class="callout-grid">
+  <div class="callout"><div class="k">为什么单趟</div><div class="t">LSE 已存</div><div class="d">前向把每行的 <code>LSE = max + log Σexp</code> 存进 HBM。反向直接 <code>P = exp(s − LSE)</code>，<strong>免去重新求 max 与归一化</strong>，省一遍 reduce。</div></div>
+  <div class="callout"><div class="k">为什么 exp2</div><div class="t">硬件指令</div><div class="d">CDNA(gfx942) 的硬件指数指令<strong>原生以 2 为底</strong>（<code>v_exp_f32</code> 即算 2ˣ，属超越函数 VALU）。用 <code>log2e_v</code> 把底从 e 换到 2：<code>exp(x)=exp2(x·log2e)</code>，scale 与 log2e 提前折进指数，少一次乘法。</div></div>
+  <div class="callout"><div class="k">为什么 -inf</div><div class="t">mask 即归零</div><div class="d">越界/因果遮挡位置置 <code>-∞</code>，<code>exp2(-∞)=0</code>，自然让被遮位置概率为 0，无需额外分支。</div></div>
+</div>
+
+<!-- ============ STAGE 3 ============ -->
+<h3 id="s-stage3">2.3 STAGE 3 — Pᵀ@dOᵀ（gemm_1）→ 累加 dV</h3>
+<table class="compact"><tbody>
+<tr><td><strong>① 输入</strong></td><td><code>p_gemm</code>（STAGE 2 的 P）转置成 <code>pt_reg_tensor</code>；本轮 <code>dO</code> 流式载入（HBM→LDS→Reg）得 <code>dot_reg_tensor</code>（dOᵀ）</td></tr>
+<tr><td><strong>② 计算</strong></td><td><strong>GEMM</strong>（gemm_1，<code>GetPTOGradTBlockGemm</code>）：<code>dV += Pᵀ · dO</code>，结果累加进常驻 <code>dv_acc</code></td></tr>
+<tr><td><strong>③ 输出</strong></td><td><code>dv_acc</code>（[kN0,d]）累加更新——<strong>跨整个 Q 循环常驻寄存器</strong></td></tr>
+<tr><td><strong>④ 行号</strong></td><td>line 624–646（dO 载入 625–637；转置 643–645；GEMM 646）</td></tr>
+</tbody></table>
+<div class="formula">dV<sub>[kN0,d]</sub> += Pᵀ<sub>[kN0,kM0]</sub> · dO<sub>[kM0,d]</sub></div>
+<div class="code-block"><span class="cm">// STAGE 3, P^T@OGrad^T Gemm1                      line 624</span>
+<span class="kw">auto</span> do_block_tile = <span class="fn">load_tile</span>(do_dram_window);  <span class="cm">// 流式载 dO</span>
+... store_tile / shuffle_tile（dO、dOᵀ 入 LDS） ...
+Policy::PTFromGemm0CToGemm1A(pt_reg_tensor, p_gemm);    <span class="cm">// 643 构造 Pᵀ</span>
+<span class="fn">gemm_1</span>(dv_acc, pt_reg_tensor, dot_reg_tensor);        <span class="cm">// 646 dv_acc += Pᵀ@dOᵀ</span></div>
+<div class="note-block"><strong>为什么 dV 用累加器</strong>：<code>dV_n = Σ over 所有 query</code>。本 workgroup 独占这个 KV 块、扫遍所有 Q，所以把 <code>dv_acc</code> 放寄存器逐轮累加，循环结束一次写出，<strong>无需 atomic</strong>。</div>
+
+<!-- ============ STAGE 4 ============ -->
+<h3 id="s-stage4">2.4 STAGE 4 — dO@V（gemm_2）→ dP（并载入 D）</h3>
+<table class="compact"><tbody>
+<tr><td><strong>① 输入</strong></td><td><code>do_reg_tensor</code>（STAGE 3 已入 LDS 的 dO）、<code>v_reg_tensor</code>（常驻 V）；同时载入 <code>d</code> = PRE-pass 的 <code>rowsum(O⊙dO)</code></td></tr>
+<tr><td><strong>② 计算</strong></td><td><strong>GEMM</strong>（gemm_2，<code>GetOGradVBlockGemm</code>）：<code>dP = dO · Vᵀ</code></td></tr>
+<tr><td><strong>③ 输出</strong></td><td><code>dp_acc</code>：概率梯度 <code>dP</code>，[kM0,kN0]；外加备好的 <code>d</code>（[kM0] 行向量）供 STAGE 5</td></tr>
+<tr><td><strong>④ 行号</strong></td><td>line 648–655</td></tr>
+</tbody></table>
+<div class="formula">dP<sub>[kM0,kN0]</sub> = dO<sub>[kM0,d]</sub> · Vᵀ<sub>[d,kN0]</sub></div>
+<div class="code-block"><span class="cm">// STAGE 4, OGrad@V Gemm2                           line 648</span>
+<span class="kw">auto</span> do_reg_tensor = <span class="fn">load_tile</span>(do_lds_read_window);
+<span class="kw">auto</span> d            = <span class="fn">load_tile</span>(d_lds_read_window);   <span class="cm">// D = rowsum(O⊙dO)</span>
+<span class="kw">auto</span> dp_acc = SPGradBlockTileType{};
+dp_acc = <span class="fn">gemm_2</span>(do_reg_tensor, v_reg_tensor);     <span class="cm">// 655</span></div>
+<div class="note-block"><code>D</code>（在 PRE-pass 里算好，<code>D_i = Σ_d O[i,d]·dO[i,d]</code>）是 softmax 反向的关键标量行向量，正好在这里随 dO 一起搬到位，紧接 STAGE 5 使用。<br><strong>关于 Vᵀ</strong>：V 以 <code>v_reg</code> 本体参与，<code>Vᵀ</code> 由 gemm_2 内部布局实现，故 V 没有独立的转置副本（不同于 gemm_1/3 显式构造 <code>pt_reg</code>/<code>dst_reg</code>，也不同于 gemm_0/4 用常驻 <code>kt_reg</code>）。</div>
+
+<!-- ============ STAGE 5 ============ -->
+<h3 id="s-stage5">2.5 STAGE 5 — dS = P ⊙ (dP − D)（softmax Jacobian 落地）</h3>
+<table class="compact"><tbody>
+<tr><td><strong>① 输入</strong></td><td><code>p</code>（STAGE 2 的 P）、<code>dp_acc</code>（STAGE 4 的 dP）、<code>d</code>（STAGE 4 载入的 D 行向量）</td></tr>
+<tr><td><strong>② 计算</strong></td><td><strong>Elementwise</strong>（无 GEMM）：逐元素 <code>ds = p · (dp − d)</code>；可选算 <code>dBias</code></td></tr>
+<tr><td><strong>③ 输出</strong></td><td><code>ds</code>：分数梯度 <code>dS</code>，[kM0,kN0]（AccDataType）</td></tr>
+<tr><td><strong>④ 行号</strong></td><td>line 657–696（核心 659–669；可选 dBias 671–696）</td></tr>
+</tbody></table>
+<div class="formula">dS[i,j] = P[i,j] · ( dP[i,j] − D[i] )</div>
+<div class="code-block"><span class="cm">// STAGE 5, dS = P ⊙ (dP − D)                       line 657</span>
+sweep_tile_span(ds_spans[number&lt;0&gt;{}], [&amp;](<span class="kw">auto</span> idx0){
+  sweep_tile_span(ds_spans[number&lt;1&gt;{}], [&amp;](<span class="kw">auto</span> idx1){
+    ds(i_j_idx) = p[i_j_idx] * (dp_acc[i_j_idx] - d[i_idx]);  <span class="cm">// 665</span>
+  });
+});
+<span class="cm">// dropout 时 undrop 位取 d（见源 664-667）</span></div>
+<div class="note-block"><strong>这就是 softmax 反向的数学心脏</strong>。前向 <code>P = softmax(S)</code> 的 Jacobian 给出 <code>dS = P ⊙ (dP − rowsum(P⊙dP))</code>，而 <code>rowsum(P⊙dP)</code> 恰等于 PRE 存的 <code>D</code>（因 <code>O = P·V</code> ⇒ 该 rowsum = <code>Σ O⊙dO</code>）。所以这一步把 dV/dK/dQ 全部依赖的 <code>dS</code> 一次性算出——它是第二个分叉中枢。</div>
+
+<!-- ============ STAGE 6 ============ -->
+<h3 id="s-stage6">2.6 STAGE 6 — dSᵀ@Qᵀ（gemm_3）→ 累加 dK（并把 dS 存 LDS）</h3>
+<table class="compact"><tbody>
+<tr><td><strong>① 输入</strong></td><td><code>ds</code>（STAGE 5）转 GemmDataType 后转置成 <code>dst_reg_tensor</code>；<code>qt_reg_tensor</code>（Qᵀ，循环顶部已备好）</td></tr>
+<tr><td><strong>② 计算</strong></td><td><strong>GEMM</strong>（gemm_3，<code>GetSGradTQTBlockGemm</code>）：<code>dK += dSᵀ · Q</code>，累加进常驻 <code>dk_acc</code></td></tr>
+<tr><td><strong>③ 输出</strong></td><td><code>dk_acc</code>（[kN0,d]）累加更新；并把 <code>ds_gemm</code> <code>store_tile</code> 进 LDS 供 STAGE 7 复用（line 710）</td></tr>
+<tr><td><strong>④ 行号</strong></td><td>line 698–710</td></tr>
+</tbody></table>
+<div class="formula">dK<sub>[kN0,d]</sub> += dSᵀ<sub>[kN0,kM0]</sub> · Q<sub>[kM0,d]</sub></div>
+<div class="code-block"><span class="cm">// STAGE 6, SGrad^T@Q^T Gemm3                       line 698</span>
+<span class="kw">const auto</span> ds_gemm = cast_tile&lt;GemmDataType&gt;(ds);
+Policy::SGradTFromGemm2CToGemm3A(dst_reg_tensor, ds_gemm);  <span class="cm">// 704 构造 dSᵀ</span>
+<span class="fn">gemm_3</span>(dk_acc, dst_reg_tensor, qt_reg_tensor);   <span class="cm">// 708 dk_acc += dSᵀ@Qᵀ</span>
+<span class="fn">store_tile</span>(ds_lds_window, ds_gemm);            <span class="cm">// 710 dS 存 LDS 给 STAGE7</span></div>
+<div class="note-block">与 dV 同理：<code>dK_n = Σ over 所有 query</code>，本 workgroup 独占 KV 块 ⇒ <code>dk_acc</code> 寄存器累加、循环末一次写出、<strong>无 atomic</strong>。注意 dS 在此<strong>顺手存进 LDS</strong>，因为 STAGE 7 要按列分块重读它。</div>
+
+<!-- ============ STAGE 7 ============ -->
+<h3 id="s-stage7">2.7 STAGE 7 — dS@Kᵀ（gemm_4）→ dQ + 写回</h3>
+<table class="compact"><tbody>
+<tr><td><strong>① 输入</strong></td><td><code>ds_reg_tensor</code>（从 STAGE 6 存的 LDS 分块读出）、<code>kt_reg_tensor</code> 的列切片（Kᵀ，常驻）</td></tr>
+<tr><td><strong>② 计算</strong></td><td><strong>GEMM</strong>（gemm_4，<code>GetSGradKTBlockGemm</code>）：沿 <code>k4_loops = kN0/kK4</code> 分块累加 <code>dQ += dS · K</code>，再乘 scale</td></tr>
+<tr><td><strong>③ 输出</strong></td><td><code>dq_acc</code>（[kM0,d]）→ <strong>写回 HBM</strong>（本轮 Q tile 一次性写出，非常驻累加器）</td></tr>
+<tr><td><strong>④ 行号</strong></td><td>line 718–757（分块 GEMM 722–737；scale 740–747；写回 749–757）</td></tr>
+</tbody></table>
+<div class="formula">dQ<sub>[kM0,d]</sub> += Σ<sub>k4_loops</sub> dS<sub>[kM0,kK4]</sub> · K<sub>[kK4,d]</sub></div>
+<div class="code-block"><span class="cm">// STAGE7 SGrad@K^T Gemm4，k4 分块 + double-buffer  line 718</span>
+static_for&lt;0, k4_loops, 1&gt;{}([&amp;](<span class="kw">auto</span> i_k4){
+  <span class="kw">if constexpr</span>(i_k4 &lt; k4_loops-1)
+    ds_reg_tensor_next = <span class="fn">load_tile</span>(ds_lds_read_window);  <span class="cm">// 725 预取下一块</span>
+  <span class="kw">auto</span> kt_slice = get_slice_tile(kt_reg_tensor, ...);   <span class="cm">// 728 Kᵀ 列切片</span>
+  <span class="fn">gemm_4</span>(dq_acc, ds_reg_tensor, kt_slice);            <span class="cm">// 731</span>
+  <span class="kw">if constexpr</span>(i_k4 &lt; k4_loops-1)
+    ds_reg_tensor.get_thread_buffer() = ds_reg_tensor_next...;  <span class="cm">// 735 切换 buffer</span>
+});
+<span class="cm">// dQ 写回两条路 ----------------------------------- line 749</span>
+<span class="kw">if constexpr</span>(kIsDeterministic) <span class="fn">store_tile</span>(dq_dram_window, dq_acc);  <span class="cm">// 751 split-workspace</span>
+<span class="kw">else</span>                          <span class="fn">update_tile</span>(dq_dram_window, dq_acc);  <span class="cm">// 755 atomicAdd</span></div>
+<div class="callout-grid">
+  <div class="callout"><div class="k">分块 + 预取</div><div class="t">double-buffer</div><div class="d"><code>dS</code> 太宽，沿 <code>kK4</code> 切成 <code>k4_loops</code> 块；用 <code>ds_reg_tensor_next</code> 提前 <code>load_tile</code> 下一块，与本块 <code>gemm_4</code> 重叠，隐藏 LDS 读延迟。</div></div>
+  <div class="callout"><div class="k">写回路 A</div><div class="t">deterministic</div><div class="d"><code>kIsDeterministic==true</code>：<code>store_tile</code> 到<strong>独立 split-workspace</strong>，每块各写各的，事后由 <code>convert_dq</code> kernel 归约求和——结果可复现。</div></div>
+  <div class="callout"><div class="k">写回路 B</div><div class="t">atomicAdd</div><div class="d">否则 <code>update_tile</code> = <strong>原子累加</strong>直接落到 dQ。快但浮点加法顺序不定 ⇒ 非确定。</div></div>
+</div>
+<div class="note-block"><strong>为什么唯独 dQ 要特殊处理</strong>：<code>dQ_i = Σ over 所有 KV 块</code>。同一行 dQ 会被<strong>多个 workgroup</strong>（各管不同 KV 块）写到，必须 atomic 或 split-workspace 防写冲突；而 dK/dV 每块被单一 workgroup 独占，故只在循环末普通写出。</div>
+
+<!-- ============ 图4：5 个 GEMM 形状 ============ -->
+<h4>五颗 GEMM 的张量形状 / 谁乘谁</h4>
+<svg viewBox="0 0 980 360" width="100%" role="img" aria-label="五个 GEMM 的张量形状">
+  <defs>
+    <style>
+      .gx-lbl{font-size:12px;font-weight:700;fill:#141413}
+      .gx-eq {font-size:12.5px;fill:#3D3D3A}
+      .gx-stg{font-size:10px;fill:#87867F}
+    </style>
+  </defs>
+
+  <!-- helper visual: each row = one gemm. matrix as small rect with shape label -->
+  <!-- row template y positions -->
+  <!-- gemm_0 -->
+  <g transform="translate(0,18)">
+    <text x="14" y="14" class="gx-lbl">gemm_0</text><text x="86" y="14" class="gx-stg">STAGE 1</text>
+    <rect x="150" y="0" width="64" height="34" rx="4" fill="rgba(120,140,93,.12)" stroke="#788C5D"/>
+    <text x="182" y="21" text-anchor="middle" class="gx-eq">Q</text>
+    <text x="182" y="50" text-anchor="middle" class="gx-stg">[kM0,d]</text>
+    <text x="226" y="21" text-anchor="middle" class="gx-eq">·</text>
+    <rect x="240" y="0" width="64" height="34" rx="4" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+    <text x="272" y="21" text-anchor="middle" class="gx-eq">Kᵀ</text>
+    <text x="272" y="50" text-anchor="middle" class="gx-stg">[d,kN0]</text>
+    <text x="316" y="21" text-anchor="middle" class="gx-eq">=</text>
+    <rect x="330" y="0" width="74" height="34" rx="4" fill="#F0EEE6" stroke="#87867F"/>
+    <text x="367" y="21" text-anchor="middle" class="gx-lbl">S</text>
+    <text x="367" y="50" text-anchor="middle" class="gx-stg">[kM0,kN0]</text>
+    <text x="430" y="21" class="gx-stg">分数矩阵</text>
+  </g>
+
+  <!-- gemm_1 -->
+  <g transform="translate(0,90)">
+    <text x="14" y="14" class="gx-lbl">gemm_1</text><text x="86" y="14" class="gx-stg">STAGE 3</text>
+    <rect x="150" y="0" width="64" height="34" rx="4" fill="#F0EEE6" stroke="#87867F"/>
+    <text x="182" y="21" text-anchor="middle" class="gx-eq">Pᵀ</text>
+    <text x="182" y="50" text-anchor="middle" class="gx-stg">[kN0,kM0]</text>
+    <text x="226" y="21" text-anchor="middle" class="gx-eq">·</text>
+    <rect x="240" y="0" width="64" height="34" rx="4" fill="rgba(120,140,93,.12)" stroke="#788C5D"/>
+    <text x="272" y="21" text-anchor="middle" class="gx-eq">dO</text>
+    <text x="272" y="50" text-anchor="middle" class="gx-stg">[kM0,d]</text>
+    <text x="316" y="21" text-anchor="middle" class="gx-eq">+=</text>
+    <rect x="330" y="0" width="74" height="34" rx="4" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+    <text x="367" y="21" text-anchor="middle" class="gx-lbl">dV</text>
+    <text x="367" y="50" text-anchor="middle" class="gx-stg">[kN0,d]</text>
+    <text x="430" y="21" class="gx-stg">累加器（常驻）</text>
+  </g>
+
+  <!-- gemm_2 -->
+  <g transform="translate(0,162)">
+    <text x="14" y="14" class="gx-lbl">gemm_2</text><text x="86" y="14" class="gx-stg">STAGE 4</text>
+    <rect x="150" y="0" width="64" height="34" rx="4" fill="rgba(120,140,93,.12)" stroke="#788C5D"/>
+    <text x="182" y="21" text-anchor="middle" class="gx-eq">dO</text>
+    <text x="182" y="50" text-anchor="middle" class="gx-stg">[kM0,d]</text>
+    <text x="226" y="21" text-anchor="middle" class="gx-eq">·</text>
+    <rect x="240" y="0" width="64" height="34" rx="4" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+    <text x="272" y="21" text-anchor="middle" class="gx-eq">Vᵀ</text>
+    <text x="272" y="50" text-anchor="middle" class="gx-stg">[d,kN0]</text>
+    <text x="316" y="21" text-anchor="middle" class="gx-eq">=</text>
+    <rect x="330" y="0" width="74" height="34" rx="4" fill="#F0EEE6" stroke="#87867F"/>
+    <text x="367" y="21" text-anchor="middle" class="gx-lbl">dP</text>
+    <text x="367" y="50" text-anchor="middle" class="gx-stg">[kM0,kN0]</text>
+    <text x="430" y="21" class="gx-stg">概率梯度</text>
+  </g>
+
+  <!-- gemm_3 -->
+  <g transform="translate(0,234)">
+    <text x="14" y="14" class="gx-lbl">gemm_3</text><text x="86" y="14" class="gx-stg">STAGE 6</text>
+    <rect x="150" y="0" width="64" height="34" rx="4" fill="#F0EEE6" stroke="#87867F"/>
+    <text x="182" y="21" text-anchor="middle" class="gx-eq">dSᵀ</text>
+    <text x="182" y="50" text-anchor="middle" class="gx-stg">[kN0,kM0]</text>
+    <text x="226" y="21" text-anchor="middle" class="gx-eq">·</text>
+    <rect x="240" y="0" width="64" height="34" rx="4" fill="rgba(120,140,93,.12)" stroke="#788C5D"/>
+    <text x="272" y="21" text-anchor="middle" class="gx-eq">Q</text>
+    <text x="272" y="50" text-anchor="middle" class="gx-stg">[kM0,d]</text>
+    <text x="316" y="21" text-anchor="middle" class="gx-eq">+=</text>
+    <rect x="330" y="0" width="74" height="34" rx="4" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+    <text x="367" y="21" text-anchor="middle" class="gx-lbl">dK</text>
+    <text x="367" y="50" text-anchor="middle" class="gx-stg">[kN0,d]</text>
+    <text x="430" y="21" class="gx-stg">累加器（常驻）</text>
+  </g>
+
+  <!-- gemm_4 -->
+  <g transform="translate(0,306)">
+    <text x="14" y="14" class="gx-lbl">gemm_4</text><text x="86" y="14" class="gx-stg">STAGE 7</text>
+    <rect x="150" y="0" width="64" height="34" rx="4" fill="#F0EEE6" stroke="#87867F"/>
+    <text x="182" y="21" text-anchor="middle" class="gx-eq">dS</text>
+    <text x="182" y="50" text-anchor="middle" class="gx-stg">[kM0,kN0]</text>
+    <text x="226" y="21" text-anchor="middle" class="gx-eq">·</text>
+    <rect x="240" y="0" width="64" height="34" rx="4" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+    <text x="272" y="21" text-anchor="middle" class="gx-eq">K</text>
+    <text x="272" y="50" text-anchor="middle" class="gx-stg">[kN0,d]</text>
+    <text x="316" y="21" text-anchor="middle" class="gx-eq">+=</text>
+    <rect x="330" y="0" width="74" height="34" rx="4" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+    <text x="367" y="21" text-anchor="middle" class="gx-lbl">dQ</text>
+    <text x="367" y="50" text-anchor="middle" class="gx-stg">[kM0,d]</text>
+    <text x="430" y="21" class="gx-stg">写回 HBM（atomic/split）</text>
+  </g>
+
+  <!-- contraction-dim hint -->
+  <text x="600" y="40" font-size="11" fill="#87867F">收缩维（消失的那一维）：</text>
+  <text x="600" y="60" font-size="11" fill="#3D3D3A">gemm_0/2 沿 d ；gemm_1/3 沿 kM0 ；gemm_4 沿 kN0</text>
+  <text x="600" y="92" font-size="10.5" fill="#87867F">kM0 = Q tile 行数</text>
+  <text x="600" y="110" font-size="10.5" fill="#87867F">kN0 = KV tile 行数（本 workgroup 固定）</text>
+  <text x="600" y="128" font-size="10.5" fill="#87867F">d   = head dim</text>
+</svg>
+<p class="svg-caption">图4 · 五颗 GEMM 的 [A]·[B]=[C] 形状对位：clay=K/V/dV/dK/dQ 相关，olive=Q/dO 相关，灰=中间张量 S/P/dP/dS。<code>+=</code> 标的是常驻累加器。</p>
+
+<div class="note-block"><strong>关于转置标记（ᵀ）</strong>：源码 Policy 名（<code>PTOGradT</code>/<code>SGradTQT</code>/<code>SGradKT</code>）与变量（<code>pt_reg</code>/<code>dst_reg</code>/<code>kt_reg</code>）里的 ᵀ 是为 <strong>MFMA</strong> 硬件指令（矩阵核心，限 CDNA3/CDNA4 = gfx942/gfx950）准备的<strong>布局转置</strong>。上图按数学结果给出形状（如 <code>dV = Pᵀ·dO</code>、<code>dQ = dS·K</code>），让维度直观对上；实际寄存器里相应操作数以转置布局驻留。其中 <strong>Kᵀ / Qᵀ / dOᵀ 经 LDS shuffle 转置，而 Pᵀ / dSᵀ 是纯寄存器重分布（不落 LDS）</strong>——两类机制的区分详见 <a href="#d-transpose" style="color:var(--clay);">§3.3</a>。</div>
+
+</section>
+
+<section id="dataflow">
+<h2>3. 数据流向与显存层级</h2>
+
+<p class="note-block">
+前两部分讲了 <strong>"逻辑流程"</strong>（KV 外循环、Q 内循环、七个 STAGE 各算什么）。本部分把这套逻辑落到 <strong>"硬件搬运"</strong>：数据真正怎么在 <strong>HBM → LDS → 寄存器</strong> 三级存储之间来回搬、为什么源码里有那么多看似"绕来绕去"的转置、以及 <code>dQ</code> 写回为什么要特殊对待。理解了这一层，就懂了 <code>kr_ktr_vr</code> 这个变体名字到底在省什么。
+</p>
+
+<h3 id="d-mem">3.1 三级存储模型：先认识舞台</h3>
+
+<p>GPU（本篇口径：AMD CDNA3 / gfx942 / MI300）算 GEMM 之前，数据必须从慢的地方搬到快的地方。三级存储的角色一句话说清（下列容量/延迟为 CDNA3 数量级）：</p>
+
+<div class="callout-grid">
+  <div class="callout">
+    <div class="k">Level 1 · 最大最慢</div>
+    <div class="t">HBM（显存）</div>
+    <div class="d">容量大（如 MI300X 192 GB）但延迟最高（<strong>~300–400 周期</strong>）、带宽是瓶颈。<code>Q/K/V/O/dO/LSE/D</code> 从这里读入；<code>dQ/dK/dV</code> 最终写回这里。<strong>能少搬一次就少搬一次。</strong></div>
+  </div>
+  <div class="callout">
+    <div class="k">Level 2 · 片上共享</div>
+    <div class="t">LDS（共享内存）</div>
+    <div class="d">CDNA3 每 CU <strong>64 KB</strong>、约 <strong>20 周期</strong>，<strong>一个 workgroup 内所有线程共享</strong>。本 pipeline 里它有两个身份：tile 的暂存区，以及最关键的——<strong>"转置中转站"</strong>。</div>
+  </div>
+  <div class="callout">
+    <div class="k">Level 3 · 最快最小</div>
+    <div class="t">Register（寄存器）</div>
+    <div class="d">最快（<strong>0–1 周期</strong>）、但<strong>线程私有</strong>、数量极有限。GEMM 的输入/输出 tile 都在这里；累加器 <code>dk_acc / dv_acc / dq_acc</code> 也常驻寄存器。</div>
+  </div>
+</div>
+
+<p class="note-block">
+<strong>核心矛盾：</strong>寄存器最快但装不下整块矩阵，HBM 装得下但慢。LDS 夹在中间，既当缓冲、又因为它"对整个 workgroup 可见"而成为做<strong>跨线程数据重排（转置）</strong>的唯一可行场所——这正是下面 3.2、3.3 反复出现 LDS 的根本原因。
+</p>
+
+<h3 id="d-load">3.2 hot loop 之前：KV 的"一次性装载 + 预转置"</h3>
+
+<p>
+名字 <code>kr_ktr_vr</code> = <strong>K</strong> in <strong>r</strong>egister + <strong>K</strong>ᵀ in <strong>r</strong>egister（k<strong>t</strong>r）+ <strong>V</strong> in <strong>r</strong>egister（源码 <code>name = "kr_ktr_vr"</code>，line 78）。也就是说，本 workgroup 负责的那一个 KV 块，会在进入 hot loop <strong>之前</strong>就被搬进寄存器并备好转置版本，然后<strong>整个 Q 内循环里反复复用，全程只搬这一次</strong>。
+</p>
+
+<p>三个量的搬运链（声明 line 151–258，实际搬运动作 line 240–258）：</p>
+
+<table class="compare-table">
+  <thead>
+    <tr>
+      <th>量</th>
+      <th>搬运链</th>
+      <th>关键源码行</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>K</code></td>
+      <td>HBM → LDS → Reg（直载，不转置）</td>
+      <td>load 240 → store_tile LDS 243 → load_tile Reg 248</td>
+    </tr>
+    <tr>
+      <td><code>V</code></td>
+      <td>HBM → LDS → Reg（直载，不转置）</td>
+      <td>load 241 → store_tile LDS 253 → load_tile Reg 257</td>
+    </tr>
+    <tr>
+      <td><code>Kᵀ</code></td>
+      <td>Reg →(shuffle)→ LDS → Reg（<strong>预转置</strong>）</td>
+      <td>shuffle_tile 244 → store_tile LDS 245 → load_tile Reg 251</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="note-block">
+注意 <code>K</code> 被搬了<strong>两遍</strong>：一遍直载得 <code>k_reg_tensor</code>（给 STAGE 1 的 <code>S = Q@Kᵀ</code> 当操作数），一遍经 <code>shuffle_tile</code> 转置得 <code>kt_reg_tensor</code>（给 STAGE 7 的 <code>dQ += dS@Kᵀ</code>）。这就是 <code>kr</code> 和 <code>ktr</code> 同时出现的原因——同一块 K，两种布局都预先备在寄存器里，免得在 hot loop 里反复转。
+</p>
+
+<div class="code-block"><span class="cm">// line 240-258 —— hot loop 之前，只执行一次</span>
+<span class="kw">auto</span> k_block_tile = <span class="fn">load_tile</span>(k_dram_window);   <span class="cm">// K: HBM -> Reg</span>
+<span class="kw">auto</span> v_block_tile = <span class="fn">load_tile</span>(v_dram_window);   <span class="cm">// V: HBM -> Reg</span>
+
+<span class="fn">store_tile</span>(k_lds_write_window, k_block_tile);          <span class="cm">// K -> LDS</span>
+<span class="fn">shuffle_tile</span>(shuffled_k_block_tile, k_block_tile);     <span class="cm">// K 在寄存器内做 lane shuffle</span>
+<span class="fn">store_tile</span>(shuffled_k_lds_write_window, ...);           <span class="cm">// 写进 LDS（转置中转）</span>
+<span class="fn">block_sync_lds</span>();
+k_reg_tensor  = <span class="fn">load_tile</span>(k_lds_read_window);          <span class="cm">// LDS -> Reg  得 k_reg  (kr)</span>
+<span class="fn">block_sync_lds</span>();
+<span class="kw">auto</span> kt_reg_tensor = <span class="fn">load_tile</span>(kt_lds_read_window);   <span class="cm">// 用"转置后的描述符"读回 得 kt_reg (ktr)</span>
+<span class="fn">store_tile</span>(v_lds_write_window, v_block_tile);          <span class="cm">// V -> LDS</span>
+<span class="fn">block_sync_lds</span>();
+<span class="kw">auto</span> v_reg_tensor = <span class="fn">load_tile</span>(v_lds_read_window);    <span class="cm">// LDS -> Reg  得 v_reg  (vr)</span></div>
+
+<p>
+"转置"的玄机在于：写进 LDS 用一种布局，读出来时用<strong>另一套坐标描述符</strong>（<code>MakeKTLdsReadBlockDescriptor</code> / <code>MakeKTRegBlockDescriptor</code>），于是同一片 LDS 数据被"按转置后的方向"重新读出。LDS 的"全 workgroup 可见"在这里是必需的——转置要跨线程交换数据，寄存器私有做不到。</p>
+
+<h3 id="d-transpose">3.3 为什么需要那么多转置？</h3>
+
+<p>
+根因是 <strong>GEMM 指令对操作数的布局有固定要求</strong>（哪个维度连续、谁当 A 谁当 B）。一个 tile 在上一步算出来的布局，往往不是下一个 GEMM 想要的布局，于是必须转置。本 pipeline 里需要转置的量有 <code>Kᵀ / Qᵀ / dOᵀ / Pᵀ / dSᵀ</code>。它们走<strong>两种不同机制</strong>：
+</p>
+
+<div class="callout-grid">
+  <div class="callout" style="border-top-color:#D97757;">
+    <div class="k" style="color:#D97757;">机制 A · 经 LDS 中转</div>
+    <div class="t">Kᵀ、Qᵀ、dOᵀ</div>
+    <div class="d">典型链 <code>HBM→Reg→shuffle→LDS→Reg</code>。借 LDS 的全局可见性跨线程重排。<br>Qᵀ：line 503 shuffle→504 写 LDS→699 读回；dOᵀ：632→633→639。</div>
+  </div>
+  <div class="callout">
+    <div class="k">机制 B · 纯寄存器重分布</div>
+    <div class="t">Pᵀ、dSᵀ</div>
+    <div class="d">不落 LDS，由 Policy 助手把<strong>上一个 GEMM 的 C 输出</strong>直接重分布成<strong>下一个 GEMM 的 A 输入</strong>。<br>Pᵀ：<code>PTFromGemm0CToGemm1A</code>（643-645）；dSᵀ：<code>SGradTFromGemm2CToGemm3A</code>（704-706）。</div>
+  </div>
+</div>
+
+<p>两个具体例子，看转置为什么躲不掉：</p>
+
+<ul>
+  <li><strong>STAGE 3 需要 Pᵀ 和 dOᵀ</strong>（算 <code>dV += Pᵀ@dOᵀ</code>，gemm_1，line 646）：<code>P</code> 是 STAGE 2 softmax 出来的 <code>kM0×kN0</code>，<code>dO</code> 是按行载入的；但 gemm_1 要的是它们的转置形态。<code>Pᵀ</code> 走机制 B（从 gemm_0 的 C 直接重分布，643-645），<code>dOᵀ</code> 走机制 A（经 LDS，639）。</li>
+  <li><strong>STAGE 6 需要 Qᵀ</strong>（算 <code>dK += dSᵀ@Qᵀ</code>，gemm_3，line 708）：<code>Q</code> 在 STAGE 1 是按 <code>q_reg</code> 布局用的，到这里要换成转置布局 <code>qt_reg</code>（line 699 从 LDS 读回，机制 A）；<code>dSᵀ</code> 走机制 B（704-706）。</li>
+</ul>
+
+<p class="note-block">
+<strong>LDS 是被复用的转置中转站。</strong>源码里 <code>qt_lds_ptr</code> 直接复用 <code>smem_ptr</code> 基址（line 291），Kᵀ 用 <code>smem_ptr + GetSmemSizeK</code>（line 220-221）——也就是说同一片 LDS 在不同阶段被 Kᵀ、Qᵀ、dOᵀ、dS 等量轮流借用。LDS 容量小，只能这样"分时复用"，这也是各种 <code>GetSmemSize*</code> 偏移量计算（line 267-270、333-335、353-358…）存在的原因。
+</p>
+
+<!-- ===================== 图 5 ===================== -->
+<svg viewBox="0 0 720 430" width="100%" style="max-width:760px;display:block;margin:14px auto;font-family:ui-sans-serif,system-ui,sans-serif;" role="img" aria-label="搬运链与转置示意">
+  <defs>
+    <marker id="ah5" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#3D3D3A"/>
+    </marker>
+    <marker id="ah5c" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#D97757"/>
+    </marker>
+  </defs>
+
+  <!-- 三级存储泳道标签 -->
+  <text x="60"  y="28" font-size="12" font-weight="700" fill="#87867F" text-anchor="middle">HBM（慢）</text>
+  <text x="300" y="28" font-size="12" font-weight="700" fill="#87867F" text-anchor="middle">LDS（共享 · 转置站）</text>
+  <text x="600" y="28" font-size="12" font-weight="700" fill="#87867F" text-anchor="middle">Register（快）</text>
+  <line x1="150" y1="40" x2="150" y2="300" stroke="#D1CFC5" stroke-dasharray="3 3"/>
+  <line x1="460" y1="40" x2="460" y2="300" stroke="#D1CFC5" stroke-dasharray="3 3"/>
+
+  <!-- 直载链 -->
+  <text x="20" y="78" font-size="12.5" font-weight="700" fill="#788C5D">① 直载链（无转置）</text>
+  <text x="20" y="95" font-size="11" fill="#87867F">K · V · Q · dO · LSE</text>
+  <rect x="40" y="108" width="100" height="40" rx="6" fill="rgba(120,140,93,.12)" stroke="#788C5D"/>
+  <text x="90" y="133" font-size="12" fill="#3D3D3A" text-anchor="middle">HBM 块</text>
+  <rect x="250" y="108" width="120" height="40" rx="6" fill="#F0EEE6" stroke="#788C5D"/>
+  <text x="310" y="133" font-size="12" fill="#3D3D3A" text-anchor="middle">LDS 暂存</text>
+  <rect x="520" y="108" width="160" height="40" rx="6" fill="rgba(120,140,93,.12)" stroke="#788C5D"/>
+  <text x="600" y="133" font-size="12" fill="#3D3D3A" text-anchor="middle">Reg → GEMM</text>
+  <line x1="140" y1="128" x2="248" y2="128" stroke="#3D3D3A" marker-end="url(#ah5)"/>
+  <text x="194" y="121" font-size="10" fill="#87867F" text-anchor="middle">store</text>
+  <line x1="370" y1="128" x2="518" y2="128" stroke="#3D3D3A" marker-end="url(#ah5)"/>
+  <text x="444" y="121" font-size="10" fill="#87867F" text-anchor="middle">load</text>
+
+  <!-- 转置链 -->
+  <text x="20" y="190" font-size="12.5" font-weight="700" fill="#D97757">② 转置链（经 LDS shuffle）</text>
+  <text x="20" y="207" font-size="11" fill="#87867F">Kᵀ · Qᵀ · dOᵀ</text>
+  <rect x="40" y="220" width="100" height="40" rx="6" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+  <text x="90" y="245" font-size="12" fill="#3D3D3A" text-anchor="middle">HBM 块</text>
+  <rect x="250" y="220" width="120" height="40" rx="6" fill="#F0EEE6" stroke="#D97757"/>
+  <text x="310" y="238" font-size="11" fill="#3D3D3A" text-anchor="middle">LDS</text>
+  <text x="310" y="252" font-size="9.5" fill="#D97757" text-anchor="middle">shuffle 转置</text>
+  <rect x="520" y="220" width="160" height="40" rx="6" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+  <text x="600" y="245" font-size="12" fill="#3D3D3A" text-anchor="middle">Reg(转置) → GEMM</text>
+  <!-- HBM -> Reg(短驻) -> shuffle -> LDS -> Reg -->
+  <line x1="140" y1="240" x2="248" y2="240" stroke="#D97757" marker-end="url(#ah5c)"/>
+  <text x="194" y="233" font-size="10" fill="#D97757" text-anchor="middle">Reg+shuffle</text>
+  <line x1="370" y1="240" x2="518" y2="240" stroke="#D97757" marker-end="url(#ah5c)"/>
+  <text x="444" y="233" font-size="10" fill="#D97757" text-anchor="middle">转置描述符 load</text>
+
+  <!-- 机制 B 注记 -->
+  <text x="20" y="296" font-size="10.5" fill="#87867F">③ Pᵀ / dSᵀ：不落 LDS，由 Policy 在寄存器内把上个 GEMM 的 C 直接重分布成下个 GEMM 的 A（643-645 / 704-706）</text>
+
+  <!-- 常驻 vs 流式 横幅 -->
+  <rect x="40" y="330" width="300" height="78" rx="8" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+  <text x="190" y="352" font-size="12.5" font-weight="700" fill="#D97757" text-anchor="middle">常驻：KV(+Kᵀ)</text>
+  <text x="190" y="372" font-size="11" fill="#3D3D3A" text-anchor="middle">进 hot loop 前载 1 次</text>
+  <text x="190" y="392" font-size="11" fill="#3D3D3A" text-anchor="middle">整个 Q 循环复用 → 带宽省</text>
+
+  <rect x="380" y="330" width="300" height="78" rx="8" fill="rgba(120,140,93,.12)" stroke="#788C5D"/>
+  <text x="530" y="352" font-size="12.5" font-weight="700" fill="#788C5D" text-anchor="middle">流式：Q / dO / LSE / D</text>
+  <text x="530" y="372" font-size="11" fill="#3D3D3A" text-anchor="middle">每轮循环各载 1 次</text>
+  <text x="530" y="392" font-size="11" fill="#3D3D3A" text-anchor="middle">共载 num_total_loop 次</text>
+</svg>
+<p class="svg-caption">图 5　两条搬运链（直载 vs 转置）与"常驻 KV / 流式 Q"的带宽对比。转置之所以非经 LDS 不可，是因为它需要跨线程交换数据，而寄存器是线程私有的。</p>
+
+<h3 id="d-resident">3.4 常驻 vs 流式：带宽账本</h3>
+
+<p>
+把 3.2、3.3 的搬运换算成"搬了几次"，就看清 <code>kr_ktr_vr</code> 在优化什么了。设 Q 内循环跑 <code>num_total_loop = ceil((seqlen_q_end − seqlen_q_start)/kM0)</code> 轮（line 163）：
+</p>
+
+<table class="compare-table">
+  <thead>
+    <tr>
+      <th>数据</th>
+      <th>载入次数（每 workgroup）</th>
+      <th>位置</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>K / V / Kᵀ</code></td>
+      <td><strong>1 次</strong>（hot loop 之前，240-258）</td>
+      <td>常驻寄存器，全程复用</td>
+    </tr>
+    <tr>
+      <td><code>Q / LSE</code></td>
+      <td><code>num_total_loop</code> 次（496-500，每轮 move 窗口）</td>
+      <td>流式：用完即弃</td>
+    </tr>
+    <tr>
+      <td><code>dO / D</code></td>
+      <td><code>num_total_loop</code> 次（625-629）</td>
+      <td>流式：用完即弃</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="note-block">
+<strong>为什么这样分？</strong>呼应第 1 部分的并行划分：本 workgroup <strong>独占一个 KV 块、要扫所有 Q</strong>。KV 在整个循环里不变 → 一次载入、常驻寄存器最划算；Q/dO 每轮都换 → 只能流式。<code>kr_ktr_vr</code> 的全部价值就在"把 K、Kᵀ、V 钉死在寄存器里"，让占比最大的 KV 带宽只付一次。代价是寄存器压力变大（K 还存了转置副本），这是典型的<strong>带宽换寄存器</strong>权衡。
+</p>
+
+<h3 id="d-dqwrite">3.5 dQ 写回的两条路（重点）</h3>
+
+<p>
+<code>dK / dV</code> 用常驻累加器 <code>dk_acc / dv_acc</code> 攒完整个 Q 循环，循环结束后一次性返回（line 775）——因为<strong>每个 KV 块被唯一一个 workgroup 独占</strong>，没人和它抢，无需 atomic。但 <code>dQ</code> 不一样：
+</p>
+
+<p class="formula">
+dQ<sub>i</sub> = Σ<sub>(所有 KV 块 j)</sub> dS<sub>ij</sub> @ Kᵀ<sub>j</sub>　　← 同一行 dQ<sub>i</sub> 被<strong>多个 workgroup</strong>（每个负责不同的 KV 块 j）同时贡献
+</p>
+
+<p>
+也就是说，不同 workgroup 会写到<strong>同一行 dQ</strong>，必然冲突。源码用 <code>kIsDeterministic</code> 在两条路里二选一（line 749-756）：</p>
+
+<div class="code-block"><span class="cm">// line 749-756 —— STAGE 7 末尾，dQ 写回</span>
+<span class="kw">if</span> <span class="kw">constexpr</span>(kIsDeterministic)
+{
+    <span class="fn">store_tile</span>(dq_dram_window, dq_acc);   <span class="cm">// 路 B：各写各的 split-workspace 分片</span>
+}
+<span class="kw">else</span>
+{
+    <span class="fn">update_tile</span>(dq_dram_window, dq_acc);  <span class="cm">// 路 A：atomicAdd 直接累加到 dQ</span>
+}</div>
+
+<div class="callout-grid">
+  <div class="callout" style="border-top-color:#D97757;">
+    <div class="k" style="color:#D97757;">路 A · 默认</div>
+    <div class="t">update_tile = atomicAdd（755）</div>
+    <div class="d">每个 workgroup 用原子加直接把自己的 <code>dq_acc</code> 累进 HBM 里的 <code>dQ</code>。<strong>简单、省内存</strong>，但有<strong>原子争用开销</strong>，且浮点求和顺序随调度而变 → <strong>结果非确定（不可逐位复现）</strong>。</div>
+  </div>
+  <div class="callout">
+    <div class="k">路 B · kIsDeterministic</div>
+    <div class="t">store_tile → split-workspace（751）</div>
+    <div class="d">每个 workgroup 把结果 <code>store</code> 到<strong>各自独立的分片</strong>（互不重叠，无需 atomic），事后由单独的 <code>convert_dq</code> kernel 按固定顺序归约求和 → <strong>结果可复现</strong>。代价：额外 workspace 显存 + 一趟归约 kernel。</div>
+  </div>
+</div>
+
+<p class="note-block">
+<strong>权衡一句话：</strong>路 A 拿"非确定 + 原子争用"换"省显存、少一趟 kernel"；路 B 拿"额外显存 + 归约开销"换"逐位可复现"。（<code>atomicAdd(FP32)</code> 在 CDNA3 是<strong>硬件原生</strong>指令 <code>buffer_atomic_add_f32</code>、无需 CAS 循环；但全局原子要经 Data Fabric 串行化，且浮点加法<strong>不满足结合律</strong>，求和顺序随调度而变 ⇒ 非逐位确定。）需要 bit-wise 可复现（如调试、严格回归对齐）时开 <code>kIsDeterministic</code>，否则默认走 atomicAdd。<code>dK/dV</code> 因独占而完全没有这个烦恼——这是 dQ 在整个反向里唯一需要特判写回的量。
+</p>
+
+<!-- ===================== 图 6 ===================== -->
+<svg viewBox="0 0 720 380" width="100%" style="max-width:760px;display:block;margin:14px auto;font-family:ui-sans-serif,system-ui,sans-serif;" role="img" aria-label="dQ 写回两条路示意">
+  <defs>
+    <marker id="ah6" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#D97757"/>
+    </marker>
+    <marker id="ah6o" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#788C5D"/>
+    </marker>
+  </defs>
+
+  <line x1="360" y1="20" x2="360" y2="360" stroke="#D1CFC5" stroke-dasharray="4 4"/>
+
+  <!-- ===== 路 A：atomicAdd ===== -->
+  <text x="175" y="34" font-size="13" font-weight="700" fill="#D97757" text-anchor="middle">路 A · atomicAdd（默认）</text>
+
+  <rect x="30"  y="56" width="86" height="34" rx="6" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+  <text x="73"  y="78" font-size="11" fill="#3D3D3A" text-anchor="middle">WG (KV₀)</text>
+  <rect x="135" y="56" width="86" height="34" rx="6" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+  <text x="178" y="78" font-size="11" fill="#3D3D3A" text-anchor="middle">WG (KV₁)</text>
+  <rect x="240" y="56" width="86" height="34" rx="6" fill="rgba(217,119,87,.10)" stroke="#D97757"/>
+  <text x="283" y="78" font-size="11" fill="#3D3D3A" text-anchor="middle">WG (KV₂)</text>
+
+  <!-- 三箭头同时指向同一 dQ 行 -->
+  <line x1="73"  y1="90" x2="165" y2="170" stroke="#D97757" marker-end="url(#ah6)"/>
+  <line x1="178" y1="90" x2="178" y2="170" stroke="#D97757" marker-end="url(#ah6)"/>
+  <line x1="283" y1="90" x2="191" y2="170" stroke="#D97757" marker-end="url(#ah6)"/>
+
+  <rect x="95" y="174" width="166" height="40" rx="6" fill="#141413"/>
+  <text x="178" y="199" font-size="12" fill="#E8E6DE" text-anchor="middle">dQ 同一行（HBM）</text>
+
+  <text x="178" y="246" font-size="11.5" font-weight="700" fill="#D97757" text-anchor="middle">⚡ 原子争用</text>
+  <text x="178" y="266" font-size="10.5" fill="#87867F" text-anchor="middle">三个 WG 抢同一地址</text>
+  <text x="178" y="300" font-size="10.5" fill="#3D3D3A" text-anchor="middle">+ 求和顺序不定</text>
+  <text x="178" y="318" font-size="10.5" fill="#3D3D3A" text-anchor="middle">→ 非确定，省显存</text>
+
+  <!-- ===== 路 B：split-workspace ===== -->
+  <text x="545" y="34" font-size="13" font-weight="700" fill="#788C5D" text-anchor="middle">路 B · split-workspace（确定性）</text>
+
+  <rect x="400" y="56" width="86" height="34" rx="6" fill="rgba(120,140,93,.12)" stroke="#788C5D"/>
+  <text x="443" y="78" font-size="11" fill="#3D3D3A" text-anchor="middle">WG (KV₀)</text>
+  <rect x="505" y="56" width="86" height="34" rx="6" fill="rgba(120,140,93,.12)" stroke="#788C5D"/>
+  <text x="548" y="78" font-size="11" fill="#3D3D3A" text-anchor="middle">WG (KV₁)</text>
+  <rect x="610" y="56" width="86" height="34" rx="6" fill="rgba(120,140,93,.12)" stroke="#788C5D"/>
+  <text x="653" y="78" font-size="11" fill="#3D3D3A" text-anchor="middle">WG (KV₂)</text>
+
+  <!-- 各写各分片：一一对应 -->
+  <line x1="443" y1="90" x2="443" y2="128" stroke="#788C5D" marker-end="url(#ah6o)"/>
+  <line x1="548" y1="90" x2="548" y2="128" stroke="#788C5D" marker-end="url(#ah6o)"/>
+  <line x1="653" y1="90" x2="653" y2="128" stroke="#788C5D" marker-end="url(#ah6o)"/>
+
+  <rect x="408" y="132" width="70" height="34" rx="5" fill="#F0EEE6" stroke="#788C5D"/>
+  <text x="443" y="154" font-size="10.5" fill="#3D3D3A" text-anchor="middle">分片 0</text>
+  <rect x="513" y="132" width="70" height="34" rx="5" fill="#F0EEE6" stroke="#788C5D"/>
+  <text x="548" y="154" font-size="10.5" fill="#3D3D3A" text-anchor="middle">分片 1</text>
+  <rect x="618" y="132" width="70" height="34" rx="5" fill="#F0EEE6" stroke="#788C5D"/>
+  <text x="653" y="154" font-size="10.5" fill="#3D3D3A" text-anchor="middle">分片 2</text>
+  <text x="548" y="184" font-size="10" fill="#87867F" text-anchor="middle">互不重叠 · 无需 atomic</text>
+
+  <!-- 归约 -->
+  <line x1="443" y1="190" x2="520" y2="220" stroke="#788C5D" marker-end="url(#ah6o)"/>
+  <line x1="548" y1="190" x2="548" y2="220" stroke="#788C5D" marker-end="url(#ah6o)"/>
+  <line x1="653" y1="190" x2="576" y2="220" stroke="#788C5D" marker-end="url(#ah6o)"/>
+  <rect x="463" y="224" width="170" height="36" rx="6" fill="#788C5D"/>
+  <text x="548" y="247" font-size="11.5" fill="#fff" text-anchor="middle">convert_dq kernel 归约</text>
+
+  <line x1="548" y1="260" x2="548" y2="290" stroke="#788C5D" marker-end="url(#ah6o)"/>
+  <rect x="465" y="294" width="166" height="38" rx="6" fill="#141413"/>
+  <text x="548" y="318" font-size="12" fill="#E8E6DE" text-anchor="middle">dQ（HBM）· 固定顺序</text>
+
+  <text x="548" y="352" font-size="10.5" font-weight="700" fill="#788C5D" text-anchor="middle">✓ 可复现，代价：额外 workspace</text>
+</svg>
+<p class="svg-caption">图 6　dQ 写回两条路。左：所有 workgroup 用 atomicAdd 抢写同一行 dQ（争用、非确定）；右：各写各的独立分片，再由 convert_dq kernel 按固定顺序归约（确定、但需额外显存与一趟 kernel）。</p>
+
+<div class="note-block" style="font-size:12px;color:var(--gray-500);"><strong>本节硬件数据来源</strong>（rocm-ref，CDNA3/gfx942 口径）：存储层级容量/延迟 — <code>memory-hierarchy.md</code>（CDNA3 whitepaper：寄存器 0–1cy、LDS 64 KB/CU ~20cy、L2 ~100–200cy、HBM ~300–400cy；MI300X 192 GB HBM）；<code>exp2</code> 换底 — <code>hardware-specs-table.md</code>（CDNA3 超越函数 VALU：rcp/rsq/exp/log 等；AMD <code>v_exp_f32</code> 原生算 2ˣ）；dQ 写回 atomicAdd — <code>atomics.md</code>（CDNA3 ISA Ch.6：FP32 全局原子 <code>buffer_atomic_add_f32</code> 硬件原生、经 Data Fabric；浮点不满足结合律 ⇒ 顺序相关、非逐位确定）；MFMA 布局转置 — <code>mfma-register-layout.md</code>（CDNA3/4 ISA Ch.7，仅 gfx942/gfx950）。</div>
+
+</section>
+
+</main>
+
+<!-- ============== TOC ============== -->
+<nav class="toc">
+  <div class="t-head">CONTENTS</div>
+  <a href="#part1">1. 总览与并行骨架</a>
+  <a href="#p1-locate" class="sub">1.1 一句话定位</a>
+  <a href="#p1-parallel" class="sub">1.2 并行划分</a>
+  <a href="#p1-gemms" class="sub">1.3 5 个 Block GEMM</a>
+  <a href="#p1-acc" class="sub">1.4 常驻累加器 &amp; 早退</a>
+  <a href="#p1-dataflow" class="sub">1.5 数据流分层小抄</a>
+  <a href="#stages">2. 七阶段逐阶段拆解</a>
+  <a href="#s-stage1" class="sub">2.1 STAGE 1 · Q@K &rarr; S</a>
+  <a href="#s-stage2" class="sub">2.2 STAGE 2 · Softmax &rarr; P</a>
+  <a href="#s-stage3" class="sub">2.3 STAGE 3 · P&#x1d40;@dO&#x1d40; &rarr; dV</a>
+  <a href="#s-stage4" class="sub">2.4 STAGE 4 · dO@V &rarr; dP</a>
+  <a href="#s-stage5" class="sub">2.5 STAGE 5 · dS = P&odot;(dP&minus;D)</a>
+  <a href="#s-stage6" class="sub">2.6 STAGE 6 · dS&#x1d40;@Q&#x1d40; &rarr; dK</a>
+  <a href="#s-stage7" class="sub">2.7 STAGE 7 · dS@K&#x1d40; &rarr; dQ</a>
+  <a href="#dataflow">3. 数据流向与显存层级</a>
+  <a href="#d-mem" class="sub">3.1 三级存储模型</a>
+  <a href="#d-load" class="sub">3.2 KV 一次性装载 + 预转置</a>
+  <a href="#d-transpose" class="sub">3.3 为什么需要转置</a>
+  <a href="#d-resident" class="sub">3.4 常驻 vs 流式</a>
+  <a href="#d-dqwrite" class="sub">3.5 dQ 写回两条路</a>
+</nav>
+
+</div><!-- /layout -->
+<footer style="max-width:1040px;margin:64px auto 0;padding-top:20px;border-top:1px solid var(--gray-300);font-size:12.5px;color:var(--gray-500);line-height:1.8;">
+  <div><strong style="color:var(--gray-700);">源码出处</strong>：<code style="font-family:var(--mono);font-size:12px;">block_fmha_bwd_dq_dk_dv_pipeline_kr_ktr_vr.hpp</code>（779 行，结构体 <code>BlockFmhaBwdDQDKDVPipelineKRKTRVR</code>）@ <code style="font-family:var(--mono);font-size:12px;">/root/ck/include/ck_tile/ops/fmha/pipeline/</code>；主 kernel 包装 <code>FmhaBwdDQDKDVKernel</code>（<code>kernel/fmha_bwd_kernel.hpp</code>）。</div>
+  <div style="margin-top:6px;"><strong style="color:var(--gray-700);">配套报告</strong>：<a href="fmha-bwd-intro-20260528.html" style="color:var(--clay);">fmha-bwd-intro-20260528.html</a>（FMHA bwd 整体导读）&nbsp;&middot;&nbsp; <a href="bwd-saved-tensors-20260602.html" style="color:var(--clay);">bwd-saved-tensors-20260602.html</a>（fwd/bwd 间保存张量）。</div>
+  <div style="margin-top:6px;">行号与数学以源码 + CANON 骨架为准。日期 2026-06-02。</div>
+</footer>
+
+</div><!-- /page -->
+</body>
+</html>

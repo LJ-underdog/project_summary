@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M5（softmax 反向路径）代码改动 review</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M5 代码改动 review</div>
+  <h1>HSTU Attention Backward — M5（softmax 反向路径）：fork 一条 SiLU 流水线，载 LSE 把 P 解回来</h1>
+  <p class="subtitle">M5 给 no_group（batched + jagged）补齐 <strong>softmax</strong> 反向。核心是 fork 一份 MAIN pipeline（<code>hstu_attention_with_softmax_bwd_pipeline.hpp</code>）：从 fwd 存的 LSE 把概率 P 在 log2 域解回来，再加一个 PRE kernel 算 <code>D=rowsum(O&middot;dO)</code>。SiLU 路<strong>逐字不变</strong>。所有引用以 <code>git show 476bc16a:&lt;file&gt;</code> 行号为准。</p>
+  <div class="audience">读者：要 review 这条 softmax bwd 路径的工程师（关键 stage / 数学口径 / 布局对齐配白话）</div>
+</header>
+
+<div class="layout">
+<main>
+
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M5</div>
+  <p class="lede">M5 = <strong>SiLU MAIN 的 softmax fork</strong>。SiLU 路把 <code>S</code> 过 SiLU 当门；softmax 路要把 <code>S</code> 还原成概率 <code>P=exp(α&middot;S−LSE)</code> —— 这需要 fwd 存的 <code>LSE</code> 和一个新的 PRE kernel 产出的 <code>D=rowsum(O&middot;dO)</code>。整条路 dispatch 成 <code>RunSoftmax</code>：<em>PRE → memset dq_acc → MAIN → POST</em>。fwd 只切了一个 <code>is_training</code> 开关来吐 LSE，SiLU 路 byte-identical 零回归。</p>
+  <div class="badges">
+    <span class="badge info">+1261 / −11 · 4 文件改动</span>
+    <span class="badge ok">对拍 PASS：sweep 21/21</span>
+    <span class="badge ok">套件 60 / pass 59 / fail 0 / skip 1 · exit 0</span>
+    <span class="badge gate">group softmax → M5b（不做）</span>
+  </div>
+  <div class="statgrid">
+    <div class="stat"><div class="v">4</div><div class="l">改动文件（1 新建 + 3 改）</div></div>
+    <div class="stat"><div class="v">21/21</div><div class="l">M5 sweep 对拍 PASS</div></div>
+    <div class="stat"><div class="v">+16</div><div class="l">套件新增 softmax 交叉案</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">SiLU 回归（44 案仍 PASS）</div></div>
+  </div>
+</div>
+
+<section id="s1">
+  <h2>1&nbsp;&nbsp;总览：M5 到底改了什么</h2>
+  <p class="lede">一句话四件事：</p>
+  <div class="callout-grid">
+    <div class="callout clay"><div class="k">MAIN fork</div><div class="t">softmax pipeline</div><div class="d">新建 <code>with_softmax_bwd_pipeline.hpp</code>（582 行）。STAGE2 用 LSE 把 P 解回，STAGE5 <code>dS=P&middot;(dP−D)</code>，无 scale_p（<code>:33</code> / <code>:462-512</code>）。</div></div>
+    <div class="callout"><div class="k">PRE + kernel</div><div class="t">D=rowsum(O&middot;dO) + LSE 窗口</div><div class="d">新 <code>HstuAttentionBwdDQDKDVSoftmaxKernel</code>（建 LSE/D dram window，<code>bwd_kernel.hpp:456</code>）+ PRE <code>hstu_bwd_dot_do_o_kernel</code>（<code>:1209</code>）。</div></div>
+    <div class="callout"><div class="k">dispatch</div><div class="t">RunSoftmax 串四步</div><div class="d"><code>kUseSoftmax</code> 分支去 throw，改调 <code>RunSoftmax</code>（<code>dispatch:213</code>）：PRE→memset dq_acc→MAIN→POST convert。</div></div>
+    <div class="callout"><div class="k">验证 harness</div><div class="t">fwd 吐 LSE + 转置喂 ref</div><div class="d">softmax 时 fwd <code>is_training=true</code> 存 LSE（<code>[batch,head,seq]</code>），harness 取回<strong>转置</strong>成 reference 的 <code>[batch,seq,head]</code>，两侧共用同一份 GPU LSE。</div></div>
+  </div>
+  <div class="note-block clay"><strong>M5 最易错处：</strong>&nbsp;softmax 把 edge-tile 越界位置置 <code>−inf</code>（使 <code>exp2→0</code>），而 <strong>SiLU 路是置 <code>0</code></strong>——两者方向相反，抄错就 silent-wrong（<code>pipeline:457</code> 对照 <code>:27-28</code> 注释）。另一处：<code>LSE=−inf</code> 的全掩行必须经 <code>get_validated_lse</code> 校验成 0，否则 <code>−inf</code> 进 <code>exp2</code> 产 NaN（<code>:413-415</code>）。</div>
+</section>
+
+<section id="s2">
+  <h2>2&nbsp;&nbsp;最佳阅读顺序</h2>
+  <p class="lede">按「<strong>数学口径 → PRE 产 D → LSE 布局 → MAIN 解 P → dispatch 串联 → harness 验证</strong>」读。先认清「LSE/D 从哪来、什么布局」，再看 MAIN 怎么用它解 P，最后看怎么端到端对拍。</p>
+
+  <div class="svg-wrap">
+  <svg viewBox="0 0 940 300" width="100%" role="img" aria-label="M5 阅读顺序依赖流">
+    <defs>
+      <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#87867F"/></marker>
+    </defs>
+    <g font-size="12">
+      <!-- row 1: fwd LSE source -->
+      <rect x="14" y="20" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="114" y="42" text-anchor="middle" fill="#141413" font-weight="700">① fwd is_training=true</text>
+      <text x="114" y="60" text-anchor="middle" fill="#87867F">存 LSE [batch,head,seq]</text>
+
+      <rect x="270" y="20" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="370" y="42" text-anchor="middle" fill="#141413" font-weight="700">② PRE dot_do_o</text>
+      <text x="370" y="60" text-anchor="middle" fill="#87867F">D=rowsum(O&middot;dO)</text>
+
+      <rect x="526" y="20" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="626" y="42" text-anchor="middle" fill="#141413" font-weight="700">③ Softmax Kernel</text>
+      <text x="626" y="60" text-anchor="middle" fill="#87867F">建 LSE/D dram window</text>
+
+      <line x1="214" y1="47" x2="268" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="470" y1="47" x2="524" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="626" y1="74" x2="626" y2="110" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 2: MAIN pipeline stages -->
+      <rect x="526" y="112" width="200" height="68" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="626" y="134" text-anchor="middle" fill="#141413" font-weight="700">④ MAIN pipeline</text>
+      <text x="626" y="151" text-anchor="middle" fill="#87867F">STAGE2 P=exp2(αS−LSE)</text>
+      <text x="626" y="167" text-anchor="middle" fill="#87867F">STAGE5 dS=P(dP−D)</text>
+
+      <rect x="270" y="118" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="370" y="140" text-anchor="middle" fill="#141413" font-weight="700">⑤ RunSoftmax</text>
+      <text x="370" y="158" text-anchor="middle" fill="#87867F">PRE→memset→MAIN→POST</text>
+
+      <line x1="526" y1="146" x2="472" y2="146" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="370" y1="172" x2="370" y2="208" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 3: harness verify -->
+      <rect x="270" y="210" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="370" y="232" text-anchor="middle" fill="#141413" font-weight="700">⑥ harness</text>
+      <text x="370" y="250" text-anchor="middle" fill="#87867F">取 GPU LSE 转置→ref</text>
+
+      <rect x="526" y="210" width="200" height="54" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="626" y="232" text-anchor="middle" fill="#141413" font-weight="700">⑦ reference 对拍</text>
+      <text x="626" y="250" text-anchor="middle" fill="#87867F">[batch,seq,head] 视图</text>
+
+      <line x1="470" y1="237" x2="524" y2="237" stroke="#87867F" marker-end="url(#ar)"/>
+    </g>
+  </svg>
+  </div>
+  <p class="svg-caption">读法：①②③绿/橙=LSE/D 的「来源 + 布局」，④⑤橙=MAIN 怎么用它解 P + dispatch 串联，⑥⑦绿=同一份 GPU LSE 喂两侧、转置对齐后对拍。</p>
+
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>#</th><th>文件</th><th>读它回答的问题</th><th>重点行</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>hstu_attention_with_softmax_bwd_pipeline.hpp</code></td><td>softmax MAIN 数学：怎么<strong>解 P</strong>、怎么算 dS/dV/dK/dQ</td><td><code>:18-23</code> / <code>:409-470</code> / <code>:505-577</code></td></tr>
+      <tr><td>2</td><td><code>hstu_attention_bwd_kernel.hpp</code>（PRE）</td><td>PRE 怎么算 <code>D=rowsum(O&middot;dO)</code>、什么布局</td><td><code>:1209-1267</code></td></tr>
+      <tr><td>3</td><td><code>hstu_attention_bwd_kernel.hpp</code>（Softmax Kernel）</td><td>MAIN kernel 怎么<strong>建 LSE/D dram window</strong>、base offset</td><td><code>:456</code> / <code>:667-722</code> / <code>:755-776</code></td></tr>
+      <tr><td>4</td><td><code>hstu_attention_batched_backward_dispatch.hpp</code></td><td><strong>RunSoftmax</strong> 怎么串 PRE→memset→MAIN→POST</td><td><code>:210-360</code> / <code>:384-396</code></td></tr>
+      <tr><td>5</td><td><code>example_hstu_attention_bwd.cpp</code></td><td>怎么<strong>验证</strong>：fwd 吐 LSE → 转置喂 ref → 对拍</td><td>diff <code>@@ -299/-361/-383/-444/-460</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="s3">
+  <h2>3&nbsp;&nbsp;逐文件 review（为什么这样改）</h2>
+
+  <h3>① with_softmax_bwd_pipeline.hpp — softmax MAIN（SiLU 的 fork）<span class="tag tag-new">新增</span></h3>
+  <ul>
+    <li><strong>数学口径（注释钉死）</strong>：<code>:18-20</code> 写明 <code>LSE=log(Σexp(α&middot;S))</code> 自然对数（fwd 存），<code>P=exp(α&middot;S−LSE)</code>，但在 <strong>log2 域</strong>计算成 <code>exp2(scale&middot;s−log2e&middot;lse)</code>，<code>scale=α&middot;log2e</code>。这样硬件原生的 <code>exp2</code> 才能跑得快，数学上与 reference 的 <code>exp(αS−LSE)</code> 等价。</li>
+    <li><strong>operator() 签名</strong>：<code>:103-112</code> 比 SiLU 多收 <code>lse_dram_block_window_tmp</code> + <code>d_dram_block_window_tmp</code> 两个窗口，且<strong>丢掉 scale_p</strong>（softmax 无 P 输出缩放）。</li>
+    <li><strong>LSE/D 的 HBM→LDS→Reg</strong>：<code>:319-372</code> 用 policy <code>MakeLSEDDramTileDistribution</code> / <code>MakeLSEDLds{Write,Read}BlockDescriptor</code> 载入。LDS 偏移直接复用 FMHA 同款——LSE 起于 <code>QT+OGrad+OGradT+Q</code> 之后，D 再 <code>+LSE</code>。<strong>这些 region SiLU policy 的 <code>GetSmemSize</code> 已预留，故 smem 总量不变</strong>（<code>:31</code> / <code>:91-93</code>）。</li>
+    <li><strong>STAGE2 解 P</strong>：见下方代码块。edge-tile 越界位置置 <code>−inf</code>，再 <code>p=exp2(scale&middot;s_acc−row_lse)</code>。</li>
+    <li><strong>STAGE5</strong>：<code>:505-513</code> <code>ds=p&middot;(dp_acc−d[i_idx])</code>，替换 SiLU 的 <code>ds=dp&middot;g</code>，无 dropout/undrop 分支。</li>
+    <li><strong>收尾缩放</strong>：<code>:559</code> <code>dq_acc*=alpha</code>、<code>:575-576</code> 注释「dK scale by alpha; dV unscaled」+ <code>dk_acc*=alpha</code> —— <strong>dV 不乘 alpha</strong>，与 SiLU 一致。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_with_softmax_bwd_pipeline.hpp:445-469 — STAGE2 掩 −inf + log2 域解 P</span><span class="cm">// STAGE 2, mask + softmax recovery.</span>
+<span class="cm">// 运行时门 IsEdgeTile（非编译期 IsMasking）→ causal=0+num_target 也掩（沿用 P1-1 教训）</span>
+<span class="kw">if</span>(mask.<span class="fn">IsEdgeTile</span>(seqlen_q_step, k_origin.at(number&lt;0&gt;{}), number&lt;kM0&gt;{}, number&lt;kN0&gt;{}))
+{
+    <span class="kw">auto</span> is_masked_out = [&amp;](<span class="kw">auto</span> tile_idx) {
+        <span class="kw">const int</span> row = seqlen_q_step + tile_idx.at(number&lt;0&gt;{});
+        <span class="kw">const int</span> col = k_origin.at(number&lt;0&gt;{}) + tile_idx.at(number&lt;1&gt;{});
+        <span class="kw">return</span> !mask.<span class="fn">IsTokenPairInsideMask</span>(row, col);
+    };
+    <span class="hl">set_tile_if</span>(s_acc, -numeric&lt;AccDataType&gt;::infinity(), is_masked_out);  <span class="cm">// softmax 用 -inf（SiLU 用 0!）</span>
+}
+<span class="kw">auto</span> p = SPBlockTileType{};
+<span class="fn">sweep_tile_span</span>(p_spans[number&lt;0&gt;{}], [&amp;](<span class="kw">auto</span> idx0) {
+    <span class="kw">const auto</span> row_lse = log2e_v&lt;LSEDataType&gt; * <span class="fn">get_validated_lse</span>(lse[i_idx]);  <span class="cm">// -inf→0 防 NaN</span>
+    <span class="fn">sweep_tile_span</span>(p_spans[number&lt;1&gt;{}], [&amp;](<span class="kw">auto</span> idx1) {
+        p(i_j_idx) = <span class="hl">exp2</span>(scale * s_acc[i_j_idx] - row_lse);    <span class="cm">// = exp(α·S − LSE), scale=α·log2e</span>
+    });
+});</div>
+  <div class="note-block olive"><strong>为什么是 <code>−inf</code> 而不是 <code>0</code>？</strong>&nbsp;softmax 要让被掩位置的概率 <code>P→0</code>。因为 <code>P=exp2(...)</code>，只有把指数项打到 <code>−inf</code> 才能让 <code>exp2(−inf)=0</code>；若像 SiLU 那样置 <code>s_acc=0</code>，会得到 <code>exp2(−row_lse)≠0</code> 的杂散概率。反过来 SiLU 禁用 <code>−inf</code>（其门函数对 <code>−inf</code> 行为未定义）。这是两条 pipeline <strong>唯一不能互抄</strong>的地方。</div>
+
+  <h3>② bwd_kernel.hpp — PRE kernel <code>D=rowsum(O&middot;dO)</code> <span class="tag tag-new">新增</span></h3>
+  <ul>
+    <li><code>:1209-1223</code> <code>hstu_bwd_dot_do_o_kernel</code>：<strong>每线程一行</strong> <code>(i_batch,i_nhead,sq)</code>，grid 铺成 <code>[num_batch, num_head, max_seqlen_q]</code>（<code>:1228-1233</code> 解码）。</li>
+    <li><code>:1234-1256</code> <strong>batched vs jagged base offset</strong>：jagged 用 <code>seq_q_offsets[i_batch]</code> 定 token 基址；O/dO 用 <code>[batch,seq,head,hdim]</code> strides；<strong>D 写 <code>[batch,head,seq]</code> 连续-seq</strong>（<code>d_base</code> 末项直接 <code>+sq</code>/<code>+token</code>，seq stride=1）。</li>
+    <li><code>:1259-1265</code> <code>hdim_v=64</code> 小，单线程沿 v 累加 <code>acc+=float(O)*float(dO)</code>，<strong>float 累加</strong>后写出。</li>
+    <li>布局正是 MAIN 读 D 的布局——dispatch 在 MAIN 前 launch，<strong>全覆盖写、免 memset</strong>。</li>
+  </ul>
+
+  <h3>③ bwd_kernel.hpp — HstuAttentionBwdDQDKDVSoftmaxKernel <span class="tag tag-new">新增</span></h3>
+  <ul>
+    <li><code>:456</code> 与 SiLU kernel <strong>同款 window setup</strong>，额外构建 LSE+D 两个 dram window（<code>:451-454</code> 注释）。</li>
+    <li><code>:486-487</code> Kargs 多 <code>lse_ptr</code> / <code>d_ptr</code>（float，<code>[batch,head,seq]</code> 连续-seq；jagged 为 <code>[head,ΣL]</code>），<code>:524 nhead_stride_lsed</code> + <code>:533 batch_stride_lsed</code> 由 LSE 与 D <strong>共用</strong>。</li>
+    <li><strong>base offset</strong>：<code>:667-697</code> jagged 用 <code>query_start</code>（seq stride=1 packed），batched 用 <code>i_batch*batch_stride_lsed</code>；<code>:717-722</code> <code>lse_ptr</code>/<code>d_ptr</code> 加 <code>i_nhead*nhead_stride_lsed + batch_offset_lsed</code>。</li>
+    <li><code>:755-776</code> LSE/D 建成 <strong>1-D packed</strong> naive view（seq stride 1），开 <code>make_tile_window</code>；<code>:817-826</code> 连同 q/k/v/do 一起喂进 <code>HstuPipeline{}(...)</code>。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp:755-776 — LSE/D 建 1-D packed window 喂 pipeline</span><span class="cm">// LSE / D: 1-D packed over seqlen_q (seq stride 1), mirrors FMHA bwd kernel.</span>
+<span class="kw">const auto</span> lse_dram = <span class="fn">make_naive_tensor_view_packed</span>&lt;address_space_enum::global&gt;(
+    lse_ptr, <span class="fn">make_tuple</span>(kargs.seqlen_q), number&lt;HstuPipeline::kM0&gt;{});
+<span class="kw">const auto</span> d_dram = <span class="fn">make_naive_tensor_view_packed</span>&lt;address_space_enum::global&gt;(
+    d_ptr, <span class="fn">make_tuple</span>(kargs.seqlen_q), number&lt;HstuPipeline::kM0&gt;{});
+<span class="cm">// ...</span>
+<span class="kw">auto</span> lse_dram_window = <span class="fn">make_tile_window</span>(lse_dram, <span class="fn">make_tuple</span>(number&lt;HstuPipeline::kM0&gt;{}), {0});
+<span class="kw">auto</span> d_dram_window   = <span class="fn">make_tile_window</span>(d_dram,   <span class="fn">make_tuple</span>(number&lt;HstuPipeline::kM0&gt;{}), {0});</div>
+
+  <h3>④ batched_backward_dispatch.hpp — RunSoftmax + 去 throw <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li><code>:20-21</code> include 两条 pipeline（no_softmax + with_softmax）。</li>
+    <li><code>:213-216</code> 新 <code>RunSoftmax</code>：Problem 把 LSE/D 数据类型设为 real（<code>CompDataType</code>，<code>:232/:236</code>），用 <code>HstuAttentionWithSoftmaxBwdDQDKDVPipelineKRKTRVR</code>（<code>:250</code>）+ <code>HstuAttentionBwdDQDKDVSoftmaxKernel</code>（<code>:258</code>）。</li>
+    <li><strong>四步串联</strong>：<code>:260-291</code> PRE launch（grid <code>num_batch*num_head*grid_seqlen</code>，读 O/dO 用同一 O strides）→ <code>:342-345</code> <code>hipMemsetAsync</code> 清 dq_acc → <code>:356-358</code> MAIN launch → <code>:360+</code> POST <code>convert_dq</code> 把 float dq_acc 转 dQ。</li>
+    <li><code>:384-396</code> <code>kUseSoftmax</code> 分支<strong>去掉 M0 的 throw</strong>，hdim64 检查后 <code>BOOL_SWITCH(use_local)</code> 选 mask 再调 <code>RunSoftmax&lt;Mask&gt;</code>；SiLU 分支（<code>:399-411</code>）一字不动。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_batched_backward_dispatch.hpp:384-396 — kUseSoftmax 分支去 throw 改调 RunSoftmax</span><span class="kw">else if constexpr</span>(kUseSoftmax)
+{
+    <span class="cm">// M5: softmax (no_group = batched + jagged). hdim64 only.</span>
+    <span class="kw">if</span>(param.hdim_qk != 64 || param.hdim_v != 64)
+        <span class="kw">throw</span> std::runtime_error(<span class="str">"... hdim_qk=hdim_v=64 only (M7)"</span>);
+    <span class="kw">const bool</span> use_local = (param.window_size &gt; 0);
+    <span class="fn">BOOL_SWITCH</span>(use_local, kUseLocal, [&amp;] {
+        <span class="kw">using</span> Mask = <span class="kw">typename</span> ck_tile::HstuBlockMasking&lt;<span class="kw">false</span> <span class="cm">/*cross*/</span>, kUseCausal, kUseLocal&gt;::Type;
+        <span class="hl">RunSoftmax</span>&lt;Mask&gt;(param, stream);
+    });
+}</div>
+
+  <h3>⑤ example_hstu_attention_bwd.cpp — 验证 harness <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li>diff <code>@@ -299</code>：softmax 时 alloc <code>lse_dev</code> + <code>d_dev</code>（<code>[batch,head,seq]</code>，<code>nhead_stride_lsed=phy_seqlen_q</code>、<code>batch_stride_lsed=num_head*phy_seqlen_q</code>），无条件分配（便宜）。</li>
+    <li>diff <code>@@ -361</code>：fwd 把 <code>is_training=use_softmax</code>、<code>lse_ptr=lse_dev</code>、配置 <code>seq/nhead/batch_stride_lse</code> —— <strong>fwd 逻辑零改动，只切这一个开关</strong>。</li>
+    <li>diff <code>@@ -383</code>：softmax 取回 GPU LSE 后<strong>转置</strong>进 reference 的 <code>lse_host(b,s,h)=lse_flat[(b*num_head+h)*phy_seqlen_q+s]</code>。</li>
+    <li>diff <code>@@ -444/-460</code>：bwd 接线 <code>bp.lse_ptr=lse_dev</code>、<code>bp.d_ptr=d_dev</code> + stride_lsed。<strong>GPU-bwd 与 reference 共用同一份 GPU LSE</strong>。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp (diff @@ -383) — 取 GPU LSE 转置成 reference [batch,seq,head]</span><span class="kw">if</span>(use_softmax)
+{
+    std::vector&lt;CompDataType&gt; lse_flat(lsed_elems);
+    lse_dev.<span class="fn">FromDevice</span>(lse_flat.data());
+    <span class="kw">for</span>(<span class="kw">int</span> b = 0; b &lt; batches_for_alloc; b++)
+      <span class="kw">for</span>(<span class="kw">int</span> h = 0; h &lt; num_head; h++)
+        <span class="kw">for</span>(<span class="kw">int</span> s = 0; s &lt; phy_seqlen_q; s++)
+            <span class="hl">lse_host(b, s, h)</span> = lse_flat[(static_cast&lt;size_t&gt;(b) * num_head + h) * phy_seqlen_q + s];
+}</div>
+  <div class="note-block clay"><strong>silent-wrong 第一风险点：LSE 双布局。</strong>&nbsp;GPU 侧（fwd 产、bwd+PRE 读）统一 <code>[batch,head,seq]</code> 连续-seq；reference 侧要 <code>[batch,seq,head]</code>。harness 显式转置桥接二者。两侧用<strong>同一份 GPU-产 LSE</strong>（reference 不依赖自身 fwd），这是对拍能逐位级闭合的根因——也意味着对拍<em>无法独立验 LSE 数值</em>（见 §5）。</div>
+</section>
+
+<section id="s4">
+  <h2>4&nbsp;&nbsp;设计动机小结</h2>
+  <ol>
+    <li><strong>fork 而非分支</strong>：softmax MAIN 独立成新 pipeline 文件（<code>with_softmax_bwd_pipeline.hpp</code>），SiLU pipeline/kernel 一字不改 → 零回归（44 SiLU 案仍 PASS，见 M5-done §6）。</li>
+    <li><strong>log2 域算 P</strong>：<code>scale=α&middot;log2e</code>、<code>exp2(scale&middot;s−log2e&middot;lse)</code>（<code>:409-410</code>），用硬件原生 <code>exp2</code> 提速，数学等价 <code>exp(αS−LSE)</code>。</li>
+    <li><strong>复用预留 smem</strong>：LSE/D 载进 SiLU policy <code>GetSmemSize</code> 已留的 LDS region（<code>:31</code>），smem 总量不变，无需改 occupancy。</li>
+    <li><strong>D 用 PRE 全覆盖写</strong>：<code>hstu_bwd_dot_do_o_kernel</code> 输出布局即 MAIN 读 D 布局（<code>[batch,head,seq]</code>），MAIN 前 launch 全写，省一次 memset。</li>
+    <li><strong>同一份 LSE 喂两侧</strong>：harness 把 GPU LSE 转置后喂 reference，保证两侧 P 完全一致，对拍逐位级佐证布局/域均正确。</li>
+  </ol>
+</section>
+
+<section id="s5">
+  <h2>5&nbsp;&nbsp;遗留 / 边界（M5 明确不做）</h2>
+  <div class="note-block"><strong>已知盲区（诚实写）：</strong>&nbsp;对拍<strong>无法独立验 LSE 的数值</strong>——GPU-bwd 与 reference 共用同一份 GPU-产 LSE，所以 LSE 自身若错，两侧会一起错而对拍仍 PASS。该风险靠<strong>代码审计</strong>（数学口径核为自然对数：fwd 用 <code>__expf</code>、<code>pcomp*=scale_s</code>、<code>lse=m+log(l)</code>）+ <strong>fwd 里程碑的 LSE 验证</strong>兜底（M5-done §4 / commit 文末）。</div>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>能力</th><th>落地里程碑</th></tr></thead>
+    <tbody>
+      <tr><td>group 模式 softmax（group kernel 现仍仅 SiLU）</td><td>M5b（<code>f7db567d</code>）</td></tr>
+      <tr><td>cross-attention softmax（现仅 self）</td><td>cross（<code>f2f55622</code>）</td></tr>
+      <tr><td>deterministic dQ</td><td>M6（<code>48673726</code>）</td></tr>
+      <tr><td>fp16 加宽 / 非 hd64（softmax 现仅 bf16 + hd64，否则 throw）</td><td>M7a/b/c</td></tr>
+      <tr><td>perf 调优（MI / B2 / B3）</td><td>M8（<code>a86529dc</code>）</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block olive"><strong>验收数值（出处：M5-done.md §5-6 + candidates.jsonl <code>M5-softmax</code>）：</strong>&nbsp;<code>attn_scale=1.0</code>、bf16 阈值 <code>rel≤2e-2 / abs≤5e-2</code>；sweep <strong>21/21 PASS</strong>，覆盖 softmax × causal{0,1} × {no-mask,causal,window,contextual,min_full,num_target,combo} × {batched,jagged}（含非整除 seq200、per-batch 变长、tiny(1,128,7)）。误差 bf16 舍入级：dQ/dK max_abs ≤ 2.4e-4、dV ≤ 2e-3。套件 <strong>TOTAL 60 / PASS 59 / FAIL 0 / SKIP 1，exit 0</strong>（含 +16 M5 softmax 交叉案、44 前序 SiLU/group 案零回归）。</div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 总览</a>
+  <a href="#s2">2 最佳阅读顺序</a>
+  <a href="#s3">3 逐文件 review</a>
+  <a href="#s3" class="sub">①softmax pipeline ②PRE</a>
+  <a href="#s3" class="sub">③Softmax kernel ④dispatch</a>
+  <a href="#s3" class="sub">⑤harness</a>
+  <a href="#s4">4 设计动机小结</a>
+  <a href="#s5">5 遗留 / 边界</a>
+</nav>
+
+</div><!-- /layout -->
+</div><!-- /page -->
+</body>
+</html>

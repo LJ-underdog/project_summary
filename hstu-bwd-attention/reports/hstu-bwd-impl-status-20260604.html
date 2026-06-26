@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — 实现现状（M0+M1）</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; 实现现状</div>
+  <h1>HSTU Attention Backward — 实现现状（M0 脚手架 + M1 闸门）</h1>
+  <p class="subtitle">这份文档忠实记录当前仓库里 HSTU 反向（bwd）GPU kernel 的真实代码：写了哪些文件、文件之间怎么 include / 依赖、运行时怎么一步步调用、哪些是<strong>直接复用 FMHA</strong>、哪些是<strong>新写 HSTU</strong>，以及现在能跑什么、还差什么。</p>
+  <div class="audience">读者：要 review 这套 bwd 实现的工程师（零基础友好，关键术语都配一句白话）</div>
+  <div style="margin-top:12px; font-size:13px; color:var(--gray-500);">
+    代码目录：<code style="font-family:var(--mono);font-size:12px;">ck_hstu/example/ck_tile/18_hstu_attention/</code> &nbsp;&middot;&nbsp; 主目标 <strong style="color:var(--clay);">gfx950 (MI350/CDNA4)</strong> &nbsp;&middot;&nbsp; 落点 2026-06-04
+  </div>
+</header>
+
+<div class="layout">
+<main>
+
+<!-- ============ TL;DR ============ -->
+<div class="tldr">
+  <div class="k">TL;DR — 一句话现状</div>
+  <p>HSTU bwd 现状 = <strong>M0 脚手架</strong>（端到端编译/launch/对拍管线打通）<strong> + M1 闸门已通过</strong>：<strong style="color:var(--clay);">batched + SiLU + no-mask + bf16 + hdim64 + atomic</strong> 这一条最小路径已经端到端真实计算并对拍 <strong>PASS</strong>。结构上以 FMHA bwd 的 <code>kr_ktr_vr</code>（5 GEMM / 7 stage）为蓝本，HSTU 差异收敛到 MAIN pipeline 的两个 elementwise 段（SiLU / dsilu）和两个 scale（<code>alpha</code> / <code>scale_p</code>）。</p>
+  <div class="badges">
+    <span class="badge ok">M1 端到端对拍 PASS</span>
+    <span class="badge ok">R1：FMHA default policy 零覆写复用</span>
+    <span class="badge gate">R2：VGPR 248 · AGPR 0 · Scratch 0 · occ 2</span>
+  </div>
+</div>
+
+<!-- ============ 1 总览 ============ -->
+<section id="s1">
+  <h2>1 &nbsp;总览：现在到了哪一步</h2>
+  <p class="lede">HSTU bwd 的目标是为「现在只有 855 行 CPU reference」的 HSTU 反向写一套 GPU kernel。整个实现按里程碑（M0…M8）推进，当前真实代码停在 <strong>M1 闸门已通过</strong>。</p>
+
+  <div class="statgrid">
+    <div class="stat"><div class="v">6</div><div class="l">新写 bwd 源文件</div></div>
+    <div class="stat"><div class="v">3</div><div class="l">改动文件 (api/cmake/gen)</div></div>
+    <div class="stat"><div class="v">5</div><div class="l">复用 FMHA GEMM</div></div>
+    <div class="stat"><div class="v">2</div><div class="l">HSTU 改写点 (elementwise)</div></div>
+  </div>
+
+  <h3>白话：M0 和 M1 分别交付了什么</h3>
+  <ul>
+    <li><strong>M0（脚手架）</strong>：把「<em>骨架</em>」搭起来 —— params 结构、3-kernel 壳子、dispatch 模板、bf16 入口、对拍 harness、CMake target、instance 分支都建好；但 GPU bwd 的内核是<strong>把 dQ/dK/dV 全置 0 的占位</strong>。验收只要求「能编译、能 launch、对拍管线打通、打印三梯度误差」。</li>
+    <li><strong>M1（闸门）</strong>：把占位换成<strong>真正的 SiLU MAIN pipeline</strong>。在放大梯度量级（<code>attn_scale=1.0</code>，梯度 ~5）下，GPU 算出的 dQ/dK/dV 与 CPU reference 数值对拍<strong>真 PASS</strong>（误差只到 bf16 舍入级，dK 逐位为 0）。两条设计期风险 R1（policy 能否零成本复用）/ R2（寄存器是否 spill / 掉 occupancy）都实测闭环。</li>
+  </ul>
+
+  <div class="note-block clay"><strong>「闸门」是什么意思？</strong>&nbsp;M1 是整个方案最大的不确定点：能不能直接复用 FMHA 的寄存器/LDS 布局、加上 HSTU 多出来的 <code>g</code> 张量后会不会爆寄存器。M1 通过 = 这套「复用 FMHA + 收敛差异」的总策略被实测验证可行，后续 M2–M8 都是在这条已验证的路径上加功能。</div>
+
+  <h3>当前能跑的唯一一条真实路径</h3>
+  <div class="formula"><div class="formula-block">
+<span class="line">batched（非 jagged/group） + SiLU（kUseSoftmax=false） + no-mask（causal=0）</span>
+<span class="line">+ bf16 + hdim_qk = hdim_v = 64 + atomic（kIsDeterministic=false）</span>
+  </div></div>
+  <p>其余轴目前都没真正实例化，但「拦截方式」并不一样：<code>causal</code>/<code>softmax</code>/<code>deterministic</code> 在 dispatch 里用<strong>编译期 <code>if constexpr</code></strong> 门控成运行时 throw；<code>jagged</code> 与「非 hd64」是<strong>运行时 <code>if</code> 判断 + throw</strong>；<code>group</code> 则连 dispatch 入口都还没有（<code>GroupBwdParams</code> 仍是空 struct、harness 只跑 no-group）；fp16 是入口/harness 仅 bf16。详见 <a href="#s8" style="color:var(--clay)">§8 覆盖面 vs TODO</a>。</p>
+</section>
+
+<!-- ============ 2 文件清单 ============ -->
+<section id="s2">
+  <h2>2 &nbsp;文件清单：每个文件干什么</h2>
+  <p class="lede">全部位于 <code>ck_hstu/example/ck_tile/18_hstu_attention/</code>。<span class="tag tag-new">新写</span> = 这次为 bwd 新建；<span class="tag tag-mod">改动</span> = 在既有 fwd 文件上加 bwd 部分；<span class="tag tag-reuse">复用</span> = 既有、直接用。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>文件</th><th>行</th><th>角色（白话）</th><th>状态</th><th>复用了哪些 FMHA</th></tr></thead>
+    <tbody>
+      <tr><td><code>hstu_attention_bwd_params.hpp</code></td><td>119</td><td>bwd 参数结构体：把 Q/K/V/dO 指针、各 stride、dQ/dK/dV 输出、<code>alpha</code>/<code>attn_scale</code>、dq_acc workspace 等打包给 host 填</td><td><span class="tag tag-new">新写</span></td><td>字段布局镜像 fwd params</td></tr>
+      <tr><td><code>hstu_attention_no_softmax_bwd_pipeline.hpp</code></td><td>518</td><td><strong>核心</strong>。SiLU MAIN pipeline：一个 block 内的 7 阶段 / 5 GEMM 计算，含 SiLU/dsilu 两个 elementwise 段</td><td><span class="tag tag-new">新写</span></td><td><code>BlockFmhaBwdPipelineDefaultPolicy</code>（全部 Make*/Get* 描述子 + 5 GEMM）</td></tr>
+      <tr><td><code>hstu_attention_bwd_kernel.hpp</code></td><td>376</td><td>MAIN kernel 包装（算 grid/offset/窗口、调 pipeline、写 dk/dv）+ POST convert kernel（dq_acc float→dq bf16）</td><td><span class="tag tag-new">新写</span></td><td><code>Default2DEpilogue</code>（写 dk/dv）、<code>GenericAttentionMask&lt;false&gt;</code></td></tr>
+      <tr><td><code>hstu_attention_batched_backward_dispatch.hpp</code></td><td>233</td><td>dispatch：组装 shape/traits/problem/pipeline/epilogue/kernel；<code>RunSilu</code> 真跑、<code>Run</code> 用 <code>if constexpr</code> 门控未实现轴</td><td><span class="tag tag-new">新写</span></td><td><code>TileFmhaBwdShape</code>/<code>Traits</code>/<code>BlockFmhaBwdPipelineProblem</code>/<code>BlockDropoutBwd</code></td></tr>
+      <tr><td><code>hstu_attention_no_group_backward_bf16.cpp</code></td><td>33</td><td>bf16 入口：<code>BOOL_SWITCH_2(causal,softmax)</code> → 调 dispatch</td><td><span class="tag tag-new">新写</span></td><td>—</td></tr>
+      <tr><td><code>example_hstu_attention_bwd.cpp</code></td><td>483</td><td>对拍 harness：造 Q/K/V/dO → GPU fwd 产 O → GPU bwd 产 dQ/dK/dV → CPU reference → <code>check_err</code> 三张量 PASS/FAIL</td><td><span class="tag tag-new">新写</span></td><td><code>host_tensor</code>/<code>fill</code>/<code>check_err</code>；调 fwd bf16 entry</td></tr>
+      <tr><td><code>hstu_attention_api.hpp</code></td><td>22</td><td>加一行 bwd entry 声明 <code>extern void hstu_attention_no_group_backward_bf16(...)</code> + include bwd_params</td><td><span class="tag tag-mod">改动</span></td><td>—（未碰 fwd 声明）</td></tr>
+      <tr><td><code>reference_hstu_attention_bwd.hpp</code></td><td>855</td><td>oracle（对拍金标准）：CPU 上逐 batch/head 重算 S→P→dV/dP/dS→dQ/dK，6 步推导</td><td><span class="tag tag-reuse">复用</span></td><td>既有 CPU reference（不是 GPU 代码）</td></tr>
+      <tr><td><code>instances/...backward_bf16_*.cpp</code> ×4 + <code>..._ref.hpp</code></td><td>~18/42</td><td>显式模板实例化（batched×bf16×{causal,softmax 各 2}×bias=false×determ=false×maxk=64）+ extern ref 头</td><td><span class="tag tag-new">新写</span><span class="tag tag-mod" style="margin-left:4px">自动生成</span></td><td>—</td></tr>
+      <tr><td><code>generate_instances.py</code></td><td>—</td><td>加 <code>create_backward_instances</code> + <code>create_backward_instances_ref</code> 两个分支</td><td><span class="tag tag-mod">改动</span></td><td>—</td></tr>
+      <tr><td><code>CMakeLists.txt</code></td><td>—</td><td>加 <code>tile_example_hstu_attention_bwd</code> target（<code>EXCLUDE_FROM_ALL</code>；GLOB <code>*backward*.cpp</code> + harness 需要的 fwd bf16 entry/instances）</td><td><span class="tag tag-mod">改动</span></td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="src">行数以本次 <code>wc -l</code> 实测为准。reference 早于本工作存在，归为复用。</p>
+</section>
+
+<!-- ============ 3 图1 依赖图 ============ -->
+<section id="s3">
+  <h2>3 &nbsp;【图1】include / 依赖关系</h2>
+  <p class="lede">谁 include 谁、谁依赖谁。<span style="color:var(--clay);font-weight:600">clay 框</span> = 新写的 HSTU bwd 文件；<span style="color:var(--olive);font-weight:600">olive 框</span> = 直接复用的 FMHA 组件。</p>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--clay-lt);border:1.5px solid var(--clay)"></span>新写 HSTU bwd</span>
+    <span><span class="sw" style="background:var(--olive-lt);border:1.5px solid var(--olive)"></span>复用 FMHA / ck_tile</span>
+    <span><span class="sw" style="background:var(--white);border:1.5px solid var(--gray-500)"></span>oracle / 入口</span>
+  </div>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 560" width="100%" role="img" aria-label="include 依赖图">
+    <defs>
+      <marker id="arr" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto">
+        <path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/>
+      </marker>
+    </defs>
+    <!-- nodes: harness (top) -->
+    <g>
+      <rect x="340" y="14" width="300" height="42" rx="8" fill="#fff" stroke="#87867F" stroke-width="1.5"/>
+      <text x="490" y="32" text-anchor="middle" font-size="13" fill="#141413">example_hstu_attention_bwd.cpp</text>
+      <text x="490" y="48" text-anchor="middle" font-size="10.5" fill="#87867F">对拍 harness（main）</text>
+    </g>
+    <!-- bf16 entry -->
+    <g>
+      <rect x="40" y="110" width="280" height="42" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.5"/>
+      <text x="180" y="128" text-anchor="middle" font-size="12.5" fill="#141413">no_group_backward_bf16.cpp</text>
+      <text x="180" y="144" text-anchor="middle" font-size="10.5" fill="#8A3B1E">bf16 入口 · BOOL_SWITCH_2</text>
+    </g>
+    <!-- reference -->
+    <g>
+      <rect x="660" y="110" width="280" height="42" rx="8" fill="#fff" stroke="#87867F" stroke-width="1.5"/>
+      <text x="800" y="128" text-anchor="middle" font-size="12.5" fill="#141413">reference_hstu_attention_bwd.hpp</text>
+      <text x="800" y="144" text-anchor="middle" font-size="10.5" fill="#87867F">oracle（CPU 金标准）</text>
+    </g>
+    <!-- params (shared) -->
+    <g>
+      <rect x="380" y="110" width="230" height="42" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.5"/>
+      <text x="495" y="128" text-anchor="middle" font-size="12.5" fill="#141413">hstu_attention_bwd_params.hpp</text>
+      <text x="495" y="144" text-anchor="middle" font-size="10.5" fill="#8A3B1E">bwd 参数结构</text>
+    </g>
+    <!-- instances ref -->
+    <g>
+      <rect x="40" y="190" width="280" height="40" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.5"/>
+      <text x="180" y="207" text-anchor="middle" font-size="11.5" fill="#141413">instances/...backward_bf16_*</text>
+      <text x="180" y="222" text-anchor="middle" font-size="10.5" fill="#8A3B1E">extern template ref + 4 实例</text>
+    </g>
+    <!-- dispatch -->
+    <g>
+      <rect x="40" y="270" width="300" height="44" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="2"/>
+      <text x="190" y="289" text-anchor="middle" font-size="12.5" fill="#141413">batched_backward_dispatch.hpp</text>
+      <text x="190" y="305" text-anchor="middle" font-size="10.5" fill="#8A3B1E">RunSilu / Run 门控</text>
+    </g>
+    <!-- pipeline -->
+    <g>
+      <rect x="40" y="350" width="300" height="44" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="2"/>
+      <text x="190" y="369" text-anchor="middle" font-size="11.5" fill="#141413">no_softmax_bwd_pipeline.hpp</text>
+      <text x="190" y="385" text-anchor="middle" font-size="10.5" fill="#8A3B1E">SiLU MAIN（7 stage / 5 GEMM）</text>
+    </g>
+    <!-- kernel -->
+    <g>
+      <rect x="40" y="430" width="300" height="44" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="2"/>
+      <text x="190" y="449" text-anchor="middle" font-size="12.5" fill="#141413">hstu_attention_bwd_kernel.hpp</text>
+      <text x="190" y="465" text-anchor="middle" font-size="10.5" fill="#8A3B1E">MAIN kernel 包装 + POST convert</text>
+    </g>
+    <!-- FMHA reused cluster -->
+    <g>
+      <rect x="560" y="270" width="380" height="204" rx="10" fill="none" stroke="#788C5D" stroke-width="1.3" stroke-dasharray="5 4"/>
+      <text x="750" y="262" text-anchor="middle" font-size="11" fill="#788C5D">复用 FMHA / ck_tile（直接 include，零覆写）</text>
+      <g>
+        <rect x="580" y="282" width="340" height="34" rx="7" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+        <text x="750" y="303" text-anchor="middle" font-size="11.5" fill="#141413">block_fmha_bwd_pipeline_default_policy.hpp</text>
+      </g>
+      <g>
+        <rect x="580" y="324" width="165" height="34" rx="7" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+        <text x="662" y="345" text-anchor="middle" font-size="11" fill="#141413">GenericAttentionMask</text>
+      </g>
+      <g>
+        <rect x="755" y="324" width="165" height="34" rx="7" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+        <text x="837" y="345" text-anchor="middle" font-size="11" fill="#141413">Default2DEpilogue</text>
+      </g>
+      <g>
+        <rect x="580" y="366" width="165" height="34" rx="7" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+        <text x="662" y="387" text-anchor="middle" font-size="10.5" fill="#141413">BlockFmhaBwdProblem</text>
+      </g>
+      <g>
+        <rect x="755" y="366" width="165" height="34" rx="7" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+        <text x="837" y="387" text-anchor="middle" font-size="11" fill="#141413">TileFmhaBwdShape</text>
+      </g>
+      <g>
+        <rect x="580" y="408" width="165" height="34" rx="7" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+        <text x="662" y="429" text-anchor="middle" font-size="11" fill="#141413">BlockDropoutBwd</text>
+      </g>
+      <g>
+        <rect x="755" y="408" width="165" height="34" rx="7" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+        <text x="837" y="429" text-anchor="middle" font-size="10.5" fill="#141413">block_attention_bias_enum</text>
+      </g>
+    </g>
+    <!-- edges -->
+    <g stroke="#87867F" stroke-width="1.3" fill="none" marker-end="url(#arr)">
+      <path d="M420,56 L200,108"/>            <!-- harness -> bf16 entry -->
+      <path d="M495,56 L495,108"/>            <!-- harness -> params -->
+      <path d="M560,56 L790,108"/>            <!-- harness -> reference -->
+      <path d="M180,152 L180,188"/>           <!-- entry -> instances ref -->
+      <path d="M180,230 L185,268"/>           <!-- instances ref -> dispatch -->
+      <path d="M440,152 L300,268"/>           <!-- params -> dispatch (uses) -->
+      <path d="M190,314 L190,348"/>           <!-- dispatch -> pipeline -->
+      <path d="M190,394 L190,428"/>           <!-- pipeline -> kernel (dispatch builds kernel from pipeline) -->
+      <path d="M340,292 L578,300"/>           <!-- dispatch -> policy cluster -->
+      <path d="M340,368 L578,338"/>           <!-- pipeline -> mask/policy -->
+      <path d="M340,452 L578,420"/>           <!-- kernel -> epilogue/dropout -->
+    </g>
+  </svg>
+  </div>
+  <p class="svg-caption">图1：harness 顶部分叉到三条线（GPU bwd 入口 / 共享 params / CPU oracle）；左列 clay 是新写的 HSTU bwd 调用栈，右下 olive 虚线框是直接 include 复用的 FMHA / ck_tile 组件。箭头表示「引用 / 构建关系」（自顶向下的层次流），非逐条严格的 <code>#include</code> 方向 —— 例如 default policy 实际由 <code>no_softmax_bwd_pipeline.hpp</code> include，kernel 则把 pipeline / epilogue 作为模板参数组合。</p>
+</section>
+
+<!-- ============ 4 图2 调用链 ============ -->
+<section id="s4">
+  <h2>4 &nbsp;【图2】运行时调用链 / 数据流</h2>
+  <p class="lede">从 harness 的 <code>main</code> 一路到 GPU kernel，再回到 CPU 对拍。标注了每一步在 <span style="color:var(--clay);font-weight:600">GPU</span> 还是 <span style="color:var(--olive);font-weight:600">CPU</span>。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 720" width="100%" role="img" aria-label="运行时调用链">
+    <defs>
+      <marker id="arr2" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto">
+        <path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/>
+      </marker>
+    </defs>
+    <!-- column labels -->
+    <text x="250" y="20" text-anchor="middle" font-size="11" fill="#D97757">GPU 路径</text>
+    <text x="760" y="20" text-anchor="middle" font-size="11" fill="#788C5D">CPU 路径</text>
+    <line x1="510" y1="28" x2="510" y2="700" stroke="#D1CFC5" stroke-width="1" stroke-dasharray="3 4"/>
+
+    <!-- step 1 -->
+    <g><rect x="120" y="34" width="280" height="40" rx="8" fill="#fff" stroke="#87867F" stroke-width="1.5"/>
+      <text x="260" y="51" text-anchor="middle" font-size="12" fill="#141413">main → gen Q / K / V / dO（随机种子）</text>
+      <text x="260" y="66" text-anchor="middle" font-size="10" fill="#87867F">FillUniform/Normal · ToDevice</text></g>
+    <!-- step 2 GPU fwd -->
+    <g><rect x="120" y="92" width="280" height="44" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.5"/>
+      <text x="260" y="110" text-anchor="middle" font-size="12" fill="#141413">GPU fwd：hstu_..._forward_bf16</text>
+      <text x="260" y="126" text-anchor="middle" font-size="10" fill="#8A3B1E">产出 O（bwd dP 需要；softmax 还产 LSE）</text></g>
+    <!-- step 3 bwd entry -->
+    <g><rect x="120" y="154" width="280" height="44" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.5"/>
+      <text x="260" y="172" text-anchor="middle" font-size="11.5" fill="#141413">hstu_..._no_group_backward_bf16</text>
+      <text x="260" y="188" text-anchor="middle" font-size="10" fill="#8A3B1E">BOOL_SWITCH_2(causal, softmax)</text></g>
+    <!-- step 4 dispatch Run -->
+    <g><rect x="120" y="216" width="280" height="44" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.5"/>
+      <text x="260" y="234" text-anchor="middle" font-size="11.5" fill="#141413">run_batched_backward_dispatch::Run</text>
+      <text x="260" y="250" text-anchor="middle" font-size="10" fill="#8A3B1E">if constexpr 门控 → 仅 SiLU/no-mask 走 RunSilu</text></g>
+    <!-- step 5 RunSilu -->
+    <g><rect x="100" y="278" width="320" height="40" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.8"/>
+      <text x="260" y="295" text-anchor="middle" font-size="12" fill="#141413">RunSilu：组 problem / pipeline / kernel</text>
+      <text x="260" y="310" text-anchor="middle" font-size="10" fill="#8A3B1E">scale_p = attn_scale ? attn_scale : 1/max_seqlen_q</text></g>
+    <!-- step 5a memset -->
+    <g><rect x="120" y="334" width="280" height="34" rx="7" fill="#fff" stroke="#D97757" stroke-width="1.3"/>
+      <text x="260" y="355" text-anchor="middle" font-size="11" fill="#141413">① hipMemsetAsync(dq_acc = 0)</text></g>
+    <!-- step 5b MAIN -->
+    <g><rect x="80" y="382" width="360" height="92" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="2"/>
+      <text x="260" y="402" text-anchor="middle" font-size="12.5" fill="#141413" font-weight="bold">② launch MAIN kernel</text>
+      <text x="260" y="420" text-anchor="middle" font-size="10.5" fill="#8A3B1E">HstuAttentionBwdDQDKDVKernel</text>
+      <text x="260" y="437" text-anchor="middle" font-size="10.5" fill="#8A3B1E">→ Pipeline KRKTRVR：5 GEMM + silu/dsilu</text>
+      <text x="260" y="454" text-anchor="middle" font-size="10.5" fill="#8A3B1E">atomic_add 写 float dq_acc；epilogue 写 dk/dv</text>
+      <text x="260" y="469" text-anchor="middle" font-size="9.5" fill="#87867F">grid = (ceil(seqlen_kv/kN0), nhead, batch)</text></g>
+    <!-- step 5c POST -->
+    <g><rect x="120" y="488" width="280" height="40" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.5"/>
+      <text x="260" y="506" text-anchor="middle" font-size="11.5" fill="#141413">③ launch POST：convert_dq_kernel</text>
+      <text x="260" y="522" text-anchor="middle" font-size="10" fill="#8A3B1E">dq_acc(float) → dq(bf16) 逐元素 cast</text></g>
+    <!-- step 6 FromDevice -->
+    <g><rect x="120" y="544" width="280" height="34" rx="7" fill="#fff" stroke="#87867F" stroke-width="1.3"/>
+      <text x="260" y="565" text-anchor="middle" font-size="11" fill="#141413">FromDevice：dQ / dK / dV 回 host</text></g>
+
+    <!-- CPU reference -->
+    <g><rect x="600" y="382" width="320" height="64" rx="9" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.8"/>
+      <text x="760" y="404" text-anchor="middle" font-size="12" fill="#141413">CPU：reference_no_group_hstu_..._bwd</text>
+      <text x="760" y="421" text-anchor="middle" font-size="10" fill="#4B5C39">逐 batch/head 重算 S→P→dV/dP/dS→dQ/dK</text>
+      <text x="760" y="436" text-anchor="middle" font-size="10" fill="#4B5C39">产 dQ* / dK* / dV*（多线程并行）</text></g>
+    <!-- compare -->
+    <g><rect x="360" y="612" width="300" height="58" rx="9" fill="#fff" stroke="#141413" stroke-width="1.8"/>
+      <text x="510" y="634" text-anchor="middle" font-size="12.5" fill="#141413" font-weight="bold">ck_tile::check_err 三张量对拍</text>
+      <text x="510" y="651" text-anchor="middle" font-size="10" fill="#87867F">rtol=2e-2 / atol=5e-2（bf16）</text>
+      <text x="510" y="665" text-anchor="middle" font-size="10" fill="#87867F">exit = numeric_pass ? 0 : -2</text></g>
+
+    <!-- edges GPU chain -->
+    <g stroke="#87867F" stroke-width="1.3" fill="none" marker-end="url(#arr2)">
+      <path d="M260,74 L260,90"/>
+      <path d="M260,136 L260,152"/>
+      <path d="M260,198 L260,214"/>
+      <path d="M260,260 L260,276"/>
+      <path d="M260,318 L260,332"/>
+      <path d="M260,368 L260,380"/>
+      <path d="M260,474 L260,486"/>
+      <path d="M260,528 L260,542"/>
+      <path d="M260,578 L420,614"/>            <!-- dev grads -> compare -->
+      <path d="M760,446 L600,614"/>            <!-- ref grads -> compare -->
+    </g>
+    <!-- harness drives reference too -->
+    <g stroke="#788C5D" stroke-width="1.2" fill="none" marker-end="url(#arr2)" stroke-dasharray="4 3">
+      <path d="M400,312 C540,330 660,350 740,380"/>
+    </g>
+  </svg>
+  </div>
+  <p class="svg-caption">图2：左侧整列是 GPU（fwd 产 O → bwd 三步 memset/MAIN/POST），右侧是 CPU oracle；两路的梯度在底部 <code>check_err</code> 汇合，exit code 由数值是否 PASS 驱动。<code>dq_acc</code> workspace 的作用：MAIN 用 <strong>float + atomic_add</strong> 累加 dQ（避免 bf16 累加精度损失 / 多 block 写冲突），POST 再统一 cast 回 bf16。</p>
+</section>
+
+<!-- ============ 5 图3 七阶段 ============ -->
+<section id="s5">
+  <h2>5 &nbsp;【图3】MAIN pipeline 七阶段（当前 SiLU 路）</h2>
+  <p class="lede">一个 block 固定一块 K/V（KV-resident），循环吃 Q tile，跑 5 个 GEMM + 两段 elementwise。<span style="color:var(--clay);font-weight:600">clay 高亮</span> = HSTU 相对 FMHA 的改写点；其余阶段（5 个 GEMM 的形状 / LDS / shuffle）<strong>原样复用 FMHA default policy</strong>。当前只实现 SiLU 路，softmax 路（STAGE2 不算 dsilu、STAGE5 改 <code>ds=p·(dp−D)</code>）是 M5 TODO。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 600" width="100%" role="img" aria-label="MAIN 七阶段">
+    <defs>
+      <marker id="arr3" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto">
+        <path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/>
+      </marker>
+    </defs>
+    <!-- preload box -->
+    <g><rect x="40" y="30" width="900" height="38" rx="8" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+      <text x="490" y="48" text-anchor="middle" font-size="11.5" fill="#141413">Pre-Load：K/V → LDS → Reg（KV-resident，整个 block 常驻）；clear dv_acc / dk_acc</text>
+      <text x="490" y="62" text-anchor="middle" font-size="9.5" fill="#4B5C39">复用 FMHA：MakeK/V Dram/Lds/Reg 描述子 + shuffle KT</text></g>
+
+    <text x="490" y="90" text-anchor="middle" font-size="11" fill="#87867F">▼ while (i_total_loops &lt; num_total_loop) 逐 Q tile 循环 ▼</text>
+
+    <!-- stage1 -->
+    <g><rect x="40" y="104" width="430" height="50" rx="8" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+      <text x="58" y="124" font-size="12" fill="#141413">STAGE1 · gemm_0：S = Q @ K</text>
+      <text x="58" y="140" font-size="10" fill="#4B5C39">未缩放 s_acc（复用）</text></g>
+    <!-- stage2 HSTU -->
+    <g><rect x="510" y="104" width="430" height="74" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="2"/>
+      <text x="528" y="124" font-size="12" fill="#141413" font-weight="bold">STAGE2 · HSTU 改写：alpha + silu/dsilu</text>
+      <text x="528" y="141" font-size="10" fill="#8A3B1E">s = alpha · s_acc</text>
+      <text x="528" y="156" font-size="10" fill="#8A3B1E">p = silu(s) · scale_p   → 喂 dV</text>
+      <text x="528" y="171" font-size="10" fill="#8A3B1E">g = scale_p · dsilu(s)  → 喂 dS（STAGE5）</text></g>
+    <!-- stage3 -->
+    <g><rect x="40" y="200" width="430" height="50" rx="8" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+      <text x="58" y="220" font-size="12" fill="#141413">STAGE3 · gemm_1：dV += Pᵀ @ dOᵀ</text>
+      <text x="58" y="236" font-size="10" fill="#4B5C39">load dO → LDS → Reg（复用）</text></g>
+    <!-- stage4 -->
+    <g><rect x="510" y="200" width="430" height="50" rx="8" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+      <text x="528" y="220" font-size="12" fill="#141413">STAGE4 · gemm_2：dP = dO @ V</text>
+      <text x="528" y="236" font-size="10" fill="#4B5C39">复用</text></g>
+    <!-- stage5 HSTU -->
+    <g><rect x="40" y="272" width="430" height="56" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="2"/>
+      <text x="58" y="292" font-size="12" fill="#141413" font-weight="bold">STAGE5 · HSTU 改写：dS = dP · g</text>
+      <text x="58" y="309" font-size="10" fill="#8A3B1E">g 已携带 scale_p（不再乘）</text>
+      <text x="58" y="323" font-size="9.5" fill="#87867F">softmax 路这里改成 ds = p·(dp−D)（M5）</text></g>
+    <!-- stage6 -->
+    <g><rect x="510" y="272" width="430" height="56" rx="8" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+      <text x="528" y="292" font-size="12" fill="#141413">STAGE6 · gemm_3：dK += dSᵀ @ Qᵀ</text>
+      <text x="528" y="309" font-size="10" fill="#4B5C39">复用；dS 也 store 回 LDS 供 STAGE7</text></g>
+    <!-- stage7 -->
+    <g><rect x="40" y="350" width="430" height="56" rx="8" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.3"/>
+      <text x="58" y="370" font-size="12" fill="#141413">STAGE7 · gemm_4：dQ = dS @ Kᵀ</text>
+      <text x="58" y="387" font-size="10" fill="#4B5C39">k4_loops 切片累加（复用）</text>
+      <text x="58" y="401" font-size="9.5" fill="#87867F">→ dq_acc</text></g>
+    <!-- per-tile finalize -->
+    <g><rect x="510" y="350" width="430" height="56" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="2"/>
+      <text x="528" y="370" font-size="12" fill="#141413" font-weight="bold">收尾(每 tile)：dq_acc ×= alpha</text>
+      <text x="528" y="387" font-size="10" fill="#8A3B1E">atomic: update_tile(atomic_add)</text>
+      <text x="528" y="401" font-size="10" fill="#8A3B1E">determ: store_tile（M6）</text></g>
+
+    <!-- loop end -->
+    <text x="490" y="430" text-anchor="middle" font-size="11" fill="#87867F">▲ 循环结束 ▲</text>
+    <!-- block finalize -->
+    <g><rect x="40" y="444" width="900" height="50" rx="8" fill="var(--clay-lt)" stroke="#D97757" stroke-width="2"/>
+      <text x="490" y="464" text-anchor="middle" font-size="12" fill="#141413" font-weight="bold">block 收尾：dk_acc ×= alpha；dv_acc 不乘 → 经 Default2DEpilogue 写出 dk / dv</text>
+      <text x="490" y="481" text-anchor="middle" font-size="9.5" fill="#8A3B1E">alpha 即 FMHA 的 raw_scale 槽位；dV 不乘 alpha 是 HSTU 特性</text></g>
+
+    <!-- scale note -->
+    <g><rect x="40" y="512" width="900" height="64" rx="8" fill="#fff" stroke="#87867F" stroke-width="1.2"/>
+      <text x="58" y="532" font-size="11" fill="#141413" font-weight="bold">两个 scale 的去向（HSTU 比 FMHA 多一个标量）：</text>
+      <text x="58" y="549" font-size="10.5" fill="#3D3D3A">alpha：QK 缩放（== fwd scale_s）→ 进 STAGE2 的 s，并在收尾乘到 dQ / dK（dV 不乘）</text>
+      <text x="58" y="565" font-size="10.5" fill="#3D3D3A">scale_p：SiLU 输出缩放 → 同时进 p（喂 dV）和 g（喂 dS）；softmax 路不用</text></g>
+
+    <!-- flow arrows -->
+    <g stroke="#87867F" stroke-width="1.3" fill="none" marker-end="url(#arr3)">
+      <path d="M470,129 L508,135"/>
+      <path d="M725,178 L255,198"/>
+      <path d="M470,225 L508,225"/>
+      <path d="M725,250 L255,290"/>
+      <path d="M470,300 L508,295"/>
+      <path d="M725,328 L255,372"/>
+      <path d="M470,378 L508,372"/>
+    </g>
+  </svg>
+  </div>
+  <p class="svg-caption">图3：5 个 GEMM（STAGE1/3/4/6/7）+ 两段 elementwise（STAGE2/5）。三处 clay 高亮 = HSTU 改写点：STAGE2（alpha + silu/dsilu）、STAGE5（ds = dp·g）、收尾（dQ/dK ×alpha、dV 不乘）。</p>
+
+  <h3>代码佐证（pipeline 主体，已删节）</h3>
+  <div class="code-block"><span class="cm">// STAGE 2, HSTU SiLU: s = alpha*S; p = silu(s)*scale_p; g = scale_p*dsilu(s)</span>
+<span class="kw">const</span> CompDataType s   = alpha * type_convert&lt;CompDataType&gt;(s_acc[i_j_idx]);
+<span class="kw">const</span> CompDataType sig = <span class="fn">f_sigmoid</span>(s);          <span class="cm">// rcpf(1+expf(-x))</span>
+<span class="kw">const</span> CompDataType silu  = s * sig;
+<span class="kw">const</span> CompDataType dsilu = sig * (1.f + s * (1.f - sig));
+p(i_j_idx) = silu * scale_p;        <span class="cm">// → dV</span>
+g(i_j_idx) = scale_p * dsilu;       <span class="cm">// → dS</span>
+<span class="cm">// ...</span>
+<span class="cm">// STAGE 5, dS = dP * g   (g already carries scale_p)</span>
+ds(i_j_idx) = dp_acc[i_j_idx] * g[i_j_idx];
+<span class="cm">// ...</span>
+<span class="cm">// 收尾</span>
+<span class="fn">tile_elementwise_inout</span>([&amp;alpha](<span class="kw">auto</span>&amp; x){ x = x * alpha; }, dq_acc);  <span class="cm">// dQ ×alpha</span>
+<span class="kw">if constexpr</span>(kIsDeterministic) <span class="fn">store_tile</span>(dq_dram_window, dq_acc);
+<span class="kw">else</span>                          <span class="fn">update_tile</span>(dq_dram_window, dq_acc); <span class="cm">// atomic_add</span>
+<span class="fn">tile_elementwise_inout</span>([&amp;alpha](<span class="kw">auto</span>&amp; x){ x = x * alpha; }, dk_acc);  <span class="cm">// dK ×alpha；dV 不乘</span></div>
+  <p class="src">源：<code>hstu_attention_no_softmax_bwd_pipeline.hpp</code>（STAGE2 ~L395、STAGE5 ~L442、收尾 ~L494/L512）。</p>
+</section>
+
+<!-- ============ 6 复用 vs 新写 ============ -->
+<section id="s6">
+  <h2>6 &nbsp;复用 FMHA vs 新写 HSTU</h2>
+  <p class="lede">这套实现的总策略：<strong>能 include 复用就复用，把差异收敛到尽量小</strong>。下面把两边摊开。</p>
+  <div class="callout-grid">
+    <div class="callout"><div class="k">复用 · 直接 include</div><div class="t">FMHA default policy</div><div class="d"><code>BlockFmhaBwdPipelineDefaultPolicy</code> —— 5 个 GEMM 形状 + 所有 LDS / shuffle 描述子，<strong>零覆写</strong>。</div></div>
+    <div class="callout"><div class="k">复用 · 直接 include</div><div class="t">mask / epilogue / dropout</div><div class="d"><code>GenericAttentionMask&lt;false&gt;</code>（平凡 no-mask）、<code>Default2DEpilogue</code>（写 dk/dv）、<code>BlockDropoutBwd&lt;false,...&gt;</code>。</div></div>
+    <div class="callout"><div class="k">复用 · 直接 include</div><div class="t">problem / shape / enum</div><div class="d"><code>BlockFmhaBwdPipelineProblem</code>、<code>TileFmhaBwdShape</code>、<code>BlockAttentionBiasEnum</code>（保留 <code>NO_BIAS</code> + dummy <code>BiasDataType</code>，让 policy 编译）。</div></div>
+    <div class="callout clay"><div class="k">新写 · HSTU</div><div class="t">SiLU MAIN pipeline</div><div class="d"><code>no_softmax_bwd_pipeline.hpp</code> —— 以 FMHA kr_ktr_vr 为蓝本<strong>改写（不直接 include）</strong>，插入 STAGE2/5 两段 elementwise。</div></div>
+    <div class="callout clay"><div class="k">新写 · HSTU</div><div class="t">MAIN kernel + POST</div><div class="d"><code>bwd_kernel.hpp</code> —— 自写 kernel 携带 <code>alpha+scale_p</code> 两个标量；POST <code>convert_dq_kernel</code> 把 float dq_acc cast 成 bf16。</div></div>
+    <div class="callout clay"><div class="k">新写 · HSTU</div><div class="t">params / dispatch / 入口 / harness</div><div class="d"><code>bwd_params.hpp</code>、<code>batched_backward_dispatch.hpp</code>、<code>no_group_backward_bf16.cpp</code>、<code>example_hstu_attention_bwd.cpp</code>。</div></div>
+  </div>
+  <div class="note-block olive"><strong>为什么 pipeline 是「改写」而不是「include 复用」？</strong>&nbsp;FMHA 的 kr_ktr_vr pipeline 内部写死了 softmax 的 LSE/D load 和单一 scale；HSTU 要在 GEMM 之间插 silu/dsilu 并携带两个 scale，无法用模板参数注入，所以以它为<strong>结构蓝本</strong>逐段重写。但所有 policy 描述子和 5 个 GEMM 仍原样调用 —— 这正是 R1（policy 零覆写复用）能闭环的原因。</div>
+</section>
+
+<!-- ============ 7 关键工程决策 ============ -->
+<section id="s7">
+  <h2>7 &nbsp;关键工程决策（来自 M1 报告）</h2>
+  <div class="callout-grid">
+    <div class="callout clay"><div class="k">决策 ①</div><div class="t">目标 ck_tile 是 ck_hstu 自带的较新版</div><div class="d"><code>ck_hstu/include/ck_tile</code> 的 FMHA bwd 接口与 <code>/root/ck</code> 不同（Traits/Shape/Problem 签名、<code>kUseTrLoad</code>、smem 在首参）。已全部对齐到 ck_hstu 版本。</div></div>
+    <div class="callout clay"><div class="k">决策 ②</div><div class="t">自写 kernel（不复用 FMHA kernel）</div><div class="d">FMHA bwd kernel 只传单一 <code>raw_scale</code>（且 scale=raw_scale·log2e），塞不下 HSTU 需要的 <code>alpha + scale_p</code> 两个标量 → 必须自写 kernel 层。</div></div>
+    <div class="callout clay"><div class="k">决策 ③</div><div class="t">float dq_acc + atomic + POST convert</div><div class="d">dQ 输出是 bf16，但累加要 float 精度且多 block 写同一行 → 用 <strong>float dq_acc + atomic_add</strong> 累加，再 POST 逐元素 cast 回 bf16（atomic 路 nsplits=1，dq_acc 与 dq 同布局，convert 纯 elementwise）。</div></div>
+    <div class="callout clay"><div class="k">决策 ④</div><div class="t">保留 BiasEnum=NO_BIAS dummy</div><div class="d">为复用 default policy，problem 仍带 <code>BiasEnum=NO_BIAS</code> + dummy <code>BiasDataType/LSEDataType/DDataType</code>；SiLU 路从不读写这些段（LDS 里仍预留，trim 是 R6 perf TODO）。</div></div>
+  </div>
+  <div class="gate-banner"><strong>R1 / R2 设计期闸门已闭环：</strong>&nbsp;R1 = FMHA default policy 直接复用、零覆写（pipeline 原样调全部 Make*/Get* + 5 GEMM，GEMM 间插 dsilu 与中间 reg 分布兼容）。R2（CDNA4 占用模型）实测：<code>VGPR=248 · AGPR=0 · ScratchSize=0（无 spill） · occupancy=2 waves/SIMD</code> —— 留 g 张量未致 spill、未掉 wave。</div>
+</section>
+
+<!-- ============ 8 覆盖面 vs TODO ============ -->
+<section id="s8">
+  <h2>8 &nbsp;当前覆盖面 vs TODO</h2>
+  <p class="lede">已实现 = 真实实例化并对拍通过；⏳ = dispatch 里编译期门控成 throw、尚未实例化。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>能力</th><th>状态</th><th>里程碑</th><th>当前如何处理</th></tr></thead>
+    <tbody>
+      <tr><td>batched（非 jagged/group）</td><td class="status-yes">✅ 已实现</td><td>M1</td><td>kernel 算 batched offset</td></tr>
+      <tr><td>SiLU 激活（kUseSoftmax=false）</td><td class="status-yes">✅ 已实现</td><td>M1</td><td>STAGE2 silu/dsilu</td></tr>
+      <tr><td>no-mask（causal=0）</td><td class="status-yes">✅ 已实现</td><td>M1</td><td><code>GenericAttentionMask&lt;false&gt;</code></td></tr>
+      <tr><td>bf16</td><td class="status-yes">✅ 已实现</td><td>M1</td><td>入口/harness 仅 bf16</td></tr>
+      <tr><td>hdim_qk = hdim_v = 64</td><td class="status-yes">✅ 已实现</td><td>M1</td><td>dispatch assert hd64</td></tr>
+      <tr><td>atomic dQ 累加</td><td class="status-yes">✅ 已实现</td><td>M1</td><td>float dq_acc + atomic_add + POST</td></tr>
+      <tr><td>mask（causal / 5 因子）</td><td class="status-no">⏳ TODO</td><td>M2</td><td>causal → <code>throw</code>；需非平凡 <code>GetTileRangeAlongY</code> + <code>set_tile_if(p,g←0)</code></td></tr>
+      <tr><td>jagged（变长）</td><td class="status-no">⏳ TODO</td><td>M3</td><td><code>is_jagged</code> → <code>throw</code></td></tr>
+      <tr><td>group</td><td class="status-no">⏳ TODO</td><td>M4</td><td><code>GroupBwdParams</code> 空 struct；暂无 group dispatch 入口（非 throw，harness 仅 no-group）</td></tr>
+      <tr><td>softmax 激活</td><td class="status-no">⏳ TODO</td><td>M5</td><td>softmax → <code>throw</code>；需 PRE(D) + LSE 读取 + STAGE5 改 <code>ds=p·(dp−D)</code></td></tr>
+      <tr><td>deterministic dQ</td><td class="status-no">⏳ TODO</td><td>M6</td><td>deterministic → <code>throw</code>；POST 换 reduce+convert（多 split）</td></tr>
+      <tr><td>fp16 + 多 hdim（96/128/256，qk≠v）</td><td class="status-no">⏳ TODO</td><td>M7</td><td>非 hd64 → 运行时 <code>throw</code>；fp16 则入口/harness 仅 bf16</td></tr>
+      <tr><td>perf（trload / 砍未用 LDS / 计时）</td><td class="status-no">⏳ TODO</td><td>M8</td><td>现用 <code>kUseTrLoad=false</code>；harness 暂无计时</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ============ 9 验证现状 ============ -->
+<section id="s9">
+  <h2>9 &nbsp;验证现状（数值 + 资源）</h2>
+  <h3>对拍 oracle = CPU reference</h3>
+  <p>金标准是 <code>reference_hstu_attention_bwd.hpp</code> 里的 855 行 CPU 实现：逐 batch/head 重算 S→P，再按 6 步推导出 dV / dP / dS / dQ / dK（SiLU 路 <code>dS = dP·scale_p·dsilu(S)</code>）。GPU 三张量与之逐元素比对。</p>
+
+  <h3>M1 数值结果（attn_scale=1.0，梯度量级 ~5）</h3>
+  <div class="code-block">  dQ: max_abs_err=0.00012207  mean_abs_err=3.7e-09  (max|ref|=5.125)
+  dK: max_abs_err=0           mean_abs_err=0        (max|ref|=5.21875)
+  dV: max_abs_err=0.00390625  mean_abs_err=2.9e-07  (max|ref|=4.625)
+[<span class="str">PASS</span>] dQ   [<span class="str">PASS</span>] dK   [<span class="str">PASS</span>] dV</div>
+  <p>误差只到 <strong>bf16 舍入级</strong>，远小于阈值（rtol≤2e-2 / atol≤5e-2），dK 逐位为 0。<strong>非巧合</strong>：在真实量级 ~5 的梯度下三者皆 PASS（M0 默认 case 因 <code>scale_p≈1/134</code> 梯度极小、落在阈值内才 PASS，那不算数值正确）。</p>
+
+  <h3>稳定性（6/6 PASS，exit 0）</h3>
+  <ul>
+    <li>默认 attn_scale（<code>scale_p=1/max_seqlen_q</code>）</li>
+    <li><code>b4 × nhead8 × seq256</code>、<code>b1 × nhead1 × seq512</code></li>
+    <li><strong>seq200</strong>（非 kN0=128 整除）、<strong>seq130</strong>（非 kM0=32 整除 → 验 OOB 由 buffer_load 归零）</li>
+  </ul>
+
+  <h3>R2 资源数（CDNA4 占用模型）</h3>
+  <div class="statgrid">
+    <div class="stat"><div class="v">248</div><div class="l">VGPR (MAIN)</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">AGPR</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">ScratchSize（无 spill）</div></div>
+    <div class="stat"><div class="v">2</div><div class="l">occupancy waves/SIMD</div></div>
+  </div>
+  <p class="src">来自 <code>amdclang++ -Rpass-analysis=kernel-resource-usage</code>。CDNA4 加法占用模型：ArchVGPR+AGPR = 248+0 → 512/248 ≈ 2 waves。AGPR=0（MFMA 累加器落统一 VGPR 池），R2 设计期担忧的「留 g 叠加 AGPR 累加器」最坏情形本构型未出现。LDS 32768 B（含未用 LSE/D/bias 段，R6 可省）。</p>
+</section>
+
+<!-- ============ 10 构建 / 运行 ============ -->
+<section id="s10">
+  <h2>10 &nbsp;如何构建 / 运行（复现）</h2>
+  <h3>构建</h3>
+  <div class="code-block"><span class="cm"># 在 ck_hstu 仓库根目录</span>
+cmake -B build -DBUILD_DEV=OFF -DGPU_TARGETS=gfx950
+cmake --build build --target tile_example_hstu_attention_bwd -j$(nproc)</div>
+  <p class="src">target 是 <code>EXCLUDE_FROM_ALL</code>，必须显式 <code>--build --target</code>。gfx95 上 CMake 自动加 <code>-fno-slp-vectorize -DBUILD_HSTU_FOR_GFX95_ONLY -DCK_TILE_FLOAT_TO_BFLOAT16_DEFAULT=3</code>。bwd target 还会一并编 fwd bf16 entry + <code>instances/*forward_bf16*.cpp</code>（harness 要先跑 GPU fwd 产 O）。</p>
+
+  <h3>运行（M1 闸门 case）</h3>
+  <div class="code-block">./build/bin/tile_example_hstu_attention_bwd \
+    -prec=bf16 -b=2 -nhead=2 -hdim_qk=64 -hdim_v=64 \
+    -seqlens=128 -softmax=0 -causal=0 <span class="hl">-attn_scale=1.0</span> -v=1</div>
+  <div class="note-block clay"><strong>务必带 <code>-attn_scale=1.0</code></strong>：把梯度量级放大到 ~5，才能真正检验数值正确（否则默认 <code>scale_p≈1/134</code> 梯度太小，PASS 不能区分「真对」和「输出近 0」）。</div>
+  <p class="lede">常用开关：<code>-b</code> batch、<code>-nhead</code> 头数、<code>-seqlens</code> 序列长、<code>-v=1</code> 开 CPU 对拍、<code>-dump_grad=1</code> dump device/ref 梯度到 <code>.dat</code>。注意 <code>-softmax</code>/<code>-causal</code>/<code>-deterministic</code> 非 0 会触发对应里程碑的 <code>throw</code>（尚未实现）。</p>
+</section>
+
+</main>
+
+<!-- ============ TOC ============ -->
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 总览</a>
+  <a href="#s2">2 文件清单</a>
+  <a href="#s3" class="sub">图1 依赖图</a>
+  <a href="#s4" class="sub">图2 调用链</a>
+  <a href="#s5" class="sub">图3 七阶段</a>
+  <a href="#s6">6 复用 vs 新写</a>
+  <a href="#s7">7 关键决策</a>
+  <a href="#s8">8 覆盖面 / TODO</a>
+  <a href="#s9">9 验证现状</a>
+  <a href="#s10">10 构建 / 运行</a>
+</nav>
+
+</div>
+</div>
+</body>
+</html>

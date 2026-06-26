@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M6b（group deterministic + O1 + harness bug）实现讲义</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+.warn-banner { background: linear-gradient(90deg, #FBE9D0, #FDF6EC); border: 1.5px solid #C9912F; border-radius: 10px; padding: 14px 18px; margin: 14px 0; font-size: 13.5px; color: #6E4E15; max-width: 880px; }
+.warn-banner strong { color: #5A3E10; }
+.flow-step { display:flex; align-items:center; gap:10px; margin:6px 0; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M6b group determ + O1 + harness bug 实现讲义</div>
+  <h1>HSTU Attention Backward — M6b：把 deterministic dQ 扩到 group，修 O1，并抓出一个潜伏的 harness 老洞</h1>
+  <p class="subtitle">M6b 做三件事：① 把 <a href="hstu-bwd-M6-deterministic-20260609.html" style="color:var(--clay)">M6</a> 的 no_group deterministic dQ 机制原样扩到 group 路（M4/M5b group × M6 determ，determinism 自此覆盖全模式）；② 修 <strong>O1</strong>——group entry 此前硬编 <code>false</code>，导致 group+determ 静默走 atomic、不可复现；③ 验收时被 lead 拦下一个 <strong>1-FAIL</strong>，根因定位到测试 harness 的 <code>group_max_seqlens_q</code> <strong>低估</strong>（库逻辑/reference 本就正确），修掉它并加守卫。本文档重点讲 group determ 机制（复用 M6）、O1 一行修复、以及那个 harness 老洞的<strong>数据流与判别实验</strong>。所有片段引磁盘真实行号（git <code>d4fb2884</code>）。</p>
+  <div class="audience">读者：要理解 / review 这套 bwd group-deterministic 实现与那次 harness debug 的工程师</div>
+  <div style="margin-top:12px; font-size:13px; color:var(--gray-500);">
+    代码目录：<code style="font-family:var(--mono);font-size:12px;">ck_hstu/example/ck_tile/18_hstu_attention/</code> &nbsp;&middot;&nbsp; 主目标 <strong style="color:var(--clay);">gfx950 (MI350/CDNA4)</strong> &nbsp;&middot;&nbsp; 落点 2026-06-10 · commit <code>d4fb2884</code> &nbsp;&middot;&nbsp; 接续 <a href="hstu-bwd-M6-deterministic-20260609.html" style="color:var(--clay)">M6 deterministic 文档</a>
+  </div>
+</header>
+
+<div class="layout">
+<main>
+
+<!-- ============ TL;DR ============ -->
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M6b</div>
+  <p>group determ <strong>不是新机制</strong>：复用 M6 的「每 KV-block <code>set</code> 写进自己的 split 副本（<code>base += i_tile_n·split_stride</code>）→ POST 固定升序 <code>Σ_s</code> 归约 → bit-reproducible」，照搬到两个 group kernel（SiLU + softmax）+ group dispatch 的 <code>launch_main_and_post</code>。配套修 <strong>O1</strong>：group entry 从 <code>BOOL_SWITCH_2</code> 升 <code>BOOL_SWITCH_3</code> 接上 <code>kIsDeterministic</code> 真轴——否则 group+determ 静默落 atomic（数值对、但不可复现）。</p>
+  <p><strong>★ 高潮在验收：</strong>coder 首轮 9 PASS / 1 FAIL 却标了 promoted，被 lead 打回。根因不是 determ、不是库、不是 reference，而是 <strong>bwd 测试 harness</strong> 的 <code>group_max_seqlens_q</code> 用<strong>组下标</strong>索引<strong>逐 batch</strong> 的 <code>num_targets</code> 数组 → 组内多 batch 异 seqlen 时<strong>低估</strong> → PRE <code>dot_do_o</code>（grid 按 max_seqlen_q、<code>d_dev</code> 未 memset）漏算最长 batch 尾 token 的 D → 垃圾 D → <code>dS=P·(dP−D)</code> 错 → <strong>仅 softmax target 行 dQ 错</strong>。修公式 + 加 <code>HSTU_CHECK</code> 守卫，<strong>不</strong> memset 兜底。</p>
+  <div class="badges">
+    <span class="badge ok">原 FAIL dQ 0.0626 → 7.4e-9 PASS</span>
+    <span class="badge ok">group determ == atomic BYTE-IDENTICAL</span>
+    <span class="badge ok">group determ 跑两次 BYTE-IDENTICAL</span>
+    <span class="badge ok">套件 91 / 91 / 0 / 0 · exit 0</span>
+    <span class="badge ok">零库改 · zero 回归</span>
+    <span class="badge gate">O1 已修（BOOL_SWITCH_3）</span>
+  </div>
+</div>
+
+<!-- ============ 1 M6b 是什么 ============ -->
+<section id="s1">
+  <h2>1 &nbsp;M6b 是什么：三件事</h2>
+  <p class="lede">M6 把 deterministic dQ 做到了 no_group（batched + jagged）。M6b 把它补齐到 group，并清掉 M6 文档里诚实标注的遗留缺陷 O1。验收过程中又顺手挖出一个与 determ 无关、但真能让 dQ 错的 harness 老洞。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>事项</th><th>内容</th><th>性质</th></tr></thead>
+    <tbody>
+      <tr><td><strong>① group determ</strong></td><td>M4/M5b group 结构 × M6 determ 机制：两个 group kernel（SiLU + softmax）dq_acc 窗口加 <code>set+split</code> 分叉，group dispatch 加 <code>launch_main_and_post</code>（num_splits / memset×num_splits / MAIN / reduce-or-convert POST），<strong>POST reduce kernel 直接复用 M6 的</strong>（mode-agnostic）。</td><td><span class="tag tag-reuse">复用 M6</span></td></tr>
+      <tr><td><strong>② 修 O1</strong></td><td>group entry <code>BOOL_SWITCH_2 → BOOL_SWITCH_3</code> 接 <code>param.kIsDeterministic</code> 真轴；group dispatch 去掉那条永不可达的 determ <code>throw</code>。group 是直接实例化（无 extern-template instance 文件），故无需改 <code>generate_instances.py</code>。</td><td><span class="tag tag-new">修缺陷</span></td></tr>
+      <tr><td><strong>③ 修 harness 老洞</strong></td><td>验收 1-FAIL 根因 = bwd harness <code>group_max_seqlens_q</code> 低估。改组内逐 batch 真最大 + <code>HSTU_CHECK</code> 守卫 + PRE 前置条件注释。<strong>库 kernel / dispatch / reference / fwd 一字未动</strong>。</td><td><span class="tag tag-mod">harness</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block olive"><strong>determinism 自此覆盖全模式。</strong>&nbsp;no_group（batched + jagged）由 M6 覆盖；group 由 M6b 覆盖；两者都跨 SiLU + softmax。M6b 后，「同输入跑两次得到逐位相同的 dQ」在所有已支持模式上都是构造保证（不再有 group 的静默 atomic 缺口）。改了 5 个文件、<code>+186 / −114</code> 行。</div>
+</section>
+
+<!-- ============ 2 group determ 机制 ============ -->
+<section id="s2">
+  <h2>2 &nbsp;group determ 机制：照搬 M6 的 set + split + 固定序 reduce</h2>
+  <p class="lede">dQ 是反向里唯一需要<strong>跨 KV-block 累加</strong>的梯度（每个 KV-block 都对全体 Q 行有贡献），所以 dQ 才有 determinism 问题（dK/dV 各自只在自己 block 内累加，无此问题）。group 路一样如此，机制与 M6 <strong>逐字相同</strong>：atomic 路 N 个 block 竞争 <code>atomic_add</code> 进一份 dq_acc（顺序不定）；determ 路每 block <code>set</code>（plain store，无 atomic）写进自己的 split 副本，POST 按固定升序归约。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 300" width="100%" role="img" aria-label="group deterministic split path">
+    <defs>
+      <marker id="ac" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#D97757"/></marker>
+      <marker id="ao" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#788C5D"/></marker>
+    </defs>
+    <text x="24" y="24" font-size="12.5" fill="#8A3B1E" font-weight="700">group deterministic 路（kIsDeterministic=true）—— 与 M6 no_group 同机制</text>
+    <rect x="40" y="44" width="92" height="30" rx="6" fill="var(--clay-lt)" stroke="#D97757"/><text x="86" y="64" text-anchor="middle" font-size="10" fill="#8A3B1E">KV-blk 0</text>
+    <rect x="40" y="82" width="92" height="30" rx="6" fill="var(--clay-lt)" stroke="#D97757"/><text x="86" y="102" text-anchor="middle" font-size="10" fill="#8A3B1E">KV-blk 1</text>
+    <rect x="40" y="120" width="92" height="30" rx="6" fill="var(--clay-lt)" stroke="#D97757"/><text x="86" y="140" text-anchor="middle" font-size="10" fill="#8A3B1E">KV-blk 2</text>
+    <text x="150" y="78" font-size="9.5" fill="#4B5C39" font-weight="700">store (mop=set)</text>
+    <text x="150" y="118" font-size="9" fill="#788C5D">无 atomic、无竞争</text>
+    <rect x="300" y="40" width="160" height="30" rx="6" fill="#fff" stroke="#788C5D" stroke-width="1.4"/><text x="380" y="60" text-anchor="middle" font-size="10" fill="#4B5C39">split[0]（单份全量 packed）</text>
+    <rect x="300" y="80" width="160" height="30" rx="6" fill="#fff" stroke="#788C5D" stroke-width="1.4"/><text x="380" y="100" text-anchor="middle" font-size="10" fill="#4B5C39">split[1]</text>
+    <rect x="300" y="120" width="160" height="30" rx="6" fill="#fff" stroke="#788C5D" stroke-width="1.4"/><text x="380" y="140" text-anchor="middle" font-size="10" fill="#4B5C39">split[2]</text>
+    <text x="300" y="170" font-size="9" fill="#788C5D">base += i_tile_n · split_stride_dq_acc（各写各的）</text>
+    <path d="M132 59 L298 55" stroke="#D97757" stroke-width="1.3" marker-end="url(#ac)"/>
+    <path d="M132 97 L298 95" stroke="#D97757" stroke-width="1.3" marker-end="url(#ac)"/>
+    <path d="M132 135 L298 135" stroke="#D97757" stroke-width="1.3" marker-end="url(#ac)"/>
+    <rect x="510" y="74" width="170" height="48" rx="8" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.6"/>
+    <text x="595" y="94" text-anchor="middle" font-size="10.5" fill="#4B5C39" font-weight="700">POST reduce（复用 M6）</text>
+    <text x="595" y="112" text-anchor="middle" font-size="9" fill="#3D3D3A">Σ_s（s 升序）→ convert</text>
+    <path d="M460 70 C 485 80, 490 88, 508 92" stroke="#788C5D" stroke-width="1.2" fill="none" marker-end="url(#ao)"/>
+    <path d="M460 95 L508 97" stroke="#788C5D" stroke-width="1.2" marker-end="url(#ao)"/>
+    <path d="M460 135 C 485 124, 490 112, 508 104" stroke="#788C5D" stroke-width="1.2" fill="none" marker-end="url(#ao)"/>
+    <rect x="730" y="74" width="220" height="48" rx="8" fill="#E9EFE0" stroke="#788C5D"/>
+    <text x="840" y="94" text-anchor="middle" font-size="10.5" fill="#4B5C39" font-weight="700">两次跑 BYTE-IDENTICAL</text>
+    <text x="840" y="112" text-anchor="middle" font-size="9" fill="#3D3D3A">且 == atomic 逐位相同</text>
+    <path d="M680 98 L728 98" stroke="#788C5D" stroke-width="1.3" marker-end="url(#ao)"/>
+    <line x1="40" y1="200" x2="940" y2="200" stroke="#D1CFC5" stroke-dasharray="4 3"/>
+    <text x="24" y="224" font-size="11.5" fill="#3D3D3A" font-weight="700">M6b 在 group 路只改 3 点（机制零新增）：</text>
+    <rect x="40" y="236" width="290" height="44" rx="7" fill="var(--gray-150)" stroke="#D1CFC5"/><text x="52" y="255" font-size="10" fill="#3D3D3A" font-weight="700">① 两个 group kernel dq_acc 窗口</text><text x="52" y="271" font-size="9" fill="#787">mop = determ ? set : atomic_add + split 偏移</text>
+    <rect x="346" y="236" width="290" height="44" rx="7" fill="var(--gray-150)" stroke="#D1CFC5"/><text x="358" y="255" font-size="10" fill="#3D3D3A" font-weight="700">② group dispatch launch_main_and_post</text><text x="358" y="271" font-size="9" fill="#787">num_splits / memset×N / MAIN / reduce POST</text>
+    <rect x="652" y="236" width="290" height="44" rx="7" fill="var(--clay-lt)" stroke="#D97757"/><text x="664" y="255" font-size="10" fill="#8A3B1E" font-weight="700">③ group entry BOOL_SWITCH_3（O1）</text><text x="664" y="271" font-size="9" fill="#787">接 param.kIsDeterministic 真轴</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图1：group deterministic 路 = M6 机制原样落到 group。每 KV-block <code>set</code> 写进专属 split 副本（<code>base += i_tile_n·split_stride_dq_acc</code>），POST 固定升序 <code>Σ_s</code> 归约（<strong>直接复用 M6 的 <code>hstu_bwd_reduce_convert_dq_kernel</code></strong>，mode-agnostic）。下排为 M6b 在 group 路的全部三处改动。</p>
+
+  <h3>① 两个 group kernel：dq_acc 窗口编译期分叉</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp · group SiLU kernel（HstuAttentionBwdDQDKDVGroupKernel）L1173-1181（group softmax kernel ...GroupSoftmaxKernel L1545-1553 同构）</span>        <span class="cm">// M6b group determ: 与 M6 no_group 逐字相同的 mop 分叉 + split 偏移</span>
+        <span class="kw">constexpr auto</span> mop = kIsDeterministic ? <span class="hl">memory_operation_enum::set</span>
+                                              : memory_operation_enum::atomic_add;
+        <span class="kw">auto</span>* dq_acc_ptr = ...;
+        <span class="hl">if constexpr</span>(kIsDeterministic)
+            dq_acc_ptr += <span class="hl">static_cast&lt;long_index_t&gt;(i_tile_n_) * kargs.split_stride_dq_acc</span>;  <span class="cm">// 本 KV-block 专属 split</span></div>
+  <div class="note-block clay"><strong>params 只加两个字段。</strong>&nbsp;<code>HstuAttentionGroupBwdParams += split_stride_dq_acc / num_splits</code>（<code>hstu_attention_bwd_params.hpp</code>），其余与 M4/M5b group 参数共用。kernel 的 <code>mop</code> 与 pipeline 早有的 <code>if constexpr(kIsDeterministic) store_tile else update_tile</code> 严格配对——和 M6 一样，<strong>pipeline 一字未改</strong>。</div>
+
+  <h3>② group dispatch：launch_main_and_post（num_splits / memset / reduce）</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_group_backward_dispatch.hpp · launch_main_and_post L83-122</span>    <span class="kw">const int</span> num_splits = kIsDeterministic
+        ? <span class="fn">integer_divide_ceil</span>(max_seqlen_q, <span class="hl">Pipeline::kN0</span>) : 1;        <span class="cm">// = grid.x；kN0=128</span>
+    <span class="fn">hipMemsetAsync</span>(dq_acc_ptr, 0, single * num_splits * sizeof(float), ...);  <span class="cm">// 全 workspace 清零</span>
+    ... launch MAIN ...
+    <span class="hl">if constexpr</span>(kIsDeterministic)
+        <span class="fn">hstu_bwd_reduce_convert_dq_kernel</span>(...num_splits..., /*split_stride=*/single);  <span class="cm">// 复用 M6 POST</span>
+    <span class="kw">else</span>
+        <span class="fn">hstu_bwd_convert_dq_kernel</span>(...);     <span class="cm">// atomic 路：纯 cast，未改</span></div>
+  <div class="note-block"><strong>去掉了那条永不可达的 throw。</strong>&nbsp;M6 文档 §6 记的 O1 里，group dispatch L318-319 有一条 <code>if constexpr(kIsDeterministic) throw "...not implemented (M6)"</code>。M6b 真实现了 group determ，这条 throw 随之删除；<code>kIsDeterministic</code> 改为穿进 Problem/kernel 的真模板轴（L41 / L70 / L313+）。</div>
+</section>
+
+<!-- ============ 3 O1 修复 ============ -->
+<section id="s3">
+  <h2>3 &nbsp;O1 修复：group entry 一行从 BOOL_SWITCH_2 升到 3</h2>
+  <p class="lede">M6 文档诚实标注过 O1：<em>group + determ 现「静默走 atomic」，不报错也不可复现</em>。根因是 group entry 永远以 <code>kIsDeterministic=false</code> 实例化 group dispatch，于是 dispatch 里 <code>if constexpr(false)</code> 的 determ 分支（含那条 throw）<strong>整段不编进二进制</strong>——determ 请求被静默吞掉。M6b 把这个真轴接上。</p>
+  <div class="code-block"><span class="ttl">hstu_attention_group_backward_bf16.cpp（diff，O1 修复）</span><span class="cm">- // softmax/deterministic compile to a runtime throw.</span>
+<span class="cm">+ // M6b: kIsDeterministic is a runtime-selected template axis (causal × softmax × determ),</span>
+<span class="cm">+ // so group+deterministic compiles a real determ instance instead of silently running atomic.</span>
+<span class="cm">-</span>    <span class="fn">BOOL_SWITCH_2</span>(param.use_causal, kUseCausal, param.use_softmax, kUseSoftmax, [&amp;] {
+<span class="hl">+</span>    <span class="fn">BOOL_SWITCH_3</span>(param.use_causal, kUseCausal, param.use_softmax, kUseSoftmax,
+<span class="hl">+</span>                  <span class="hl">param.kIsDeterministic, kIsDeterministic</span>, [&amp;] {
+         run_group_backward_dispatch&lt;bf16_t, kUseCausal, kUseSoftmax,
+                                     false, <span class="cm">// kHasBias</span>
+<span class="cm">-</span>                                    false, <span class="cm">// kIsDeterministic（硬编 → determ 不可达）</span>
+<span class="hl">+</span>                                    <span class="hl">kIsDeterministic</span>,
+                                     64&gt;(...);</div>
+  <div class="callout-grid">
+    <div class="callout clay">
+      <div class="k">修前性质</div>
+      <div class="t">silent-ignore，非 silent-wrong</div>
+      <div class="d">group+determ 的梯度<strong>数值正确</strong>（atomic 路已对拍），只是<strong>不可复现</strong>且<strong>不报错</strong>——违背的是 determinism 契约，与 HANDOFF §7「silent-ignore 不可取」相悖。</div>
+    </div>
+    <div class="callout">
+      <div class="k">为何无需改 codegen</div>
+      <div class="t">group 直接实例化</div>
+      <div class="d">group entry 直接实例化 dispatch（无 extern-template instance 文件），不像 no_group 需改 <code>generate_instances.py</code>。一行 <code>BOOL_SWITCH</code> 升级即多编出 determ 实例。</div>
+    </div>
+    <div class="callout">
+      <div class="k">修后</div>
+      <div class="t">group+determ 真可复现</div>
+      <div class="d"><code>-deterministic=1 -g=2</code> 现编出真 determ 实例：correct + bit-reproducible，且与 atomic 逐位相同（见 §6）。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 4 harness 老洞 ============ -->
+<section id="s4">
+  <h2>4 &nbsp;★ 高潮：抓出并修 harness <code>group_max_seqlens_q</code> 老洞</h2>
+  <p class="lede">这是 M6b 最值得讲的一段。group determ 跑对拍时，<strong>91 个配置里恰好 1 个 dQ FAIL</strong>（max_abs_err = 0.0626 &gt; 阈值 0.05），而且<strong>只有 softmax target 行错、dK/dV 全对</strong>。这种「极局部、单梯度」的错，往往不是机制 bug，而是某个边角输入算错了。</p>
+
+  <div class="gate-banner"><strong>触发配置（lead repro）：</strong>&nbsp;<code>-b=4 -nhead=4 -g=2 -seqlens=128,200,96,160 -g_local_lens=16,16 -targets=8,24,8,16 -softmax=1 -causal=1 -attn_scale=1.0</code>&nbsp;→ 修前 dQ <strong>0.0626221</strong> FAIL。组内多 batch、异 seqlen、长 batch 带大 target、带 window —— 此前 group 测试矩阵从没同时覆盖这几条。</div>
+
+  <h3>判别实验：把锅一步步缩到 harness</h3>
+  <p>不靠猜，用三组对照实验把责任面从「determ / 库 / reference」逐一排除，最后锁死在 harness 的一个数值上：</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>实验</th><th>观察</th><th>排除了什么</th></tr></thead>
+    <tbody>
+      <tr><td>同输入 group vs no_group-jagged 对照</td><td><code>G_ref == N_ref</code> 逐位相同（reference 对）；<code>G_dev != N_dev</code>，仅 batch1 target 区差（GPU 侧）</td><td>排除 <strong>reference</strong>：CPU oracle 两路一致 = oracle 正确</td></tr>
+      <tr><td><code>-deterministic=0</code> vs <code>=1</code> 同配置</td><td>atomic 与 determ dQ <strong>逐位相同</strong>（都中招、错得一样）</td><td>排除 <strong>determ 机制</strong>：M6b 不是元凶；错来自两路共享的上游</td></tr>
+      <tr><td><code>-g_max_seqlens</code> override 扫描</td><td>max ≥ <strong>224</strong> → PASS；max = <strong>208</strong> → FAIL；而 <code>grid.x = ceil(·/128) = 2</code> 两值不变</td><td>排除 <strong>grid 维度</strong>：错因是 <code>max_seqlen_q</code> 的<strong>数值</strong>本身，不是 tile 数</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block olive"><strong>三刀下去，责任面只剩一个量：</strong>&nbsp;<code>max_seqlen_q</code> 的数值。reference 对、determ 不背锅、grid 不变 ⇒ 一定是某处把 <code>max_seqlen_q</code> 算小了，而它被 <strong>atomic 与 determ 共享的 PRE 阶段</strong>用作 grid 上界。坏 token 恰落在 <code>[208, 224)</code> = <code>[低估的 max_seqlen_q, batch1 真实 seqlen)</code>。</p></div>
+
+  <h3>数据流：低估的 max_seqlen_q 如何一路烂到 dQ</h3>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 250" width="100%" role="img" aria-label="harness bug data flow">
+    <defs>
+      <marker id="fr" markerWidth="10" markerHeight="10" refX="8" refY="3.2" orient="auto"><path d="M0,0 L8,3.2 L0,6.4 Z" fill="#8A3B1E"/></marker>
+    </defs>
+    <rect x="20" y="40" width="180" height="74" rx="9" fill="var(--gray-150)" stroke="#C9912F" stroke-width="1.5"/>
+    <text x="110" y="62" text-anchor="middle" font-size="11" fill="#5A3E10" font-weight="700">① harness 低估</text>
+    <text x="110" y="80" text-anchor="middle" font-size="8.5" fill="#3D3D3A">group_max_seqlens_q</text>
+    <text x="110" y="94" text-anchor="middle" font-size="8.5" fill="#3D3D3A">= 208 &lt; 真实 224</text>
+    <text x="110" y="107" text-anchor="middle" font-size="8" fill="#8A3B1E">组下标索引逐 batch 数组</text>
+
+    <rect x="248" y="40" width="180" height="74" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.5"/>
+    <text x="338" y="62" text-anchor="middle" font-size="11" fill="#8A3B1E" font-weight="700">② PRE 漏算 D</text>
+    <text x="338" y="80" text-anchor="middle" font-size="8.5" fill="#3D3D3A">dot_do_o grid 按 208 开</text>
+    <text x="338" y="94" text-anchor="middle" font-size="8.5" fill="#3D3D3A">token∈[208,224) 从不算 D</text>
+    <text x="338" y="107" text-anchor="middle" font-size="8" fill="#8A3B1E">d_dev 未 memset → 垃圾</text>
+
+    <rect x="476" y="40" width="160" height="74" rx="9" fill="#FDECEC" stroke="#C97" stroke-width="1.5"/>
+    <text x="556" y="62" text-anchor="middle" font-size="11" fill="#8A3B1E" font-weight="700">③ 垃圾 D</text>
+    <text x="556" y="82" text-anchor="middle" font-size="8.5" fill="#3D3D3A">D = rowsum(O·dO)</text>
+    <text x="556" y="98" text-anchor="middle" font-size="8.5" fill="#3D3D3A">尾 token 残留随机值</text>
+
+    <rect x="684" y="40" width="150" height="74" rx="9" fill="#FDECEC" stroke="#C97" stroke-width="1.5"/>
+    <text x="759" y="62" text-anchor="middle" font-size="11" fill="#8A3B1E" font-weight="700">④ dS 错</text>
+    <text x="759" y="84" text-anchor="middle" font-size="9.5" fill="#3D3D3A">dS = P·(dP − D)</text>
+    <text x="759" y="100" text-anchor="middle" font-size="8.5" fill="#3D3D3A">softmax 路专属</text>
+
+    <rect x="858" y="40" width="100" height="74" rx="9" fill="#FDECEC" stroke="#8A3B1E" stroke-width="1.8"/>
+    <text x="908" y="66" text-anchor="middle" font-size="11" fill="#8A3B1E" font-weight="700">⑤ dQ 错</text>
+    <text x="908" y="86" text-anchor="middle" font-size="8.5" fill="#3D3D3A">仅 target 行</text>
+    <text x="908" y="100" text-anchor="middle" font-size="8.5" fill="#3D3D3A">0.0626</text>
+
+    <path d="M200 77 L246 77" stroke="#8A3B1E" stroke-width="1.4" marker-end="url(#fr)"/>
+    <path d="M428 77 L474 77" stroke="#8A3B1E" stroke-width="1.4" marker-end="url(#fr)"/>
+    <path d="M636 77 L682 77" stroke="#8A3B1E" stroke-width="1.4" marker-end="url(#fr)"/>
+    <path d="M834 77 L856 77" stroke="#8A3B1E" stroke-width="1.4" marker-end="url(#fr)"/>
+
+    <text x="24" y="150" font-size="11" fill="#3D3D3A" font-weight="700">为什么只有 softmax / 只有 dQ / 只有 target 行：</text>
+    <rect x="20" y="162" width="300" height="62" rx="7" fill="var(--gray-150)" stroke="#D1CFC5"/><text x="32" y="181" font-size="9.5" fill="#3D3D3A" font-weight="700">仅 softmax</text><text x="32" y="197" font-size="8.8" fill="#787">SiLU 路无 dot_do_o PRE-D kernel，</text><text x="32" y="210" font-size="8.8" fill="#787">无 D 可坏 → 检不出（见 §6 对抗实验）</text>
+    <rect x="336" y="162" width="300" height="62" rx="7" fill="var(--gray-150)" stroke="#D1CFC5"/><text x="348" y="181" font-size="9.5" fill="#3D3D3A" font-weight="700">仅 dQ</text><text x="348" y="197" font-size="8.8" fill="#787">dS 经 K 进 dQ；dV 不含 D；</text><text x="348" y="210" font-size="8.8" fill="#787">dK 仅稀释贡献 → dK/dV PASS</text>
+    <rect x="652" y="162" width="306" height="62" rx="7" fill="var(--gray-150)" stroke="#D1CFC5"/><text x="664" y="181" font-size="9.5" fill="#3D3D3A" font-weight="700">仅 target 行</text><text x="664" y="197" font-size="8.8" fill="#787">坏 token = [max_seqlen_q, 真实 seqlen)</text><text x="664" y="210" font-size="8.8" fill="#787">= 被低估漏掉的尾部，恰是 target 区</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图2：harness 低估 <code>max_seqlen_q</code> 的数据流。PRE <code>hstu_bwd_dot_do_o_kernel</code> 的 grid 按 <code>max_seqlen_q</code> 开，落在 <code>[max_seqlen_q, 真实 seqlen)</code> 的尾 token <strong>从不被计算 D</strong>（且 <code>d_dev</code> 未 memset）→ 垃圾 D → <code>dS=P·(dP−D)</code> 错 → dQ 错。只 softmax（SiLU 无 PRE-D）、只 dQ、只 target 行。</p>
+
+  <h3>根因到行：组下标索引逐 batch 数组</h3>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp · run_group_hstu_bwd（diff）</span><span class="cm">// 旧式：单组 uih-max + 末尾加 num_targets[i_grp]（组下标 → 逐 batch 数组，取错 target）</span>
+<span class="cm">-</span>    group_max_seqlens_q[i_grp] = group_max_uih_seqlens_q[i_grp]
+<span class="cm">-</span>        + group_contextual_seqlens[i_grp]
+<span class="cm">-</span>        + (num_targets.empty() ? 0 : <span class="hl">num_targets[i_grp]</span>);     <span class="cm">// ✗ 组内最长 packed batch≠batch[i_grp] 时低估</span>
+<span class="cm">// 新式：组内逐 batch 真最大，与 cu_seqlens offset 公式一致（构造上恒不低估）</span>
+<span class="hl">+</span>    <span class="kw">for</span>(<span class="kw">int</span> i = 0; i &lt; num_batch_per_group; i++) {
+<span class="hl">+</span>        <span class="kw">const int</span> b = i_grp * num_batch_per_group + i;
+<span class="hl">+</span>        <span class="kw">const int</span> packed = seq_lengths_q[b] + (num_targets.empty()?0:<span class="hl">num_targets[b]</span>);  <span class="cm">// 逐 batch 取</span>
+<span class="hl">+</span>        grp_max = std::max(grp_max, packed);
+<span class="hl">+</span>    }
+<span class="hl">+</span>    group_max_seqlens_q[i_grp] = grp_max + group_contextual_seqlens[i_grp];</div>
+  <div class="note-block clay"><strong>一个下标错。</strong>&nbsp;<code>num_targets</code> 是<strong>逐 batch</strong> 数组，旧式却用<strong>组下标</strong> <code>i_grp</code> 去索引它，又把它加到「单组 uih-max」上。当组内最长 packed 的 batch ≠ <code>batch[i_grp]</code> 时，这个 max 就低估。新式改成对组内每个 batch 取 <code>seq_lengths_q[b] + num_targets[b]</code> 的真最大再加 ctx——与 packed offset 环里真实 <code>batch_seqlen = seq_lengths_q[b]+num_targets[b]+ctx_grp</code> 同源，<strong>构造上恒 ≥ 任一 batch</strong>。</div>
+
+  <h3>防御：守卫 + 注释，但不 memset 兜底</h3>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp · 加守卫（offset 环内，host 有逐 batch seqlen，便宜）</span>    <span class="cm">// Precondition (M6b): max_seqlen_q 必须覆盖每个 batch 的 packed seqlen，否则 PRE D kernel</span>
+    <span class="cm">// 和 fwd grid 会漏算该 batch 尾 token → 垃圾 D / 缺 O,LSE → dQ 错。响亮失败，别 silent-wrong。</span>
+    <span class="fn">HSTU_CHECK</span>(max_max_seqlen_q &gt;= batch_seqlen,
+               <span class="str">"group max_seqlen_q under-covers a batch's packed seqlen ..."</span>);</div>
+  <div class="callout-grid">
+    <div class="callout">
+      <div class="k">防御 1</div>
+      <div class="t">HSTU_CHECK 守卫</div>
+      <div class="d">把「喂错 <code>max_seqlen_q</code>」从 silent-wrong 变<strong>响亮 abort</strong>。host 本就有逐 batch seqlen，零成本。reviewer 实测：改回旧公式 → 触发配置直接 loud abort。</div>
+    </div>
+    <div class="callout">
+      <div class="k">防御 2</div>
+      <div class="t">PRE 前置条件注释</div>
+      <div class="d">PRE kernel / dispatch 文档化「<code>max_seqlen_q</code> 必须 ≥ 所有 batch packed seqlen」。设备端 offset 的 host 校验成本高，lead 同意<strong>不做</strong>。</div>
+    </div>
+    <div class="callout clay">
+      <div class="k">明确不做</div>
+      <div class="t">不 memset d_dev 兜底</div>
+      <div class="d">memset 后真 token 的 <code>D=0</code> <strong>仍是错值</strong>（只是从垃圾变成确定性错），那是<strong>掩盖不是修复</strong>。lead 批复明令禁止。</div>
+    </div>
+  </div>
+  <div class="note-block olive"><strong>顺带受益的两处。</strong>&nbsp;同一修正后的 <code>max_max_seqlen_q</code> 也喂给 harness 内<strong>调 group fwd 产 LSE</strong> 那处（否则 fwd grid/LSE 同样 under-cover）和 SiLU group 在 <code>attn_scale==0</code> 的 <code>scale_p</code> fallback（<code>1/group_max_seqlen_q</code>）——一处修复三处一致。</div>
+</section>
+
+<!-- ============ 5 上游 fwd 同形非 bug ============ -->
+<section id="s5">
+  <h2>5 &nbsp;辨析：上游 fwd 同形，但<strong>不是 bug</strong></h2>
+  <p class="lede">必须把两件事分清楚，否则容易误传：M6b 修的是<strong>我们自己的 bwd 测试 harness</strong>；上游 <code>example_hstu_attention_fwd.cpp</code> 里有<strong>形式相同</strong>的 <code>group_max_seqlens_q</code> 写法，但经与 fwd 代码作者核实，那<strong>不是 bug</strong>，是 example 的用法约定。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>对象</th><th>同款形式？</th><th>定性</th><th>处置</th></tr></thead>
+    <tbody>
+      <tr><td>本 repo <strong>bwd harness</strong><br><code>example_hstu_attention_bwd.cpp · run_group_hstu_bwd</code></td><td>是（旧式）</td><td><span class="status-no">真 harness setup bug</span>：默认推导内部就低估，且无 override 兜底，silent-wrong</td><td>本单<strong>修</strong>（§4）</td></tr>
+      <tr><td>上游 <strong>fwd example</strong><br><code>example_hstu_attention_fwd.cpp</code></td><td>是（同款 group-下标）</td><td><span class="status-yes">非 bug</span>：是 example 用法约定，<strong>2026-06-10 与 fwd 作者核实后定性</strong></td><td><strong>不改、不报上游</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="warn-banner"><strong>为什么上游 fwd 不是 bug（作者澄清 + 复核确认）：</strong>&nbsp;fwd example 的 <code>-seqlens</code> 是 uih；<code>-g_max_seqlens</code> 文档明确「<em>can be ignored, or else bigger</em>」——即<strong>调用方/脚本负责</strong>保证 <code>max_seqlen_q ≥ 每 batch physical seqlen</code>。Meta dump 的真实工作流里作者按 physical 反算 uih 并 over-provision <code>-g_max_seqlens</code>（「更大不影响 accuracy」）。默认推导只是 best-effort；组内 target 异构时传足够大的 <code>-g_max_seqlens</code> 即正确（实测传 300 全对）。<strong>kernel 正确，正确用法下无误。</strong></div>
+  <div class="note-block clay"><strong>记录一次差点误报（诚实 + 教训）。</strong>&nbsp;M6b 当时（done.md §6 / reviewer B6）曾建议「向上游报同款低估」。后续回到代码 + 找 fwd 作者核实用法约定，<strong>撤回该建议</strong>——以 <code>HANDOFF.md §6</code> 的最终定性为准（早期把上游过度定性为 bug 的草稿 / HTML 已作废）。<strong>教训：对他人代码下 bug 定性前，先回到代码 + 找 owner 核实用法约定，别凭对拍 FAIL 就判 bug。</strong>而我们自己的 bwd harness 不同——它默认推导就错、无人负责 override，是确凿要修的 setup bug。</div>
+</section>
+
+<!-- ============ 6 过程纪律 ============ -->
+<section id="s6">
+  <h2>6 &nbsp;过程纪律：四方闭合，独立复核拦下夸大</h2>
+  <p class="lede">这个里程碑的价值一半在代码，一半在<strong>过程</strong>——它两次被「独立复核」文化拦下不实声称。如实呈现。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 150" width="100%" role="img" aria-label="four-party closure flow">
+    <defs><marker id="pf" markerWidth="10" markerHeight="10" refX="8" refY="3.2" orient="auto"><path d="M0,0 L8,3.2 L0,6.4 Z" fill="#787"/></marker></defs>
+    <rect x="14" y="48" width="150" height="54" rx="9" fill="#FDECEC" stroke="#C97"/><text x="89" y="70" text-anchor="middle" font-size="10.5" fill="#8A3B1E" font-weight="700">coder 首轮</text><text x="89" y="88" text-anchor="middle" font-size="8.5" fill="#3D3D3A">9 PASS/1 FAIL 却标 promoted</text>
+    <rect x="206" y="48" width="150" height="54" rx="9" fill="var(--clay-lt)" stroke="#D97757"/><text x="281" y="70" text-anchor="middle" font-size="10.5" fill="#8A3B1E" font-weight="700">lead 打回</text><text x="281" y="88" text-anchor="middle" font-size="8.5" fill="#3D3D3A">过度声称 → 改回 in-progress</text>
+    <rect x="398" y="48" width="158" height="54" rx="9" fill="var(--gray-150)" stroke="#D1CFC5"/><text x="477" y="70" text-anchor="middle" font-size="10.5" fill="#3D3D3A" font-weight="700">根因定位 + 批准</text><text x="477" y="88" text-anchor="middle" font-size="8.5" fill="#787">判别实验 → lead 批修复方案</text>
+    <rect x="598" y="48" width="170" height="54" rx="9" fill="var(--olive-lt)" stroke="#788C5D"/><text x="683" y="70" text-anchor="middle" font-size="10.5" fill="#4B5C39" font-weight="700">reviewer 对抗复核</text><text x="683" y="88" text-anchor="middle" font-size="8.5" fill="#787">改回旧公式实测回归案有效性</text>
+    <rect x="810" y="48" width="156" height="54" rx="9" fill="#E9EFE0" stroke="#788C5D" stroke-width="1.6"/><text x="888" y="70" text-anchor="middle" font-size="10.5" fill="#4B5C39" font-weight="700">四方闭合</text><text x="888" y="88" text-anchor="middle" font-size="8.5" fill="#3D3D3A">M5b 维持 / M6b 转 promoted</text>
+    <path d="M164 75 L204 75" stroke="#787" stroke-width="1.3" marker-end="url(#pf)"/>
+    <path d="M356 75 L396 75" stroke="#787" stroke-width="1.3" marker-end="url(#pf)"/>
+    <path d="M556 75 L596 75" stroke="#787" stroke-width="1.3" marker-end="url(#pf)"/>
+    <path d="M768 75 L808 75" stroke="#787" stroke-width="1.3" marker-end="url(#pf)"/>
+  </svg>
+  </div>
+
+  <h3>纪律点 1：带 FAIL 不 promote</h3>
+  <div class="note-block clay">coder 首轮把 candidates 标 promoted、reason 写「hetero ... PASS」,但 <code>run-M6b-correctness.log</code> 实为 <strong>9 PASS / 1 FAIL</strong>——过度声称，违反「日志与结论必须一致」铁则。lead 打回，candidates 改回 in-progress，修复后才转 promoted、reason 如实。</div>
+
+  <h3>纪律点 2：reviewer 对抗实验，证回归案<strong>真能锁洞</strong>（还揪出一个空挡）</h3>
+  <p>新增 3 个精确触发锁定案。reviewer 不信自述，<strong>亲手把 harness 公式改回旧式</strong>实测每个回归案是否真触发原 bug：</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>回归案</th><th>旧公式下结果</th><th>有效锁定？</th></tr></thead>
+    <tbody>
+      <tr><td><code>pass-gtrig-sm-atomic</code>（M5b）</td><td>dQ <span class="status-no">FAIL</span> max_abs_err = 0.0958</td><td><span class="status-yes">✓ 真复现原 bug</span></td></tr>
+      <tr><td><code>pass-gtrig-sm-determ</code>（M6b）</td><td>dQ <span class="status-no">FAIL</span> max_abs_err = 0.0958</td><td><span class="status-yes">✓ 真复现原 bug</span></td></tr>
+      <tr><td><code>pass-gtrig-silu-atomic</code>（M5b）</td><td>dQ <span class="status-yes">PASS</span>（0.0039）</td><td><span class="status-no">✗ 空挡 — 锁不住</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block olive"><strong>为何 SiLU 案锁不住（结构上不可能）：</strong>&nbsp;reviewer 逐一证伪三条路——① SiLU 路<strong>无</strong> <code>dot_do_o</code> PRE-D kernel，under-cover 无 D 可坏（bug 唯一发源）；② grid 按 kM0=128 瓦化，208 vs 224 都 <code>ceil(/128)=2</code> 同 tile 数，长 batch 尾行仍被 MAIN 覆盖；③ <code>scale_p</code> fallback 向量 GPU 与 reference 同吃一份，错的 scale 两侧抵消（实测 dQ err=0 仍 PASS）。结论:本 bug 本质 <strong>softmax-PRE-D 专属</strong>,已被 <code>sm-atomic</code>+<code>sm-determ</code> 有效锁定;<code>silu-atomic</code> 是冗余覆盖而非 lock,其 note「locks ... grid/scale_p」<strong>夸大</strong>,reviewer 建议改措辞(非阻塞,洞已堵)。</div>
+  <div class="note-block"><strong>守卫触发路与派单设想不同（reviewer B3，诚实记录）：</strong>&nbsp;派单原设想「喂小 <code>-g_max_seqlens</code> → 应 abort」,实测<strong>不 abort</strong>——因 override 现为 <code>max(...)</code> <strong>只增不减</strong>,小值被真实 per-batch max 压住,根本构造不出低估(比靠 assert 兜更强的安全姿态)。<code>HSTU_CHECK</code> 退化为防「未来有人改坏公式」的护栏,reviewer Exp1(改回旧公式)证其可达。</div>
+</section>
+
+<!-- ============ 7 验证与数据 ============ -->
+<section id="s7">
+  <h2>7 &nbsp;验证与数据</h2>
+  <p class="lede">铁律 <code>-attn_scale=1.0</code>，bf16 阈值 <code>rel ≤ 2e-2 / abs ≤ 5e-2</code>。验收维度：① 原 FAIL 转 PASS；② group determ 正确性；③ 可复现性 + determ==atomic；④ 套件零回归。coder + lead + reviewer 三方各自独立重编 + 重跑。</p>
+  <div class="statgrid">
+    <div class="stat"><div class="v">91</div><div class="l">TOTAL</div></div>
+    <div class="stat"><div class="v">91</div><div class="l">PASSED</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">FAILED</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">exit code</div></div>
+  </div>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>验收项</th><th>结果</th><th>证据</th></tr></thead>
+    <tbody>
+      <tr><td>原 FAIL 配置转 PASS</td><td>dQ <strong>0.0626221 → 7.4e-9</strong> <span class="status-yes">PASS</span>（reviewer 独立机器 7.39e-09）</td><td><code>runs/run-M6b-correctness.log</code></td></tr>
+      <tr><td>group determ 正确性</td><td>SiLU+softmax × causal{0,1} × g{2,3,4} × per-group 异构 × 多 split <span class="status-yes">全 PASS</span></td><td>同上</td></tr>
+      <tr><td>可复现性（group determ 跑两次）</td><td><code>cmp</code> dQ <span class="status-yes">BYTE-IDENTICAL</span>（SiLU/softmax/g3 多 split + trigger 配置）</td><td><code>runs/run-M6b-repro.log</code></td></tr>
+      <tr><td>determ == atomic</td><td>trigger 配置 <span class="status-yes">BYTE-IDENTICAL</span>（① determ 机制不背锅；修的是共享 PRE 的 D）</td><td>判别实验</td></tr>
+      <tr><td>O1 修复</td><td>group entry <code>BOOL_SWITCH_3</code> 接 <code>kIsDeterministic</code>，determ 路真编出 / 可达（取代 silent-atomic）</td><td>git <code>d4fb2884</code></td></tr>
+      <tr><td>套件 + 零回归</td><td><strong>91/91 exit 0</strong>；新增 3 锁定案；M0–M6 全绿</td><td><code>runs/test-20260610-032042.log</code></td></tr>
+      <tr><td>零库改（reviewer B5）</td><td>reference / 两条 MAIN pipeline / no_group dispatch / fwd vs M6 <code>c79d3296</code> <span class="status-yes">byte-identical</span></td><td>git diff</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>改了哪些文件（M6b 全量，+186 / −114）</h3>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>文件</th><th>改动</th><th>类</th></tr></thead>
+    <tbody>
+      <tr><td><code>hstu_attention_bwd_params.hpp</code></td><td>GroupBwdParams += <code>split_stride_dq_acc</code> + <code>num_splits</code></td><td><span class="tag tag-mod">+字段</span></td></tr>
+      <tr><td><code>hstu_attention_bwd_kernel.hpp</code></td><td>两 group kernel dq_acc determ 分叉（set+split vs atomic）+ split_stride karg；PRE kernel 前置条件注释</td><td><span class="tag tag-new">determ</span></td></tr>
+      <tr><td><code>hstu_attention_group_backward_dispatch.hpp</code></td><td>ProblemFor 加 kIsDeterministic 轴 + group <code>launch_main_and_post</code>（num_splits / memset×N / MAIN / reduce-or-convert）+ 去 throw</td><td><span class="tag tag-new">determ</span></td></tr>
+      <tr><td><code>hstu_attention_group_backward_bf16.cpp</code></td><td>entry <code>BOOL_SWITCH_2 → BOOL_SWITCH_3</code>（<strong>O1 修复</strong>）</td><td><span class="tag tag-new">O1</span></td></tr>
+      <tr><td><code>example_hstu_attention_bwd.cpp</code></td><td>group determ workspace 单份×num_splits + split 字段；<strong><code>group_max_seqlens_q</code> 根因修复</strong> + HSTU_CHECK 守卫</td><td><span class="tag tag-mod">harness</span></td></tr>
+      <tr><td>reference / 库 kernel 逻辑 / fwd</td><td><strong>未改</strong>（byte-identical）</td><td><span class="tag tag-reuse">零改</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>教训：又一条 P1-1 式覆盖洞</h3>
+  <div class="note-block clay">这是继 P1-1（causal=0 + num_target + window 漏 mask）之后<strong>又一条测试矩阵覆盖洞</strong>：group 测试此前从没覆盖「同组多 batch + 组内异 seqlen + 长 batch 带大 target + window」这组合。修复连带把它锁进套件（<code>sm-atomic</code> / <code>sm-determ</code> 两案有效 lock）。<strong>覆盖洞比实现 bug 更隐蔽——它让 91 个绿灯看起来「全覆盖」，其实漏了一类配置。</strong></div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 M6b 是什么</a>
+  <a href="#s2">2 group determ 机制</a>
+  <a href="#s2" class="sub">图1 set+split+reduce</a>
+  <a href="#s3">3 O1 修复</a>
+  <a href="#s4">4 ★ harness 老洞</a>
+  <a href="#s4" class="sub">图2 bug 数据流</a>
+  <a href="#s5">5 上游 fwd 同形非 bug</a>
+  <a href="#s6">6 过程纪律</a>
+  <a href="#s7">7 验证与数据</a>
+</nav>
+
+</div>
+</div>
+</body>
+</html>

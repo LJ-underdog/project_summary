@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M8 perf（MI + B2 + B3）实现讲义</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 840px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 760px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 780px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 840px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 880px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 860px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 780px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; justify-content:center; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+.warn-banner { background: linear-gradient(90deg, #FBE9D0, #FDF6EC); border: 1.5px solid #C9912F; border-radius: 10px; padding: 14px 18px; margin: 14px 0; font-size: 13.5px; color: #6E4E15; max-width: 880px; }
+.warn-banner strong { color: #5A3E10; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M8 perf（MI + B2 + B3）实现讲义</div>
+  <h1>HSTU Attention Backward — M8 perf：先量后砍，把 MAIN 保守全扫的 q-tile 浪费收紧掉</h1>
+  <p class="subtitle">这份文档讲清 M8 perf 里程碑如何在<strong>实测驱动</strong>下为 HSTU bwd 提速。流程是「先建测量基线（MI，behind <code>-perf</code>）→ rocprofv3 profile 定位真瓶颈 → 据此把 MAIN dqdkdv 的 <code>GetTileRangeAlongY</code> 从保守全扫 <code>(0,seqlen)</code> 收紧到真实 q-band」。</p>
+  <p class="subtitle">核心不是写新算法——profile 显示 MAIN 占 bwd 墙钟 <strong>84–90%</strong>、矩阵核闲 <strong>~90%</strong>、且<strong>非带宽瓶颈</strong>，浪费来自 <code>GetTileRangeAlongY</code> 的保守全扫。两件事最值得讲：① critique 用实测<strong>证伪了 scoping 自己提的「grid starvation 根因」</strong>（数据驱动纠错）；② 离线穷举校验器在 GPU 跑之前<strong>抓到 2 个真 under-tighten bug</strong>（对拍可能漏）。<strong>scope 诚实标注：本期只做 MI + B2 + B3，占用率类（B4/B7）暂缓。</strong>所有数字引素材，commit <code>048f0a9a</code>，基线 <code>4629508f</code> = cross-attention。</p>
+  <div class="audience">读者：要理解 / review 这套 perf 收紧与其证据链的工程师（关键术语都配一句白话）</div>
+  <div style="margin-top:12px; font-size:13px; color:var(--gray-500);">
+    代码目录：<code style="font-family:var(--mono);font-size:12px;">ck_hstu/example/ck_tile/18_hstu_attention/</code> &nbsp;&middot;&nbsp; 主目标 <strong style="color:var(--clay);">gfx950 (MI350X/CDNA4)</strong> &nbsp;&middot;&nbsp; 落点 2026-06-15 &nbsp;&middot;&nbsp; 接续 <a href="hstu-bwd-cross-attention-20260615.html" style="color:var(--clay)">cross-attention 文档</a>
+  </div>
+</header>
+
+<div class="layout">
+<main>
+
+<!-- ============ TL;DR ============ -->
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M8 perf</div>
+  <p>bwd 此前没有 kernel 计时设施，且 MAIN 的每个 KV-tile 都<strong>保守全扫</strong>所有 Q-tile（<code>GetTileRangeAlongY</code> 返回 <code>(0,seqlen)</code>）——causal 浪费一半、window 浪费 &gt;90%。M8 先建 MI（<code>-perf</code> 计时基线，<strong>设备码 byte-identical</strong>），用 rocprofv3 定位「MAIN 主导 84–90%、矩阵核闲 90%、非带宽瓶颈」，再把 <code>GetTileRangeAlongY</code> 收紧到真实 q-band：<strong>B2 causal</strong>、<strong>B3 local/window</strong>。</p>
+  <p>实测 MAIN 加速 <strong>causal 1.25–1.60×、window 4.7–9.8×</strong>（诚实低于 <code>[derived]</code> 模型，Amdahl 归因）。安全靠<strong>离线穷举校验器</strong>（1,973,278 checks ALL GREEN）兜底——它比对拍更早更硬，<strong>抓到 2 个对拍可能漏的真 under-tighten bug</strong>。reviewer 还做 reverse-proof（破坏收紧 → 校验器 FAIL）证它非 vacuous。<strong>pipeline / kernel / reference 一行未改；scope = MI+B2+B3，占用率（B4/B7）暂缓。</strong></p>
+  <div class="badges">
+    <span class="badge ok">causal MAIN 1.25–1.60×</span>
+    <span class="badge ok">window MAIN 4.7–9.8×</span>
+    <span class="badge ok">校验器 1,973,278 checks ALL GREEN</span>
+    <span class="badge ok">MI behind-flag 设备码 byte-identical</span>
+    <span class="badge ok">套件 253/253 · 零回归</span>
+    <span class="badge info">scope：MI+B2+B3（B4/B7 暂缓）</span>
+  </div>
+</div>
+
+<!-- ============ 1 M8 是什么 + scope ============ -->
+<section id="s1">
+  <h2>1 &nbsp;M8 是什么 + scope：先量后砍，只做 MI + B2 + B3</h2>
+  <p class="lede">M8 是 HSTU bwd 的第一个 perf 里程碑。设计经一个 scoping workflow（6 路分析，含一份 rocprofv3 实测 profile）+ critique，<strong>lead 闸门裁决本期只做 3 项 runtime 真赢</strong>，占用率类候选证据不足或被证伪，暂缓。</p>
+  <div class="callout-grid">
+    <div class="callout">
+      <div class="k">MI · enabler</div>
+      <div class="t">测量基线（behind <code>-perf</code>）</div>
+      <div class="d">新增 <code>time_op</code> 计时原语 + <code>-perf</code> envelope/per-kernel/5-GEMM TFLOPS。<strong>设备码 byte-identical</strong>，套件不受扰。是 B2/B3 的硬前提。</div>
+    </div>
+    <div class="callout">
+      <div class="k">B2 · runtime</div>
+      <div class="t">GetTileRangeAlongY 收紧 causal</div>
+      <div class="d">NoLocal mask（self+cross）从全扫收紧到 causal 真实 q-band。MAIN 1.25–1.60×。</div>
+    </div>
+    <div class="callout">
+      <div class="k">B3 · runtime</div>
+      <div class="t">GetTileRangeAlongY 收紧 window</div>
+      <div class="d">WithLocal mask（self+cross）收紧到 window 双边带 + cross/contextual/min_full 特例。MAIN 4.7–9.8×。</div>
+    </div>
+  </div>
+  <div class="warn-banner"><strong>scope 诚实标注：本期只做 MI + B2 + B3（runtime 真赢）。</strong>&nbsp;占用率类候选 <strong>B4（grid widening）依据被 critique 实测证伪、B7（hd256 occupancy / VGPR）阻塞于未解的 VGPR 矛盾</strong>，连同 B1/B5/B6/INV/B8–B10 一并暂缓（§7 逐项说明）。本文档不把 M8 说成「全面 perf 优化」。</div>
+  <div class="note-block olive"><strong>白话：</strong>&nbsp;M8 不动算法、不动 tile 形状、不碰占用率，只做一件低风险高收益的事——<strong>别再扫那些对当前 KV-block 零贡献的 Q-tile</strong>。难点不在「砍」，而在<strong>怎么证明砍得不多不少（不漏梯度）</strong>，以及<strong>先靠数据确认这真是瓶颈</strong>——这正是 §2 与 §5 的主线。</div>
+</section>
+
+<!-- ============ 2 profiling 实测驱动 ============ -->
+<section id="s2">
+  <h2>2 &nbsp;实测驱动（亮点）：profile 定瓶颈 + critique 证伪自己的根因</h2>
+  <p class="lede">M8 不是「猜哪里慢就改哪里」。一份 rocprofv3 profile（canonical <code>bf16 b2 nhead8 seqlen2048 causal softmax hd64</code>）把瓶颈钉死，又在 scoping 阶段<strong>用实测推翻了自己最初的根因假设</strong>。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 920 250" width="100%" height="250" role="img" aria-label="rocprofv3 profile 快照">
+    <text x="24" y="24" font-size="12.5" fill="#141413" font-weight="700">rocprofv3 profile 快照（canonical bwd）：MAIN 主导墙钟、矩阵核闲、非带宽瓶颈</text>
+    <!-- wall-time bar -->
+    <text x="24" y="58" font-size="10.5" fill="#3D3D3A">bwd 墙钟分解 (303.88us)</text>
+    <rect x="200" y="46" width="600" height="26" fill="var(--gray-150)" stroke="#D1CFC5"/>
+    <rect x="200" y="46" width="526" height="26" fill="#D97757"/>
+    <text x="463" y="63" text-anchor="middle" font-size="10" fill="#fff" font-weight="700">MAIN dqdkdv 266.20us (87.6%)</text>
+    <rect x="726" y="46" width="56" height="26" fill="#788C5D"/>
+    <text x="754" y="63" text-anchor="middle" font-size="8" fill="#fff">PRE 28.2</text>
+    <rect x="782" y="46" width="18" height="26" fill="#C9912F"/>
+    <text x="752" y="86" font-size="8" fill="#87867F">memset 3.8 · POST 5.68</text>
+    <!-- gauges -->
+    <g>
+      <text x="120" y="130" text-anchor="middle" font-size="10.5" fill="#3D3D3A" font-weight="700">MfmaUtil</text>
+      <rect x="60" y="140" width="120" height="16" fill="var(--gray-150)" stroke="#D1CFC5"/>
+      <rect x="60" y="140" width="11.9" height="16" fill="#8A3B1E"/>
+      <text x="120" y="174" text-anchor="middle" font-size="13" fill="#8A3B1E" font-weight="700">9.9%</text>
+      <text x="120" y="190" text-anchor="middle" font-size="8.5" fill="#87867F">矩阵核闲 &gt;80%</text>
+    </g>
+    <g>
+      <text x="300" y="130" text-anchor="middle" font-size="10.5" fill="#3D3D3A" font-weight="700">MAIN occupancy</text>
+      <rect x="240" y="140" width="120" height="16" fill="var(--gray-150)" stroke="#D1CFC5"/>
+      <rect x="240" y="140" width="12.7" height="16" fill="#C9912F"/>
+      <text x="300" y="174" text-anchor="middle" font-size="13" fill="#8A6D2F" font-weight="700">10.6%</text>
+      <text x="300" y="190" text-anchor="middle" font-size="8.5" fill="#87867F">3.39 waves/CU</text>
+    </g>
+    <g>
+      <text x="480" y="130" text-anchor="middle" font-size="10.5" fill="#3D3D3A" font-weight="700">MemUnitStalled</text>
+      <rect x="420" y="140" width="120" height="16" fill="var(--gray-150)" stroke="#D1CFC5"/>
+      <rect x="420" y="140" width="2" height="16" fill="#788C5D"/>
+      <text x="480" y="174" text-anchor="middle" font-size="13" fill="#4B5C39" font-weight="700">0.024%</text>
+      <text x="480" y="190" text-anchor="middle" font-size="8.5" fill="#87867F">非带宽瓶颈</text>
+    </g>
+    <g>
+      <text x="660" y="130" text-anchor="middle" font-size="10.5" fill="#3D3D3A" font-weight="700">VGPR / Scratch</text>
+      <rect x="600" y="140" width="120" height="16" fill="var(--gray-150)" stroke="#D1CFC5"/>
+      <rect x="600" y="140" width="58" height="16" fill="#788C5D"/>
+      <text x="660" y="174" text-anchor="middle" font-size="13" fill="#4B5C39" font-weight="700">124 / 0</text>
+      <text x="660" y="190" text-anchor="middle" font-size="8.5" fill="#87867F">无 spill</text>
+    </g>
+    <text x="770" y="150" font-size="9" fill="#8A3B1E" font-weight="700">→ 结论:</text>
+    <text x="770" y="166" font-size="8.5" fill="#3D3D3A">瓶颈是 MAIN 浪费</text>
+    <text x="770" y="180" font-size="8.5" fill="#3D3D3A">的 q-tile,非带宽</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图1:rocprofv3 实测——MAIN dqdkdv 占 bwd 墙钟 <strong>87.6%</strong>（canonical；全配置 84–90%）、MfmaUtil 仅 9.9%（矩阵核闲 &gt;80%）、MemUnitStalled 0.024%（<strong>非带宽瓶颈</strong>）、VGPR 124 无 spill。结论:加速的钥匙是<strong>砍 MAIN 浪费的迭代</strong>，不是带宽。</p>
+
+  <h3>critique 证伪 scoping 自己的「grid starvation 根因」（数据驱动纠错）</h3>
+  <p>scoping draft 最初把 <strong>grid starvation</strong> 列为头号根因:grid = <code>(ceil(seqlen_kv/kN0), nhead, batch) = (16,8,2) = 256</code> workgroup 对 256 个 CU ≈ 1 block/CU，无第二波掩延迟；并以「16× 放大 grid → occupancy 3.39→6.96 waves（10.6→21.8%）、MfmaUtil 9.9→18.4%」佐证。<strong>但 critique 复测推翻了这个根因</strong>:</p>
+  <div class="gate-banner"><strong>数据驱动纠错:</strong>&nbsp;critique 实测发现是 <strong>256× 超额订阅</strong>（grid 并不饥饿），真限制器是 <strong>per-block LDS/VGPR 上限卡住 waves/CU</strong>，不是 grid 数。<strong>⇒ B4 grid widening 依据作废、暂缓；本期聚焦 <code>GetTileRangeAlongY</code> 浪费（B2/B3）。</strong>同时修正 scoping 笔误:MemUnitStalled = <strong>0.024%</strong>（非 2.4%）。</div>
+  <div class="note-block clay"><strong>为什么这段值得讲:</strong>&nbsp;它是一次<strong>诚实的自我证伪</strong>——团队自己提的根因（grid starvation）被自己的复测推翻，没有为了「实现一个酷候选」而硬上 B4。perf 工作最容易踩的坑就是「凭直觉优化没测准的瓶颈」。M8 的纪律是:<strong>scope 跟着数据走，证据不成立的候选就暂缓。</strong></div>
+</section>
+
+<!-- ============ 3 MI behind-flag byte-identical ============ -->
+<section id="s3">
+  <h2>3 &nbsp;MI:计时基线为何「设备码 byte-identical」</h2>
+  <p class="lede">measure 设施最大的风险是<strong>它本身改变了被测对象</strong>（观测者效应）。MI 的设计让 <code>-perf</code> 之外的一切——包括 253 套件——<strong>设备指令流逐位不变</strong>:计时只活在 host 包裹层。</p>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_perf.hpp — time_op 唯一计时原语</span><span class="kw">template</span> &lt;<span class="kw">typename</span> Fn&gt;
+<span class="kw">float</span> <span class="fn">time_op</span>(<span class="kw">bool</span> measure, hipStream_t stream, Fn&amp;&amp; fn) {
+    <span class="hl">if</span>(!measure) { <span class="fn">fn</span>(); <span class="kw">return</span> 0.f; }       <span class="cm">// 正常路/套件:只调一次 = 裸 launch</span>
+    <span class="cm">// measure=true:cold3 warmup + nrep10 hipEvent gpu_timer,返回 per-launch 均值 ms</span>
+    ... warmup ...; ... record ...; <span class="kw">return</span> ms;
+}</div>
+  <div class="callout-grid">
+    <div class="callout">
+      <div class="k">机制 1</div>
+      <div class="t">perf 字段纯 host</div>
+      <div class="d">两个 bwd params 末尾追加 <code>measure_perf</code> + <code>perf_{pre,memset,main,post}_ms</code>，<strong>从不进 MakeKargs</strong> ⇒ 不入设备 kargs ⇒ 设备符号不变。</div>
+    </div>
+    <div class="callout">
+      <div class="k">机制 2</div>
+      <div class="t">dispatch 只包 host lambda</div>
+      <div class="d">batched/group dispatch 把 PRE/memset/MAIN/POST 各 launch 包进 <code>time_op</code>（纯 host）；内层 MAIN 仍单发，warmup/repeat 由 time_op 做。launch 参数不变。</div>
+    </div>
+    <div class="callout">
+      <div class="k">机制 3</div>
+      <div class="t"><code>-perf</code> 在校验之后</div>
+      <div class="d">harness <code>-perf</code> 块 gated 在 <code>if(measure_perf)</code> 且在梯度 FromDevice 之后 ⇒ 套件路完全不受扰，0 条 PERF 行污染。</div>
+    </div>
+  </div>
+  <div class="note-block olive"><strong>byte-identical 的直接铁证（reviewer 自产 HEAD 基线复核）:</strong>&nbsp;mask-无关的 helper kernel（PRE <code>dot_do_o</code> / POST <code>convert_dq</code> / <code>reduce_convert_dq</code>）的 launch <strong>现已走 <code>time_op</code> 包裹</strong>，但其设备码 <strong>6/6 逐位不变</strong>——这正是「host 包裹不碰设备码」最干净的证明。配套:FORWARD <strong>9216/9216</strong>、BWD no_causal-NoLocal <strong>256/256</strong> identical;coder 口径 <strong>13782/13782</strong>（457 obj 全集，含 fwd）。套件 <strong>253/253</strong>，不给 <code>-perf</code> 时 0 条 PERF 行。</div>
+  <div class="note-block"><strong>per-kernel 计时与 rocprofv3 互证（非臆造）:</strong>&nbsp;<code>-perf</code> 测得 canonical MAIN <strong>0.263ms ≈ profile 266us</strong>、envelope 占 <strong>87% ≈ 87.6%</strong>、hd256 silu MAIN <strong>0.971ms ≈ 943us</strong>;连「<strong>SiLU 26% 异常</strong>」都复现（silu/softmax = 1.27×，profile 335/266us）。两套独立测量互相印证 ⇒ 计时可信。</div>
+</section>
+
+<!-- ============ 4 B2/B3 机制 ============ -->
+<section id="s4">
+  <h2>4 &nbsp;B2/B3 机制:从保守全扫收紧到真实 q-band</h2>
+  <p class="lede">MAIN 是 KV-block-parallel:每个 KV-tile 沿 Q 维扫一串 Q-tile。<code>GetTileRangeAlongY</code> 返回该 KV-tile 需要扫的 <code>[y_start, y_end)</code>。pre-M8 它保守返回 <strong>全扫 <code>(0,seqlen)</code></strong>——但 causal/window 下，大多数 Q-tile 对当前 KV-tile <strong>零贡献</strong>。收紧 = 只扫真实有贡献的 q-band。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 920 270" width="100%" height="270" role="img" aria-label="全扫 vs 紧致带">
+    <text x="24" y="22" font-size="12" fill="#141413" font-weight="700">同一 KV-tile 沿 Q 维扫描的范围（深色 = 实际算，浅色 = 浪费）</text>
+    <!-- full scan -->
+    <text x="150" y="50" text-anchor="middle" font-size="11" fill="#8A3B1E" font-weight="700">pre-M8 全扫 (0,seqlen)</text>
+    <rect x="60" y="60" width="180" height="150" fill="var(--gray-150)" stroke="#D1CFC5"/>
+    <rect x="60" y="60" width="180" height="150" fill="rgba(217,119,87,.12)"/>
+    <text x="150" y="140" text-anchor="middle" font-size="10" fill="#8A3B1E">全部 Q-tile 都扫</text>
+    <text x="150" y="156" text-anchor="middle" font-size="9" fill="#87867F">causal 浪费~50%</text>
+    <text x="150" y="170" text-anchor="middle" font-size="9" fill="#87867F">window 浪费&gt;90%</text>
+    <text x="150" y="228" text-anchor="middle" font-size="9" fill="#3D3D3A">每访问 tile 内仍 per-pixel 掩码</text>
+    <!-- B2 causal -->
+    <text x="450" y="50" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">B2 causal:三角带</text>
+    <rect x="360" y="60" width="180" height="150" fill="var(--gray-150)" stroke="#D1CFC5"/>
+    <path d="M360 60 L540 60 L540 210 L360 210 Z" fill="none"/>
+    <path d="M360 210 L540 60 L540 210 Z" fill="rgba(120,140,93,.30)" stroke="#788C5D"/>
+    <text x="475" y="170" text-anchor="middle" font-size="9.5" fill="#4B5C39" font-weight="700">y_start=align_down(i_x)</text>
+    <text x="475" y="184" text-anchor="middle" font-size="9" fill="#4B5C39">y_end=seqlen</text>
+    <text x="390" y="80" text-anchor="middle" font-size="8.5" fill="#87867F">跳过</text>
+    <!-- B3 window -->
+    <text x="760" y="50" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">B3 window:窄对角带</text>
+    <rect x="670" y="60" width="180" height="150" fill="var(--gray-150)" stroke="#D1CFC5"/>
+    <path d="M670 200 L700 200 L850 70 L850 60 L820 60 L670 190 Z" fill="rgba(120,140,93,.40)" stroke="#788C5D"/>
+    <text x="760" y="150" text-anchor="middle" font-size="9.5" fill="#4B5C39" font-weight="700">[col−W, col+W] 带</text>
+    <text x="760" y="226" text-anchor="middle" font-size="8.5" fill="#87867F">+cross diff / contextual / min_full 特例</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图2:同一 KV-tile 的 Q-扫描范围。全扫（左）把整列 Q-tile 都扫；B2（中）只扫 causal 三角带 <code>y_start=align_down(i_x)</code>；B3（右）只扫 window 窄带。<strong>收紧只少扫零贡献 tile</strong>——每个被访问 tile 内的 per-pixel <code>IsTokenPairInsideMask</code> 照旧掩，故唯一要求是范围必须是真实所需的 <strong>kM0-aligned superset</strong>。</p>
+  <div class="code-block"><span class="ttl">hstu_block_masking.hpp — NoLocal causal 收紧（B2，self;cross 加 diff 偏移）</span><span class="cm">// 收紧前:return {0, seqlen};   // 保守全扫</span>
+<span class="cm">// 收紧后(causal):col c 只被 row≥c 的 Q attend ⇒ 该 KV-tile 最小列 i_x 决定 y_start</span>
+y_start = (contextual_seqlen &gt; 0 &amp;&amp; i_x &lt; max_uih_len)
+          ? 0                                  <span class="cm">// contextual 行 attend 全部 uih 列 → 不能漏</span>
+          : <span class="hl">align_down</span>(i_x <span class="cm">/* cross: −diff_q_kv_len */</span>, YTile);  <span class="cm">// align_down 保证 ≤ 真实 min</span>
+y_end   = seqlen;                              <span class="cm">// 安全上界;非 causal(含 P1-1 num_target)原样全扫</span></div>
+  <div class="note-block clay"><strong>收紧必须覆盖的特例（漏一个就 silent-wrong）:</strong>&nbsp;(a) <strong>contextual 行</strong> attend 全部 uih 列 → tile 触 uih 区时 <code>y_start=0</code>;(b) <strong>min_full 全 reach 行</strong>;(c) <strong>cross <code>diff_q_kv_len</code> 偏移</strong>;(d) <strong>非 causal NoLocal 的 num_target 行不能排除</strong>（P1-1，故非 causal 原样全扫）。B3 的 window 带还要叠加 cross 偏移 + contextual + 非 causal min_full 行下沉（§5 校验器抓到的真 bug）。</div>
+</section>
+
+<!-- ============ 5 校验器抓 bug ============ -->
+<section id="s5">
+  <h2>5 &nbsp;离线穷举校验器（最大亮点）:在 GPU 跑之前抓到 2 个真 bug</h2>
+  <p class="lede">收紧的失败模式是 <strong>numerically-wrong 但不崩溃</strong>:一个被错误排除的 q-tile 会<strong>永久丢掉它的 dK/dV/dQ 贡献</strong>，无任何报错。对拍可能因配置覆盖不全而漏。M8 的硬 gate 是一个<strong>离线穷举 superset 校验器</strong>——无需 GPU，穷举每个 <code>(KV-tile, sq, sk)</code> 验证收紧后的范围仍是真实所需的 superset。</p>
+  <div class="formula formula-block">
+    <span class="line">校验器逻辑(test/validate_tile_range_y.cpp,与 GPU 同一组 make_hstu_* factory + 同 oracle):</span>
+    <span class="line">  for 每个 (KV-tile i_x, 每个 q row sq, 每个 kv col sk):</span>
+    <span class="line">    若 oracle IsTokenPairInsideMask(sq,sk)=attend,但 sq 落在收紧 [y_start,y_end) 之外</span>
+    <span class="line">    ⇒ FAIL(收紧把真实有贡献的 q-row 漏了 = under-tighten)</span>
+    <span class="line">  穷举 self+cross × causal+非causal × 2 tile 形状(32×128 + 16×64) ⇒ 1,973,278 checks</span>
+  </div>
+
+  <h3>校验器抓到的 2 个真 under-tighten bug（B3，被挡在 GPU 之外）</h3>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>bug</th><th>为什么对拍可能漏</th><th>根因</th><th>修法</th></tr></thead>
+    <tbody>
+      <tr><td><strong>① 非 causal + min_full</strong></td><td>需要「非causal × min_full × 特定行/tile」同时在场，对拍矩阵未必覆盖</td><td>min_full 行（<code>row_id≥max_id−mf</code>）attend 所有列，在非 causal 下落在 band 下沿<strong>之下</strong>（物理起点 <code>max_uih_len−mf</code>），最初只在 y_end 处理 → 漏 y_start</td><td>非 causal WithLocal 把 <code>y_start</code> 下沉到 <code>max_uih_len−mf</code></td></tr>
+      <tr><td><strong>② cross causal 大 diff + contextual</strong></td><td>需要「cross × 大 diff_q_kv_len × contextual」组合</td><td>diff 大时 band 映射出界（<code>y_end</code> 被 clamp 到 0），但 contextual 行 <code>[0,ctx)</code> 仍 attend → 漏</td><td>contextual 分支 floor <code>y_end ≥ contextual_seqlen</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="gate-banner"><strong>修后:校验器 1,973,278 checks ALL GREEN。</strong>&nbsp;这 2 个 bug <strong>在任何 GPU 对拍之前</strong>就被穷举校验器抓到并修掉——离线穷举 gate <strong>比对拍更早、更硬</strong>地挡住 under-tighten silent-wrong。</div>
+
+  <h3>reverse-proof:证校验器「能判伪」（非 vacuous）</h3>
+  <p>一个永远 GREEN 的校验器等于没校验。reviewer 在隔离副本上<strong>主动破坏</strong>收紧逻辑，看校验器是否变红:</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>破坏实验（reviewer，隔离副本非 git checkout）</th><th>校验器结果</th><th>报错</th></tr></thead>
+    <tbody>
+      <tr><td>正常 M8 收紧</td><td><span class="status-yes">ALL GREEN</span>（1,973,278）</td><td>—</td></tr>
+      <tr><td>破坏①:删 self causal NoLocal 的 contextual <code>y_start=0</code> carve-out</td><td><span class="status-no">FAIL</span></td><td><code>KVtile@64 attends sq=0..5 but range=[64,128)</code></td></tr>
+      <tr><td>破坏②:删非 causal WithLocal 的 min_full <code>y_start</code> 下沉</td><td><span class="status-no">FAIL</span></td><td><code>nocausal,local mf=64: KVtile@64 attends sq=32.. but range=[48,128)</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block olive"><strong>判伪成立:</strong>&nbsp;两个破坏都让校验器 FAIL，且 FAIL 的正是 coder 声称它抓到的 2 类 bug ⇒ 校验器<strong>非 vacuous</strong>、确实在守 under-tighten。配合套件 <strong>253/253</strong> + 那 2 个 bug 配置对拍 PASS + 大窗对拍，correctness 双重锁死。</div>
+</section>
+
+<!-- ============ 6 加速 + Amdahl ============ -->
+<section id="s6">
+  <h2>6 &nbsp;加速实测 + 诚实 Amdahl 归因</h2>
+  <p class="lede">铁律:加速<strong>实测多少记多少，不吹模型数</strong>。下表是 <code>benchmark.csv</code> 的 MAIN per-kernel 前后对比（bf16, batched, seqlen=2048）。所有数字来自 <code>-perf</code> 计时，reviewer 在独立二进制上逐档精确复现。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>config</th><th>MI 基线 MAIN ms</th><th>B2 MAIN ms</th><th>B3 MAIN ms</th><th>加速</th></tr></thead>
+    <tbody>
+      <tr><td>canonical softmax hd64</td><td>0.2632</td><td><strong>0.2027</strong></td><td>0.2030</td><td>causal <strong>1.30×</strong></td></tr>
+      <tr><td>canonical silu hd64</td><td>0.3327</td><td><strong>0.2085</strong></td><td>0.2084</td><td>causal <strong>1.60×</strong></td></tr>
+      <tr><td>hd256 softmax</td><td>1.0325</td><td><strong>0.7673</strong></td><td>0.7740</td><td>causal <strong>1.35×</strong></td></tr>
+      <tr><td>hd256 silu</td><td>0.9709</td><td><strong>0.7762</strong></td><td>0.7779</td><td>causal <strong>1.25×</strong></td></tr>
+      <tr><td>window256 softmax</td><td>0.2992（全扫）</td><td>0.2994（B2 不动）</td><td><strong>0.0635</strong></td><td>window <strong>4.71×</strong></td></tr>
+      <tr><td>window256 silu</td><td>0.4193</td><td>0.4192</td><td><strong>0.0840</strong></td><td>window <strong>4.99×</strong></td></tr>
+      <tr><td>window64 softmax / silu</td><td>0.2992 / 0.4193</td><td>—</td><td><strong>0.0362 / 0.0468</strong></td><td>window <strong>8.3× / 9.0×</strong></td></tr>
+      <tr><td>window16 softmax / silu</td><td>0.2992 / 0.4193</td><td>—</td><td><strong>0.0318 / 0.0430</strong></td><td>window <strong>9.4× / 9.8×</strong></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 920 230" width="100%" height="230" role="img" aria-label="MAIN 加速倍数">
+    <text x="24" y="22" font-size="12" fill="#141413" font-weight="700">MAIN 加速倍数（实测，越高越快;窄 window 赢最多）</text>
+    <line x1="120" y1="190" x2="900" y2="190" stroke="#87867F"/>
+    <line x1="120" y1="40" x2="120" y2="190" stroke="#87867F"/>
+    <text x="108" y="194" text-anchor="end" font-size="9" fill="#3D3D3A">1×</text>
+    <text x="108" y="110" text-anchor="end" font-size="9" fill="#3D3D3A">5×</text>
+    <text x="108" y="50" text-anchor="end" font-size="9" fill="#3D3D3A">10×</text>
+    <!-- bars: scale 15px per x -->
+    <g font-size="9" fill="#3D3D3A" text-anchor="middle">
+      <rect x="150" y="171" width="46" height="19" fill="#C9912F"/><text x="173" y="205">causal can.sm</text><text x="173" y="166" font-size="9" fill="#8A6D2F">1.30×</text>
+      <rect x="230" y="162" width="46" height="28" fill="#C9912F"/><text x="253" y="205">causal can.silu</text><text x="253" y="157" font-size="9" fill="#8A6D2F">1.60×</text>
+      <rect x="310" y="135" width="46" height="55" fill="#D97757"/><text x="333" y="205">win256 sm</text><text x="333" y="130" font-size="9" fill="#8A3B1E">4.71×</text>
+      <rect x="390" y="131" width="46" height="59" fill="#D97757"/><text x="413" y="205">win256 silu</text><text x="413" y="126" font-size="9" fill="#8A3B1E">4.99×</text>
+      <rect x="470" y="91" width="46" height="99" fill="#D97757"/><text x="493" y="205">win64 sm</text><text x="493" y="86" font-size="9" fill="#8A3B1E">8.3×</text>
+      <rect x="550" y="83" width="46" height="107" fill="#D97757"/><text x="573" y="205">win64 silu</text><text x="573" y="78" font-size="9" fill="#8A3B1E">9.0×</text>
+      <rect x="630" y="77" width="46" height="113" fill="#D97757"/><text x="653" y="205">win16 sm</text><text x="653" y="72" font-size="9" fill="#8A3B1E">9.4×</text>
+      <rect x="710" y="73" width="46" height="117" fill="#D97757"/><text x="733" y="205">win16 silu</text><text x="733" y="68" font-size="9" fill="#8A3B1E">9.8×</text>
+    </g>
+    <rect x="800" y="50" width="12" height="12" fill="#C9912F"/><text x="818" y="60" font-size="9.5" fill="#3D3D3A" text-anchor="start">B2 causal</text>
+    <rect x="800" y="68" width="12" height="12" fill="#D97757"/><text x="818" y="78" font-size="9.5" fill="#3D3D3A" text-anchor="start">B3 window</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图3:MAIN 加速实测。B2 causal 1.25–1.60×;B3 window 越窄赢越多（window16 达 9.4×/9.8×）。window 的「before」= MI 全扫基线（全扫 MAIN 与 window 大小无关，故各 window 档共用 window256 基线 0.2992/0.4193）。</p>
+  <div class="warn-banner"><strong>诚实 Amdahl:实测 &lt; <code>[derived]</code> 模型。</strong>&nbsp;<strong>B2</strong> 实测 1.25–1.60× &lt; draft <code>[derived]</code> ~1.9×:收紧只砍 MAIN 内 Q-tile 循环数，每 KV-block 的 K/V load、atomic dq_acc 写流量、kernel 启动开销<strong>不随之减半</strong> → Amdahl 限制 &lt; 2×。<strong>B3</strong> 实测 4.7–9.8× &lt; <code>[derived]</code> ~22×:同理，且窄 window 时 MAIN 已降到与 PRE 同量级（window16 MAIN 0.032ms ≈ PRE 0.025ms），MAIN 不再压倒性主导，envelope 被 PRE/启动开销主导。<strong>实测多少记多少。</strong></div>
+  <div class="note-block"><strong>TFLOPS 是 tracking 不是 roofline:</strong>&nbsp;FLOPS 模型 = 5-GEMM（忽略 SiLU/softmax/dS elementwise），报的是 <strong>GEMM-only TFLOPS</strong> 作 tracking 指标，非硬件利用率;<code>memset</code> 单独计时不混入 MAIN（否则 MAIN TFLOPS 被人为拉低）。MAIN TFLOPS 随收紧上升:canonical softmax 163→212;window16 softmax 收紧后 1349.75。</div>
+</section>
+
+<!-- ============ 7 四方闭合 + 暂缓 ============ -->
+<section id="s7">
+  <h2>7 &nbsp;四方闭合 + 暂缓项（诚实标注）</h2>
+  <p class="lede">M8 经四组<strong>相互独立</strong>的证据闭合后才 promote（commit <code>048f0a9a</code>）。改面 <strong>9 文件</strong>（5 改 + 2 新源/测试 + benchmark.csv + 校验器扩展），<strong>reference + 两条 pipeline + bwd_kernel byte-identical</strong>。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 920 200" width="100%" height="200" role="img" aria-label="四方闭合矩阵">
+    <rect x="20" y="30" width="210" height="150" rx="10" fill="#fff" stroke="#788C5D" stroke-width="1.4"/>
+    <text x="125" y="54" text-anchor="middle" font-size="12" fill="#4B5C39" font-weight="700">① coder（3-candidate）</text>
+    <text x="125" y="78" text-anchor="middle" font-size="9" fill="#3D3D3A">MI 测量基线 + 互证 profile</text>
+    <text x="125" y="96" text-anchor="middle" font-size="9" fill="#3D3D3A">B2 causal 收紧</text>
+    <text x="125" y="114" text-anchor="middle" font-size="9" fill="#3D3D3A">B3 window 收紧</text>
+    <text x="125" y="132" text-anchor="middle" font-size="9" fill="#3D3D3A">每 stage 4-gate 硬检查点</text>
+    <text x="125" y="150" text-anchor="middle" font-size="9" fill="#3D3D3A">校验器抓 2 bug 并修</text>
+    <rect x="240" y="30" width="220" height="150" rx="10" fill="#fff" stroke="#D97757" stroke-width="1.4"/>
+    <text x="350" y="54" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">② reviewer（2-build 独立）</text>
+    <text x="350" y="78" text-anchor="middle" font-size="9" fill="#3D3D3A">build_review + 自产 HEAD 基线</text>
+    <text x="350" y="96" text-anchor="middle" font-size="9" fill="#3D3D3A">8 条全 GREEN · 0 RED</text>
+    <text x="350" y="114" text-anchor="middle" font-size="9" fill="#3D3D3A">reverse-proof 破坏→FAIL 判伪</text>
+    <text x="350" y="132" text-anchor="middle" font-size="9" fill="#3D3D3A">加速分子逐档精确复现</text>
+    <text x="350" y="150" text-anchor="middle" font-size="9" fill="#3D3D3A">设备码 surgical · helper 6/6</text>
+    <rect x="470" y="30" width="206" height="150" rx="10" fill="#fff" stroke="#788C5D" stroke-width="1.4"/>
+    <text x="573" y="54" text-anchor="middle" font-size="12" fill="#4B5C39" font-weight="700">③ 校验器（离线 gate）</text>
+    <text x="573" y="78" text-anchor="middle" font-size="9" fill="#3D3D3A">穷举 1,973,278 checks</text>
+    <text x="573" y="96" text-anchor="middle" font-size="9" fill="#3D3D3A">ALL GREEN</text>
+    <text x="573" y="114" text-anchor="middle" font-size="9" fill="#3D3D3A">GPU 跑前抓 2 真 bug</text>
+    <text x="573" y="132" text-anchor="middle" font-size="9" fill="#3D3D3A">比对拍更早更硬</text>
+    <text x="573" y="150" text-anchor="middle" font-size="9" fill="#3D3D3A">与 GPU 同 factory/oracle</text>
+    <rect x="686" y="30" width="214" height="150" rx="10" fill="#fff" stroke="#D97757" stroke-width="1.4"/>
+    <text x="793" y="54" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">④ lead 亲核</text>
+    <text x="793" y="78" text-anchor="middle" font-size="9" fill="#3D3D3A">scope 闸门裁决 MI+B2+B3</text>
+    <text x="793" y="96" text-anchor="middle" font-size="9" fill="#3D3D3A">每 stage 亲验放行</text>
+    <text x="793" y="114" text-anchor="middle" font-size="9" fill="#3D3D3A">库 byte-identical / 零回归</text>
+    <text x="793" y="132" text-anchor="middle" font-size="9" fill="#3D3D3A">放行 commit 048f0a9a</text>
+    <text x="793" y="150" text-anchor="middle" font-size="9" fill="#3D3D3A">暂缓项裁决</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图4:四方闭合。reviewer 用<strong>独立</strong> build_review + 自产 HEAD（<code>4629508f</code>）基线复核，并以 reverse-proof（破坏收紧 → 校验器 FAIL）构成与对拍互不依赖的判伪物证。<span class="src">reviewer caveat（非阻塞）:MI-only 全扫基线未独立重建，causal 1.30× 分母 0.263 用 coder 记录值，但已被独立 rocprofv3（266us）佐证，收紧后的分子逐档精确复现。</span></p>
+
+  <h3>暂缓项（本期 scope 外，draft 已裁决）</h3>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>候选</th><th>状态</th><th>理由</th></tr></thead>
+    <tbody>
+      <tr><td><strong>B4 grid widening</strong></td><td><span class="status-no">暂缓（依据作废）</span></td><td>scoping「grid starvation 根因」被 critique 实测<strong>证伪</strong>（256× 超额订阅，非饥饿）→ 前提不成立（§2）</td></tr>
+      <tr><td><strong>B7 hd256 occupancy / VGPR</strong></td><td><span class="status-no">暂缓（阻塞）</span></td><td>阻塞于先解 <strong>VGPR 124（profile）vs 248（M1 记录）矛盾</strong> + LDS-vs-MFMA 测量;占用率本期不碰</td></tr>
+      <tr><td><strong>INV SiLU 26% 异常</strong></td><td><span class="status-no">根因待查</span></td><td>MI 已复现（silu/softmax = 1.27×，profile 335/266us），根因诚实留待后续，无夸大</td></tr>
+      <tr><td>B1 group TU split / B5 first-split-skip / B6 trload / B8–B10</td><td><span class="status-no">暂缓</span></td><td>B1 build-axis 可日后并行;B5 silent-wrong 分析不足;B6 高风险高工;余低 ROI</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block clay"><strong>真限制器:</strong>&nbsp;per-block <strong>LDS/VGPR</strong>（非 grid 数），MemUnitStalled = 0.024%。占用率类优化本期不碰——这是 scope 诚实，不是遗漏。M8 只交付了「数据证实能赢、且能证明不漏梯度」的那部分。</div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 M8 是什么 + scope</a>
+  <a href="#s2">2 实测驱动 + 证伪根因</a>
+  <a href="#s2" class="sub">图1 profile 快照</a>
+  <a href="#s3">3 MI byte-identical</a>
+  <a href="#s4">4 B2/B3 收紧机制</a>
+  <a href="#s4" class="sub">图2 全扫 vs 紧致带</a>
+  <a href="#s5">5 校验器抓 2 bug</a>
+  <a href="#s6">6 加速 + Amdahl</a>
+  <a href="#s6" class="sub">图3 加速倍数</a>
+  <a href="#s7">7 四方闭合 + 暂缓</a>
+  <a href="#s7" class="sub">图4 闭合矩阵</a>
+</nav>
+
+</div>
+</div>
+</body>
+</html>

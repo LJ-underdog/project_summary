@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M2（HSTU mask）代码改动 review</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M2 代码改动 review</div>
+  <h1>HSTU Attention Backward — M2（HSTU mask）改了哪些代码、为什么、怎么连</h1>
+  <p class="subtitle">这份文档忠实记录 M2 里程碑在仓库里真实发生的代码改动：mask 成员怎么加、masked-out 位置怎么逐像素清零、dispatch / kernel 怎么接线、抓修了什么 bug，以及离线校验 + 逐因子对拍 + 测试套件三层证据。所有片段以 <code>git diff</code> 或当前源码为准。</p>
+  <div class="audience">读者：要 review 这套 bwd mask 实现的工程师（零基础友好，关键术语都配一句白话）</div>
+  <div style="margin-top:12px; font-size:13px; color:var(--gray-500);">
+    代码目录：<code style="font-family:var(--mono);font-size:12px;">ck_hstu/example/ck_tile/18_hstu_attention/</code> &nbsp;&middot;&nbsp; 主目标 <strong style="color:var(--clay);">gfx950 (MI350/CDNA4)</strong> &nbsp;&middot;&nbsp; 落点 2026-06-05
+  </div>
+</header>
+
+<div class="layout">
+<main>
+
+<!-- ============ TL;DR ============ -->
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M2</div>
+  <p>M2 <strong>没有重新实现 mask</strong>。HSTU 的 5 因子掩码语义（causal / window / contextual / min_full / num_target）早在 fwd 的 <code>IsTokenPairInsideMask</code> 里就写好了 —— M2 做的是<strong>补上 bwd 方向缺的两个 helper</strong>（<code>GetTileRangeAlongY</code> / <code>IsEdgeTile</code>）、在反向 pipeline 的 STAGE2 上<strong>逐像素清零 masked-out 位置</strong>、再把 dispatch / kernel <strong>接线</strong>到这套现成 mask 上。</p>
+  <p>正确性走「<strong>保守超集 + 逐像素置零</strong>」路线：Y-range 先取全 Q 扫描的保守超集，真正的对错由 STAGE2 的 <code>IsTokenPairInsideMask</code> 逐点判定保证；Y-range 收紧是后续 perf（M8）。</p>
+  <div class="badges">
+    <span class="badge ok">逐因子对拍 sweep 全 PASS · 0 FAIL</span>
+    <span class="badge ok">离线超集校验 185932 checks 全绿</span>
+    <span class="badge ok">测试套件 20 案 · exit 0</span>
+    <span class="badge info">仅 1 个已跟踪文件含 M2 mask 逻辑</span>
+  </div>
+</div>
+
+<!-- ============ 1 总览 ============ -->
+<section id="s1">
+  <h2>1 &nbsp;总览：M2 到底改了什么</h2>
+  <p class="lede">M2 = 在 M1（no-mask SiLU bwd）已通过的基础上，把 HSTU 的 5 因子掩码接进反向。核心理念一句话：<strong>复用 fwd 的 mask 语义，只补 bwd 方向缺的部分，再接线</strong>。</p>
+
+  <div class="statgrid">
+    <div class="stat"><div class="v">2</div><div class="l">mask 新增成员 (×4 struct)</div></div>
+    <div class="stat"><div class="v">5</div><div class="l">复用的掩码因子</div></div>
+    <div class="stat"><div class="v">1</div><div class="l">STAGE2 逐像素置零段</div></div>
+    <div class="stat"><div class="v">185932</div><div class="l">离线校验 checks（0 失败）</div></div>
+  </div>
+
+  <h3>白话：M2 的四件事</h3>
+  <ul>
+    <li><strong>① 补 helper</strong>（<code>hstu_block_masking.hpp</code>）：给 4 个 HSTU mask struct 各加 <code>GetTileRangeAlongY</code>（KV-block → 该读哪些 Q 行）和 <code>IsEdgeTile</code>（这块 tile 是否需要逐像素检查）。<strong>纯加，不动 fwd 任何成员</strong>。</li>
+    <li><strong>② 逐像素置零</strong>（<code>...no_softmax_bwd_pipeline.hpp</code> STAGE2）：算完 <code>p</code>、<code>g</code> 后，对「边缘 tile」上 <code>IsTokenPairInsideMask</code> 为假的位置，把 <code>p</code>、<code>g</code> 显式写 0。</li>
+    <li><strong>③ kernel 构造 mask</strong>（<code>...bwd_kernel.hpp</code>）：kargs 加 4 个 HSTU mask 标量，按 <code>kUseLocal</code> 调 <code>make_hstu_self_attention_block_mask_*</code>，复刻 reference 的 <code>min_full</code> 钳制。</li>
+    <li><strong>④ dispatch 接线</strong>（<code>...batched_backward_dispatch.hpp</code>）：去掉 causal 的 throw，用 <code>BOOL_SWITCH(window&gt;0)</code> 在运行时选 local / non-local 的 HSTU mask 类型。</li>
+  </ul>
+
+  <div class="note-block olive"><strong>为什么「复用而非重写」是对的？</strong>&nbsp;HSTU 的 5 因子掩码逻辑在 fwd 已经过完整验证。反向的掩码语义与正向<em>完全一致</em>（同一对 (q,k) 在前向被遮蔽，反向的 dS 就该是 0）。重写一份等于凭空多一份要维护、要对拍的代码 —— M2 选择把同一份 <code>IsTokenPairInsideMask</code> 直接拿来用，差异只在「方向相关」的少量 helper。</div>
+
+  <div class="note-block clay"><strong>一个关键诚实声明（先打预防针）：</strong>&nbsp;<code>git status</code> 会显示 <strong>~202 个改动文件</strong>，但其中 <strong>198 个是 fwd instance 文件</strong>，它们只因为重跑了 <code>generate_instances.py</code> 而被改写，<strong>每个文件只动了 1 行注释路径</strong>（<code>composable_kernel/…</code> → <code>ck_hstu/…</code>），<strong>与 M2 逻辑无关</strong>。真正含 M2 mask 逻辑的<strong>已跟踪文件只有 1 个</strong>（<code>hstu_block_masking.hpp</code>），其余 M2 改动都在新增（未跟踪）的 bwd 文件里。详见 <a href="#s2" style="color:var(--clay)">§2</a>。</div>
+</section>
+
+<!-- ============ 2 文件清单 ============ -->
+<section id="s2">
+  <h2>2 &nbsp;改动文件清单（区分「M2 逻辑」与「再生成噪音」）</h2>
+  <p class="lede">全部位于 <code>ck_hstu/example/ck_tile/18_hstu_attention/</code>（校验器 / 测试在 <code>hstu-bwd-impl/</code>）。<span class="tag tag-new">新增</span> = 未跟踪的 bwd 文件；<span class="tag tag-mod">改动</span> = 已跟踪文件可 <code>git diff</code>；<span class="tag tag-reuse">复用</span> = 既有 fwd，M2 直接用；<span class="tag tag-noise">噪音</span> = 再生成产物，非 M2 逻辑。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>文件</th><th>状态</th><th>M2 在其中做了什么</th></tr></thead>
+    <tbody>
+      <tr><td><code>hstu_block_masking.hpp</code></td><td><span class="tag tag-mod">改动</span></td><td><strong>唯一含 M2 mask 逻辑的已跟踪文件</strong>。4 个 struct 各加 <code>GetTileRangeAlongY</code> + <code>IsEdgeTile</code>（可 <code>git diff</code>，见 §4）。</td></tr>
+      <tr><td><code>hstu_attention_no_softmax_bwd_pipeline.hpp</code></td><td><span class="tag tag-new">新增</span></td><td>STAGE2 加 <code>if constexpr(IsMasking)</code> 边缘 tile 逐像素 <code>set_tile_if(p/g, 0, !IsTokenPairInsideMask)</code>（见 §5）。</td></tr>
+      <tr><td><code>hstu_attention_bwd_kernel.hpp</code></td><td><span class="tag tag-new">新增</span></td><td>kargs 加 4 个 mask 标量；按 <code>kUseLocal</code> 构造 self mask；<code>is_tile_in_first_split=true</code>；<code>min_full</code> 钳制（见 §6）。</td></tr>
+      <tr><td><code>hstu_attention_batched_backward_dispatch.hpp</code></td><td><span class="tag tag-new">新增</span></td><td>去 causal throw；<code>BOOL_SWITCH(window&gt;0)</code> 选 <code>HstuBlockMasking&lt;false,causal,local&gt;</code>（见 §6）。</td></tr>
+      <tr><td><code>example_hstu_attention_bwd.cpp</code></td><td><span class="tag tag-new">新增</span></td><td>harness 加 <code>supplement_array_by_last_element(num_targets, num_batch)</code> —— 修一个真实 bug（见 §8）。</td></tr>
+      <tr><td><code>test/validate_tile_range_y.cpp</code></td><td><span class="tag tag-new">新增</span></td><td>离线超集校验器：断言 Y-range ⊇ 真值集，185932 checks 全绿（见 §7）。</td></tr>
+      <tr><td><code>test/run_bwd_tests.py</code></td><td><span class="tag tag-mod">改动</span></td><td><code>reject-causal</code> 升级为 8 个 M2 pass case；整体 20 案 exit 0（见 §9）。</td></tr>
+      <tr><td><code>hstu_attention_api.hpp</code> · <code>CMakeLists.txt</code></td><td><span class="tag tag-mod">改动</span></td><td><strong>bwd 脚手架（M0 期）</strong>，非 M2 mask 逻辑：声明 bwd 入口 / 加 bwd target。M2 复用，未再改。</td></tr>
+      <tr><td><code>generate_instances.py</code></td><td><span class="tag tag-mod">改动</span></td><td><strong>bwd 脚手架（M0 期）</strong>：新增 backward instance 生成。<em>重跑它</em>正是下面 198 个 fwd 噪音文件的来源。</td></tr>
+      <tr style="background:#FBF7EF;"><td><code>instances/*forward*.cpp</code> ×198</td><td><span class="tag tag-noise">噪音</span></td><td><strong>非 M2 逻辑。</strong>重跑 <code>generate_instances.py</code> 导致 198 个 fwd instance 被改写，<code>git diff --stat</code> = 198 files / +198 / −198：<strong>每文件恰好 1 行注释路径变更</strong>。review 时可整体跳过。</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block"><strong>怎么一眼把噪音过滤掉？</strong>&nbsp;<code>git diff --stat instances/ | tail -1</code> → <span class="src">198 files changed, 198 insertions(+), 198 deletions(-)</span>。每文件只有 1 增 1 删，且新增行全是同一句 <code>// `ck_hstu/example/.../generate_instances.py`</code> 路径注释 —— 没有任何一行涉及 mask / pipeline 逻辑。</div>
+</section>
+
+<!-- ============ 3 图1 复用 vs 新增 ============ -->
+<section id="s3">
+  <h2>3 &nbsp;【图1】mask：复用了什么、M2 新增了什么</h2>
+  <p class="lede">这张图是 M2 的核心叙事：<span style="color:var(--olive);font-weight:600;">橄榄绿 = fwd 现成、直接复用</span>，<span style="color:var(--clay);font-weight:600;">陶土色 = M2 新增</span>。可以看到「掩码语义」整块在复用侧。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 430" width="100%" role="img" aria-label="mask 复用 vs M2 新增">
+    <defs>
+      <marker id="arr1" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto">
+        <path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/>
+      </marker>
+    </defs>
+    <!-- left: reused -->
+    <rect x="24" y="20" width="440" height="390" rx="12" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.5"/>
+    <text x="244" y="48" text-anchor="middle" font-size="14" fill="#4B5C39" font-weight="700">复用 fwd（M2 一行没改）</text>
+    <text x="244" y="68" text-anchor="middle" font-size="11" fill="#788C5D">掩码语义整块在这里</text>
+
+    <rect x="48" y="86" width="392" height="120" rx="9" fill="#fff" stroke="#788C5D" stroke-width="1.5"/>
+    <text x="64" y="108" font-size="12.5" fill="#141413" font-weight="700">IsTokenPairInsideMask(row, col)</text>
+    <text x="64" y="128" font-size="10.5" fill="#3D3D3A">一对 (q,k) 是否在掩码内 — 5 因子合一：</text>
+    <text x="64" y="148" font-size="10.5" fill="#4B5C39">① causal  row&gt;col   ② window  |Δ|≤max_attn_len</text>
+    <text x="64" y="166" font-size="10.5" fill="#4B5C39">③ contextual 前缀全连  ④ num_target  尾段全连</text>
+    <text x="64" y="184" font-size="10.5" fill="#4B5C39">⑤ min_full  近端强制全连(in_min_full_scope)</text>
+
+    <rect x="48" y="222" width="190" height="70" rx="9" fill="#fff" stroke="#788C5D" stroke-width="1.5"/>
+    <text x="143" y="248" text-anchor="middle" font-size="11.5" fill="#141413" font-weight="700">GetTileRangeAlongX</text>
+    <text x="143" y="268" text-anchor="middle" font-size="10" fill="#3D3D3A">Q-行 → 该读哪些 K 列</text>
+    <text x="143" y="283" text-anchor="middle" font-size="10" fill="#788C5D">（正向就有）</text>
+
+    <rect x="250" y="222" width="190" height="70" rx="9" fill="#fff" stroke="#788C5D" stroke-width="1.5"/>
+    <text x="345" y="248" text-anchor="middle" font-size="11.5" fill="#141413" font-weight="700">IsFullTileInsideMask</text>
+    <text x="345" y="268" text-anchor="middle" font-size="10" fill="#3D3D3A">整块 tile 是否全在掩码内</text>
+    <text x="345" y="283" text-anchor="middle" font-size="10" fill="#788C5D">（IsEdgeTile 复用它）</text>
+
+    <rect x="48" y="308" width="392" height="84" rx="9" fill="#fff" stroke="#788C5D" stroke-width="1.5"/>
+    <text x="64" y="330" font-size="11.5" fill="#141413" font-weight="700">4 个 mask struct + make_hstu_*_block_mask_*</text>
+    <text x="64" y="350" font-size="10" fill="#3D3D3A">Cross/Self × With/No-Local；工厂函数构造对象</text>
+    <text x="64" y="370" font-size="10" fill="#3D3D3A">HstuBlockMasking&lt;cross,causal,local&gt;::Type 选型</text>
+    <text x="64" y="385" font-size="10" fill="#788C5D">M2 直接拿来 dispatch / 构造</text>
+
+    <!-- right: new -->
+    <rect x="516" y="20" width="440" height="390" rx="12" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.5"/>
+    <text x="736" y="48" text-anchor="middle" font-size="14" fill="#8A3B1E" font-weight="700">M2 新增（纯加）</text>
+    <text x="736" y="68" text-anchor="middle" font-size="11" fill="#D97757">只补 bwd 方向缺的两个 helper · ×4 struct</text>
+
+    <rect x="540" y="92" width="392" height="118" rx="9" fill="#fff" stroke="#D97757" stroke-width="1.5"/>
+    <text x="556" y="114" font-size="12.5" fill="#141413" font-weight="700">GetTileRangeAlongY(i_x, …)</text>
+    <text x="556" y="134" font-size="10.5" fill="#3D3D3A">KV-block → 该 attend 哪些 Q 行（X 的转置）</text>
+    <text x="556" y="154" font-size="10.5" fill="#8A3B1E">M2 首版 = 保守超集 = 全 Q 扫描 (0, seqlen)</text>
+    <text x="556" y="172" font-size="10.5" fill="#3D3D3A">正确性靠 STAGE2 逐像素置零；收紧 = perf(M8)</text>
+    <text x="556" y="192" font-size="10.5" fill="#788C5D">CK_TILE_HOST_DEVICE（供离线校验 host 调用）</text>
+
+    <rect x="540" y="226" width="392" height="96" rx="9" fill="#fff" stroke="#D97757" stroke-width="1.5"/>
+    <text x="556" y="248" font-size="12.5" fill="#141413" font-weight="700">IsEdgeTile(top, left, …)</text>
+    <text x="556" y="268" font-size="10.5" fill="#3D3D3A">这块 tile 是否需要逐像素检查？</text>
+    <text x="556" y="288" font-size="10.5" fill="#8A3B1E">:= !IsFullTileInsideMask(top, left, W, H)</text>
+    <text x="556" y="307" font-size="10" fill="#788C5D">复用复用侧的 IsFullTileInsideMask（注意参数序）</text>
+
+    <rect x="540" y="338" width="392" height="54" rx="9" fill="#fff" stroke="#D97757" stroke-width="1.5"/>
+    <text x="736" y="360" text-anchor="middle" font-size="11" fill="#141413" font-weight="700">覆盖 4 个 struct：Cross/Self × With/No-Local</text>
+    <text x="736" y="378" text-anchor="middle" font-size="10" fill="#8A3B1E">(bwd kernel 目前只构造 Self；Cross 成员已就位)</text>
+
+    <!-- arrow: new uses reused -->
+    <path d="M540 285 C 490 285, 490 257, 442 257" fill="none" stroke="#87867F" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#arr1)"/>
+    <text x="468" y="245" font-size="9.5" fill="#87867F">调用</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图1：5 因子掩码语义（左·复用）原封不动；M2 只在右侧补了两个方向相关 helper，并复用左侧的 <code>IsFullTileInsideMask</code>。</p>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--olive-lt);border:1px solid #788C5D;"></span>复用 fwd（零改动）</span>
+    <span><span class="sw" style="background:var(--clay-lt);border:1px solid #D97757;"></span>M2 新增</span>
+  </div>
+</section>
+
+<!-- ============ 4 mask 成员新增 git diff ============ -->
+<section id="s4">
+  <h2>4 &nbsp;mask 成员新增（以 <code>git diff</code> 呈现）</h2>
+  <p class="lede">这是 M2 唯一一处「已跟踪文件」的 mask 逻辑改动，<code>git diff hstu_block_masking.hpp</code> 在 4 个 struct 各加同形的两个成员。下面贴 Self-No-Local 的真实片段（其余 3 个 struct 仅 <code>seqlen</code> vs <code>seqlen_q</code> 命名差异）。</p>
+  <div class="code-block"><span class="ttl">git diff — hstu_block_masking.hpp（struct HstuSelfAttentionBlockMaskNoLocal）</span><span class="cm">+    // --- bwd additions (M2, DESIGN §3.1) ---</span>
+<span class="cm">+    // GetTileRangeAlongY: KV-block -> attending Q-row range (transpose of GetTileRangeAlongX).</span>
+<span class="cm">+    // M2 returns the conservative continuous superset = full Q scan (fallback B, §8.2-R3);</span>
+<span class="cm">+    // correctness comes from per-pixel IsTokenPairInsideMask zeroing in STAGE2. Tightening = perf.</span>
+<span class="hl">+    template &lt;index_t YTile, index_t XTile&gt;</span>
+<span class="hl">+    CK_TILE_HOST_DEVICE constexpr auto</span>
+<span class="hl">+    GetTileRangeAlongY(index_t /*i_x*/, number&lt;YTile&gt;, number&lt;XTile&gt;) const</span>
+<span class="hl">+    {</span>
+<span class="hl">+        return ck_tile::make_tuple(0, seqlen); </span><span class="cm">// conservative full-Q-scan superset (§8.2-R3)</span>
+<span class="hl">+    }</span>
++
+<span class="hl">+    template &lt;index_t TileHeight, index_t TileWidth&gt;</span>
+<span class="hl">+    CK_TILE_DEVICE constexpr bool</span>
+<span class="hl">+    IsEdgeTile(index_t i_tile_top, index_t i_tile_left, number&lt;TileHeight&gt;, number&lt;TileWidth&gt;) const</span>
+<span class="hl">+    {</span>
+<span class="hl">+        return !IsFullTileInsideMask(</span>
+<span class="hl">+            i_tile_top, i_tile_left, number&lt;TileWidth&gt;{}, number&lt;TileHeight&gt;{});</span>
+<span class="hl">+    }</span></div>
+
+  <div class="callout-grid">
+    <div class="callout clay">
+      <div class="k">设计要点 1</div>
+      <div class="t">Y-range 首版 = 保守全扫</div>
+      <div class="d">返回 <code>(0, seqlen)</code> 而非真实紧致区间。这是 DESIGN §8.2-R3 的 fallback B：<strong>宁可多扫、不可漏算</strong>。漏掉一行 Q 会让该行梯度错；多扫只是慢。收紧到真实 Y-range = perf 项（M8）。</div>
+    </div>
+    <div class="callout clay">
+      <div class="k">设计要点 2</div>
+      <div class="t">IsEdgeTile 复用 + 参数序</div>
+      <div class="d"><code>IsEdgeTile := !IsFullTileInsideMask</code>。注意调用时把 <code>(TileWidth, TileHeight)</code> 按 <code>IsFullTileInsideMask</code> 的 <code>(W, H)</code> 形参顺序传 —— 反向 tile 的高宽（M0 行 × N0 列）与该函数签名需对齐，写反会误判。</div>
+    </div>
+    <div class="callout">
+      <div class="k">为什么 HOST_DEVICE</div>
+      <div class="t">让离线校验能在 CPU 调</div>
+      <div class="d"><code>GetTileRangeAlongY</code> 标 <code>CK_TILE_HOST_DEVICE</code>，这样 §7 的离线校验器能在 host 端直接调它、对每个 tile 断言超集成立 —— 这是「信任 GPU mask」的前置。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 5 图2 + STAGE2 置零 ============ -->
+<section id="s5">
+  <h2>5 &nbsp;【图2】masked-out 置零数据流 + STAGE2 代码</h2>
+  <p class="lede">M2 的正确性核心：在边缘 tile 上，把被遮蔽位置的 <code>p</code>（→dV）和 <code>g</code>（→dS）<strong>显式写 0</strong>，让 masked 对在后续所有梯度里都不留痕迹。</p>
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 300" width="100%" role="img" aria-label="masked-out 置零数据流">
+    <defs>
+      <marker id="arr2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <path d="M0,0 L7.5,3 L0,6 Z" fill="#D97757"/>
+      </marker>
+    </defs>
+    <rect x="20" y="60" width="150" height="64" rx="9" fill="#fff" stroke="#87867F" stroke-width="1.5"/>
+    <text x="95" y="86" text-anchor="middle" font-size="12" fill="#141413" font-weight="700">STAGE2 算出</text>
+    <text x="95" y="105" text-anchor="middle" font-size="11" fill="#3D3D3A">p = silu(s)·scale_p</text>
+    <text x="95" y="119" text-anchor="middle" font-size="11" fill="#3D3D3A">g = scale_p·dsilu(s)</text>
+
+    <rect x="206" y="52" width="176" height="80" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.6"/>
+    <text x="294" y="76" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">IsEdgeTile? </text>
+    <text x="294" y="95" text-anchor="middle" font-size="10.5" fill="#3D3D3A">边缘 tile 才进入</text>
+    <text x="294" y="112" text-anchor="middle" font-size="10.5" fill="#3D3D3A">逐像素判定</text>
+    <text x="294" y="127" text-anchor="middle" font-size="9.5" fill="#788C5D">全内 tile 跳过(省判定)</text>
+
+    <rect x="418" y="44" width="200" height="96" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.8"/>
+    <text x="518" y="68" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">set_tile_if(p,0,pred)</text>
+    <text x="518" y="86" text-anchor="middle" font-size="12" fill="#8A3B1E" font-weight="700">set_tile_if(g,0,pred)</text>
+    <text x="518" y="106" text-anchor="middle" font-size="10" fill="#3D3D3A">pred = !IsTokenPairInsideMask</text>
+    <text x="518" y="123" text-anchor="middle" font-size="10" fill="#3D3D3A">(row, col)</text>
+
+    <rect x="654" y="52" width="150" height="80" rx="9" fill="#fff" stroke="#87867F" stroke-width="1.5"/>
+    <text x="729" y="80" text-anchor="middle" font-size="12" fill="#141413" font-weight="700">STAGE5</text>
+    <text x="729" y="100" text-anchor="middle" font-size="11" fill="#3D3D3A">ds = dp · g</text>
+    <text x="729" y="118" text-anchor="middle" font-size="11" fill="#8A3B1E">g=0 ⇒ ds=0</text>
+
+    <rect x="840" y="52" width="120" height="80" rx="9" fill="var(--olive-lt)" stroke="#788C5D" stroke-width="1.6"/>
+    <text x="900" y="78" text-anchor="middle" font-size="11.5" fill="#4B5C39" font-weight="700">dV/dK/dQ</text>
+    <text x="900" y="98" text-anchor="middle" font-size="10" fill="#3D3D3A">不被 masked</text>
+    <text x="900" y="113" text-anchor="middle" font-size="10" fill="#3D3D3A">对污染</text>
+    <text x="900" y="127" text-anchor="middle" font-size="9.5" fill="#788C5D">≡ ref dS=0</text>
+
+    <path d="M170 92 L204 92" stroke="#D97757" stroke-width="1.6" marker-end="url(#arr2)"/>
+    <path d="M382 92 L416 92" stroke="#D97757" stroke-width="1.6" marker-end="url(#arr2)"/>
+    <path d="M618 92 L652 92" stroke="#D97757" stroke-width="1.6" marker-end="url(#arr2)"/>
+    <path d="M804 92 L838 92" stroke="#D97757" stroke-width="1.6" marker-end="url(#arr2)"/>
+
+    <!-- silu caveat -->
+    <rect x="206" y="178" width="598" height="92" rx="9" fill="#FDF6F0" stroke="#D97757" stroke-width="1.2"/>
+    <text x="226" y="202" font-size="12" fill="#8A3B1E" font-weight="700">为什么必须「真清」，不能用 -inf 把 logit 压掉？</text>
+    <text x="226" y="223" font-size="10.5" fill="#3D3D3A">softmax 路径里习惯用 s = -inf 让 masked 位的概率→0。但 SiLU 路径下：</text>
+    <text x="226" y="242" font-size="10.5" fill="#3D3D3A">• silu(0)·scale_p = 0 ✓ 但 <tspan fill="#8A3B1E" font-weight="700">dsilu(0)=0.5 ≠ 0</tspan> —— g 不会自动归零！</text>
+    <text x="226" y="261" font-size="10.5" fill="#3D3D3A">• s=-inf 会让 silu/dsilu 出 NaN。所以 M2 对 p、g <tspan fill="#8A3B1E" font-weight="700">直接写 0</tspan>，不碰 logit。</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图2：edge tile 上逐像素把 p、g 清零 → g=0 使 STAGE5 的 ds 自动为 0 → 三个梯度都不受 masked 对污染，等价于 reference 的 dS=0。</p>
+
+  <h3>STAGE2 真实代码片段</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_no_softmax_bwd_pipeline.hpp（STAGE2，~L408–430）</span>            p(i_j_idx) = silu * scale_p;
+            g(i_j_idx) = scale_p * dsilu;
+        });
+    });
+
+    <span class="cm">// STAGE 2 (M2): masked-out positions must be EXPLICITLY zeroed on SiLU path</span>
+    <span class="cm">// (silu(0)*scale_p=0 but dsilu(0)=0.5 != 0; -inf is forbidden -&gt; NaN). On edge</span>
+    <span class="cm">// tiles, clear p &amp; g where !IsTokenPairInsideMask. ds=dp*g then auto-zeros (g=0),</span>
+    <span class="cm">// so dV/dK/dQ get no contribution from masked pairs (matches reference dS=0).</span>
+    <span class="kw">if constexpr</span>(FmhaMask::IsMasking)
+    {
+        <span class="kw">if</span>(mask.<span class="fn">IsEdgeTile</span>(
+               seqlen_q_step, k_origin.at(number&lt;0&gt;{}), number&lt;kM0&gt;{}, number&lt;kN0&gt;{}))
+        {
+            <span class="kw">auto</span> is_masked_out = [&amp;](<span class="kw">auto</span> tile_idx) {
+                <span class="kw">const int</span> row = seqlen_q_step + tile_idx.at(number&lt;0&gt;{});
+                <span class="kw">const int</span> col = k_origin.at(number&lt;0&gt;{}) + tile_idx.at(number&lt;1&gt;{});
+                <span class="kw">return</span> !mask.<span class="fn">IsTokenPairInsideMask</span>(row, col);
+            };
+            <span class="hl">set_tile_if(p, type_convert&lt;AccDataType&gt;(0.0f), is_masked_out);</span>
+            <span class="hl">set_tile_if(g, type_convert&lt;AccDataType&gt;(0.0f), is_masked_out);</span>
+        }
+    }</div>
+  <div class="note-block clay"><strong>两层判定，各司其职：</strong>&nbsp;外层 <code>IsEdgeTile</code> 是 <em>tile 级</em>快筛（整块全在掩码内就跳过，省掉逐像素开销）；内层 <code>IsTokenPairInsideMask(row,col)</code> 是 <em>像素级</em>真值。<code>if constexpr(IsMasking)</code> 保证 no-mask 路径（causal=0 &amp; window=0）这段被编译期删掉，零开销退回 M1。</div>
+</section>
+
+<!-- ============ 6 dispatch + kernel 接线 ============ -->
+<section id="s6">
+  <h2>6 &nbsp;dispatch / kernel 接线（怎么连起来）</h2>
+  <p class="lede">M2 把「选哪种 mask 类型」放在 dispatch（编译期 + 运行时 BOOL_SWITCH），把「用什么参数构造 mask 对象」放在 kernel。两段拼起来，STAGE2 才拿得到正确的 <code>mask</code>。</p>
+
+  <div class="svg-wrap">
+  <svg viewBox="0 0 980 250" width="100%" role="img" aria-label="dispatch 到 kernel 接线">
+    <defs>
+      <marker id="arr3" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto">
+        <path d="M0,0 L7,3 L0,6 Z" fill="#87867F"/>
+      </marker>
+    </defs>
+    <rect x="20" y="40" width="200" height="74" rx="9" fill="#fff" stroke="#87867F" stroke-width="1.5"/>
+    <text x="120" y="64" text-anchor="middle" font-size="12" fill="#141413" font-weight="700">Run() 入口</text>
+    <text x="120" y="84" text-anchor="middle" font-size="10" fill="#8A3B1E">M2：删掉 causal 的 throw</text>
+    <text x="120" y="100" text-anchor="middle" font-size="9.5" fill="#3D3D3A">jagged/softmax/det 仍 throw</text>
+
+    <rect x="258" y="40" width="220" height="74" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.6"/>
+    <text x="368" y="62" text-anchor="middle" font-size="11.5" fill="#8A3B1E" font-weight="700">BOOL_SWITCH(window&gt;0)</text>
+    <text x="368" y="82" text-anchor="middle" font-size="10" fill="#3D3D3A">运行时 → 编译期 kUseLocal</text>
+    <text x="368" y="100" text-anchor="middle" font-size="9.5" fill="#788C5D">causal 由模板 kUseCausal 给</text>
+
+    <rect x="516" y="40" width="230" height="74" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.6"/>
+    <text x="631" y="62" text-anchor="middle" font-size="10.5" fill="#141413" font-weight="700">HstuBlockMasking&lt;</text>
+    <text x="631" y="80" text-anchor="middle" font-size="10.5" fill="#141413" font-weight="700">false, causal, local&gt;::Type</text>
+    <text x="631" y="100" text-anchor="middle" font-size="9.5" fill="#788C5D">选定 Mask 类型 → RunSilu&lt;Mask&gt;</text>
+
+    <rect x="784" y="40" width="176" height="74" rx="9" fill="#fff" stroke="#87867F" stroke-width="1.5"/>
+    <text x="872" y="64" text-anchor="middle" font-size="12" fill="#141413" font-weight="700">MakeKargs</text>
+    <text x="872" y="84" text-anchor="middle" font-size="9.5" fill="#3D3D3A">4 个 mask 标量</text>
+    <text x="872" y="100" text-anchor="middle" font-size="9.5" fill="#3D3D3A">塞进 kargs</text>
+
+    <rect x="300" y="160" width="400" height="70" rx="9" fill="var(--clay-lt)" stroke="#D97757" stroke-width="1.8"/>
+    <text x="500" y="184" text-anchor="middle" font-size="11.5" fill="#8A3B1E" font-weight="700">kernel：构造 mask 对象</text>
+    <text x="500" y="203" text-anchor="middle" font-size="10" fill="#3D3D3A">num_target=ptr[i_batch] · is_tile_in_first_split=true</text>
+    <text x="500" y="220" text-anchor="middle" font-size="10" fill="#3D3D3A">eff_min_full 钳制 → make_hstu_self_*_block_mask_*</text>
+
+    <path d="M220 77 L256 77" stroke="#87867F" stroke-width="1.4" marker-end="url(#arr3)"/>
+    <path d="M478 77 L514 77" stroke="#87867F" stroke-width="1.4" marker-end="url(#arr3)"/>
+    <path d="M746 77 L782 77" stroke="#87867F" stroke-width="1.4" marker-end="url(#arr3)"/>
+    <path d="M872 114 C 872 150, 690 150, 660 158" fill="none" stroke="#87867F" stroke-width="1.4" marker-end="url(#arr3)"/>
+    <text x="760" y="142" font-size="9.5" fill="#87867F">kargs → kernel</text>
+  </svg>
+  </div>
+  <p class="svg-caption">图3：dispatch 选类型（causal 编译期、local 运行时 BOOL_SWITCH）→ MakeKargs 带 mask 标量 → kernel 用 per-batch 参数构造 mask 对象，喂给 pipeline。</p>
+
+  <h3>dispatch：去 throw + BOOL_SWITCH 选型</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_batched_backward_dispatch.hpp（Run，~L195–223）</span>    <span class="kw">if constexpr</span>(kIsDeterministic)
+        <span class="kw">throw</span> std::runtime_error(<span class="str">"... deterministic ... (M6)"</span>);
+    <span class="kw">else if constexpr</span>(kUseSoftmax)
+        <span class="kw">throw</span> std::runtime_error(<span class="str">"... softmax ... (M5)"</span>);
+    <span class="kw">else</span>
+    {
+        <span class="cm">// M2: HSTU 5-factor mask (causal/window/contextual/min_full/num_target).</span>
+        <span class="cm">// kUseLocal selected at runtime by window_size&gt;0. kUseCausal=0 &amp;</span>
+        <span class="cm">// window=0 -&gt; NoLocal&lt;false&gt; with IsMasking=false (== M1 no-mask).</span>
+        <span class="kw">if</span>(param.hdim_qk != 64 || param.hdim_v != 64)
+            <span class="kw">throw</span> std::runtime_error(<span class="str">"... hdim 64 only (M7)"</span>);
+
+        <span class="kw">const bool</span> use_local = (param.window_size &gt; 0);
+        <span class="hl">BOOL_SWITCH(use_local, kUseLocal, [&amp;] {</span>
+            <span class="kw">using</span> Mask = <span class="kw">typename</span> ck_tile::
+                <span class="hl">HstuBlockMasking&lt;false /*cross*/, kUseCausal, kUseLocal&gt;::Type;</span>
+            RunSilu&lt;Mask&gt;(param, stream);
+        });
+    }</div>
+  <div class="note-block olive"><strong>统一到一条 mask 路径：</strong>&nbsp;<code>causal=0 &amp; window=0</code> 时选中的是 <code>NoLocal&lt;false&gt;</code>，它的 <code>IsMasking=false</code> —— 也就是 §5 那段 STAGE2 被编译掉，<strong>退化回 M1 的 no-mask 路径</strong>。M2 不再用 <code>GenericAttentionMask</code>，所有情形都走同一套 HSTU mask 类型，no-mask 只是其中 <code>IsMasking=false</code> 的特例。</div>
+
+  <h3>kernel：用 per-batch 参数构造 mask</h3>
+  <div class="code-block"><span class="ttl">hstu_attention_bwd_kernel.hpp（~L331–360）</span>    <span class="cm">// Build the HSTU mask identically to fwd/reference (self-attention; M2 batched).</span>
+    <span class="cm">// is_tile_in_first_split=true (conservative: disables the IsFullTileInsideMask</span>
+    <span class="cm">// fast-path so every edge tile is per-pixel checked; ... ).</span>
+    <span class="kw">const int</span> num_target =
+        (kargs.num_targets_ptr != <span class="kw">nullptr</span>)
+            ? <span class="kw">reinterpret_cast</span>&lt;<span class="kw">const</span> int32_t*&gt;(kargs.num_targets_ptr)[<span class="hl">i_batch</span>]
+            : 0;
+    <span class="kw">auto</span> mask = [&amp;]() {
+        <span class="kw">if constexpr</span>(FmhaMask::kUseLocal)
+        {
+            <span class="cm">// clamp min_full like reference (reference_hstu_attention_bwd.hpp:177/198)</span>
+            <span class="hl">const int eff_min_full =</span>
+                <span class="hl">  (kargs.seqlen_q - num_target &gt; kargs.min_full_attn_seqlen)</span>
+                <span class="hl">    ? kargs.min_full_attn_seqlen</span>
+                <span class="hl">    : (kargs.seqlen_q - num_target);</span>
+            <span class="kw">return</span> <span class="fn">make_hstu_self_attention_block_mask_with_local</span>&lt;FmhaMask&gt;(
+                <span class="hl">/*is_tile_in_first_split=*/true,</span>
+                kargs.seqlen_q, kargs.contextual_seqlen,
+                num_target, kargs.max_attn_len, eff_min_full);
+        }
+        <span class="kw">else</span>
+            <span class="kw">return</span> <span class="fn">make_hstu_self_attention_block_mask_without_local</span>&lt;FmhaMask&gt;(
+                kargs.seqlen_q, kargs.contextual_seqlen, num_target);
+    }();</div>
+  <div class="callout-grid">
+    <div class="callout clay">
+      <div class="k">保守开关</div>
+      <div class="t">is_tile_in_first_split = true</div>
+      <div class="d">关掉 <code>IsFullTileInsideMask</code> 的 tile 级快路，让每个 edge tile 都逐像素检查。tile 级 first-split 优化留作 perf（M8）—— 现在先保证对。</div>
+    </div>
+    <div class="callout clay">
+      <div class="k">对齐 reference</div>
+      <div class="t">eff_min_full 钳制</div>
+      <div class="d">复刻 <code>reference_hstu_attention_bwd.hpp:177/198</code>：<code>min_full</code> 不能超过 <code>seqlen − num_target</code>，否则掩码语义与 oracle 不一致。逐字复刻才能逐位对拍。</div>
+    </div>
+    <div class="callout clay">
+      <div class="k">per-batch</div>
+      <div class="t">num_target = ptr[i_batch]</div>
+      <div class="d">每个 batch 的 target 数从指针按 <code>i_batch</code> 取。<strong>正是这里的越界读触发了 §8 的 bug</strong> —— harness 没把数组补齐到 num_batch。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 7 离线校验器 ============ -->
+<section id="s7">
+  <h2>7 &nbsp;离线校验器：为什么先写它</h2>
+  <p class="lede"><code>GetTileRangeAlongY</code> 现取保守超集 —— 但「保守」必须被证明：返回的区间真的<strong>包含</strong>所有该 attend 的 Q 行吗？漏一行就是错梯度。M2 把这件事做成一个 host 端离线程序，在上 GPU 前断言到底。</p>
+  <div class="formula"><div class="formula-block">
+<span class="line">断言（对每个 KV tile）：</span>
+<span class="line">  [y_start, y_end) ⊇ { sq : ∃ sk ∈ tile, IsTokenPairInsideMask(sq, sk) }</span>
+  </div></div>
+  <div class="code-block"><span class="ttl">test/validate_tile_range_y.cpp（断言主体，~L41–63）</span>    <span class="kw">auto</span> yr = mask.<span class="fn">GetTileRangeAlongY</span>(n0, number&lt;kM0&gt;{}, number&lt;kN0&gt;{});
+    <span class="kw">const int</span> y_start = yr.at(number&lt;0&gt;{});
+    <span class="kw">const int</span> y_end   = yr.at(number&lt;1&gt;{});
+    ...
+    <span class="kw">for</span> (sq ...) <span class="kw">for</span> (sk ∈ tile) {
+        <span class="kw">if</span>(m2.<span class="fn">IsTokenPairInsideMask</span>(sq, sk)) {   <span class="cm">// 真值集里的点</span>
+            ++g_checks;
+            <span class="hl">if(!(y_start &lt;= sq &amp;&amp; sq &lt; y_end))    // 必须落在返回区间内</span>
+                ++g_fail;
+        }
+    }</div>
+  <h4>枚举覆盖</h4>
+  <p>self-attention × {causal, non-causal} × {with, no local} × seqlen∈{64,128,130,200,256,384} × contextual∈{0,6} × num_target∈{0,8,32} × window∈{0,5,64} × min_full∈{0,6,64} × 每个 KV tile（kM0=32 / kN0=128）。</p>
+  <div class="statgrid">
+    <div class="stat"><div class="v">185932</div><div class="l">checks（真值集采样点）</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">failures</div></div>
+    <div class="stat"><div class="v">ALL GREEN</div><div class="l">validate_tile_range_y.log</div></div>
+    <div class="stat"><div class="v">host</div><div class="l">hipcc 直接调 mask 成员</div></div>
+  </div>
+  <div class="note-block olive"><strong>这是「信任 GPU mask」的前置闸门。</strong>&nbsp;Y-range 超集成立 = 不会漏算任何该算的 Q 行；逐像素置零保证 = 不会多算任何不该算的对。两者合起来，GPU 上的 mask 行为才被证明等价于 reference。所以 M2 先写先跑校验器，再上 GPU 对拍。</div>
+</section>
+
+<!-- ============ 8 抓修的 bug ============ -->
+<section id="s8">
+  <h2>8 &nbsp;抓修的 bug：harness 漏了 num_targets 补齐</h2>
+  <p class="lede">这是 M2 过程里一个真实发现，值得单独讲：<code>num_target</code> 档一开始 FAIL，根因不在 kernel mask，而在对拍 harness 少上传了几个 int。</p>
+  <div class="callout-grid">
+    <div class="callout clay">
+      <div class="k">症状</div>
+      <div class="t">num_target 档 FAIL</div>
+      <div class="d"><code>-targets=16</code> 在 <code>b=2</code> 下误差直接到 ref 量级（不是舍入级）。其它档全 PASS，唯独带 num_target 的炸。</div>
+    </div>
+    <div class="callout clay">
+      <div class="k">根因</div>
+      <div class="t">只上传 1 个 int</div>
+      <div class="d"><code>-targets=16</code> 解析成长度 1 的数组，但 kernel 与 reference 都按 <code>num_targets_ptr[i_batch]</code> 取。<code>i_batch=1</code> 时读 <code>ptr[1]</code> —— <strong>越界</strong>，batch1 的 mask 全错。</div>
+    </div>
+    <div class="callout">
+      <div class="k">修法</div>
+      <div class="t">补齐到 num_batch</div>
+      <div class="d">harness 加 <code>supplement_array_by_last_element(num_targets, num_batch)</code>，用末元素补满。补后立即 PASS。</div>
+    </div>
+  </div>
+  <div class="code-block"><span class="ttl">example_hstu_attention_bwd.cpp（修复，~L72–82 + L157–162）</span><span class="kw">template</span> &lt;<span class="kw">typename</span> T&gt;
+<span class="kw">static void</span> <span class="fn">supplement_array_by_last_element</span>(std::vector&lt;T&gt;&amp; arr, <span class="kw">int</span> target_num_elements)
+{
+    <span class="kw">if</span>(<span class="kw">static_cast</span>&lt;<span class="kw">int</span>&gt;(arr.size()) &lt; target_num_elements)
+    {
+        T last_val = arr.back();
+        <span class="kw">for</span>(<span class="kw">int</span> i = arr.size(); i &lt; target_num_elements; i++)
+            arr.push_back(last_val);
+    }
+}
+...
+<span class="kw">if</span>(!num_targets.empty())
+    <span class="cm">// supplement to num_batch (kernel + reference index num_targets[i_batch])</span>
+    <span class="hl">supplement_array_by_last_element(num_targets, num_batch);</span></div>
+  <div class="note-block clay"><strong>同源问题也存在于 reference。</strong>&nbsp;CPU oracle 同样按 <code>num_targets[1]</code> 取值（同样 UB）。补齐 harness 后，GPU 与 reference 喂的是同一份补满的数组，两边一致 → 对拍 PASS。这说明 bug 在「喂数据」层而非「算梯度」层 —— 一个容易被误判成 kernel 错的陷阱。</div>
+</section>
+
+<!-- ============ 9 验证结果 ============ -->
+<section id="s9">
+  <h2>9 &nbsp;验证结果（三层证据）</h2>
+  <p class="lede">M2 的可信度建立在三层独立证据上：① 离线超集校验（§7）；② 逐因子 GPU↔CPU 对拍 sweep；③ 测试套件回归。</p>
+
+  <h3>① 逐因子对拍 sweep（attn_scale=1.0，bf16 阈值）</h3>
+  <p><code>runs/run-bwd-M2-sweep.log</code>：每行三个 <code>[PASS]</code> 分别是 dQ / dK / dV，日志全部 <strong>OK · 0 FAIL</strong>。</p>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>因子档</th><th>代表 case</th><th>结果</th></tr></thead>
+    <tbody>
+      <tr><td>causal only</td><td>b2/b4×nhead8/b3，seq 128/256/200</td><td><span class="status-yes">PASS ×3</span></td></tr>
+      <tr><td>+ window (local)</td><td>local_len 16/32，seq 128/300</td><td><span class="status-yes">PASS ×2</span></td></tr>
+      <tr><td>+ contextual</td><td>context_len 8/16，seq 128/192</td><td><span class="status-yes">PASS ×2</span></td></tr>
+      <tr><td>+ min_full</td><td>minfull 16/32</td><td><span class="status-yes">PASS ×2</span></td></tr>
+      <tr><td>+ num_target</td><td>targets=16；per-batch 8,24</td><td><span class="status-yes">PASS ×2</span></td></tr>
+      <tr><td>全组合（5 因子）</td><td>b4×nhead4 seq256；seq200 非整除</td><td><span class="status-yes">PASS ×3</span></td></tr>
+      <tr><td>no-mask 回归（causal=0）</td><td>走 HSTU NoLocal IsMasking=false</td><td><span class="status-yes">PASS ×1</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note-block"><strong>日志计数（忠实）：</strong>&nbsp;<code>grep -c '^OK'</code> = <strong>15 条 OK 行</strong>（14 个掩码档 + 1 个 no-mask 回归），<strong>0 FAIL</strong>，每行 <code>[PASS][PASS][PASS]</code>。误差均 bf16 舍入级：多数 dQ/dK 逐位为 0，dV ≤ 4e-3，<code>max|ref|</code> 量级 ~2–6。</div>
+
+  <h3>② 测试套件回归</h3>
+  <p><code>python3 test/run_bwd_tests.py</code>（<code>runs/test-20260605-063647.log</code>）：<code>reject-causal</code> 升级为 8 个 M2 pass case（causal / window / contextual / min_full / num_target / per-batch / combo / combo-seq200）。</p>
+  <div class="statgrid">
+    <div class="stat"><div class="v">20</div><div class="l">TOTAL</div></div>
+    <div class="stat"><div class="v">19</div><div class="l">PASSED</div></div>
+    <div class="stat"><div class="v">1</div><div class="l">SKIPPED</div></div>
+    <div class="stat"><div class="v">0</div><div class="l">exit code</div></div>
+  </div>
+  <p>剩余的 reject 仍正确拒绝：softmax（M5）/ jagged（M3）/ group（M4）/ fp16+hdim128（M7）。1 个 SKIP 是 deterministic（M6 未接，入口硬编 <code>kIsDeterministic=false</code>，无法构成有意义 reject）。</p>
+
+  <h3>③ 离线超集校验</h3>
+  <p>见 §7：<strong>185932 checks / 0 failures / ALL GREEN</strong>。这是上 GPU 对拍之前的硬性前置。</p>
+
+  <div class="gate-banner"><strong>结论：</strong>M2 在 SiLU + batched + bf16 + hd64 下，causal 及 4 个附加因子（window / contextual / min_full / num_target）及其组合全部对拍 PASS，no-mask 回归不破，离线校验全绿，测试套件 exit 0。</div>
+</section>
+
+<!-- ============ 10 遗留 ============ -->
+<section id="s10">
+  <h2>10 &nbsp;遗留与边界（诚实标注）</h2>
+  <ul>
+    <li><strong>perf：Y-range 现为全 Q 扫描</strong>。<code>GetTileRangeAlongY</code> 返回保守超集，正确但每个 edge tile 都逐像素跑 <code>IsTokenPairInsideMask</code>，偏慢。收紧为真实 Y-range + 启用 tile 级 <code>is_tile_in_first_split</code> 跳过 = M8。</li>
+    <li><strong>cross-attention mask 成员已加但 bwd 暂只构造 self</strong>。4 个 struct（含 Cross）都补了 <code>GetTileRangeAlongY</code>/<code>IsEdgeTile</code>，但 <code>bwd_kernel.hpp</code> 目前只调 <code>make_hstu_self_attention_block_mask_*</code>；cross 路径待对应里程碑接。</li>
+    <li><strong>覆盖面边界（沿用 M1）</strong>：仍限 batched / SiLU / bf16 / hdim64 / atomic。jagged(M3) / group(M4) / softmax(M5) / deterministic(M6) / fp16+hdim128(M7) 仍按设计 throw 或 skip。</li>
+    <li><strong>无未解决阻塞点。</strong></li>
+  </ul>
+
+  <div class="note-block olive"><strong>给 reviewer 的一句话总结：</strong>&nbsp;M2 是一次「<em>克制的接线</em>」—— 掩码语义零重写，新增面只有两个 helper + 一段 STAGE2 置零 + dispatch/kernel 接线 + 一个 harness bugfix。<code>git status</code> 的 202 文件里，<strong>198 个是 fwd 再生成噪音</strong>，真正要 review 的 mask 逻辑集中在 <code>hstu_block_masking.hpp</code> 的 diff 和那段 STAGE2。</div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 总览</a>
+  <a href="#s2">2 改动文件清单</a>
+  <a href="#s3" class="sub">图1 复用 vs 新增</a>
+  <a href="#s4">4 mask 成员 git diff</a>
+  <a href="#s5" class="sub">图2 置零数据流</a>
+  <a href="#s6" class="sub">图3 dispatch 接线</a>
+  <a href="#s7">7 离线校验器</a>
+  <a href="#s8">8 抓修的 bug</a>
+  <a href="#s9">9 验证结果</a>
+  <a href="#s10">10 遗留</a>
+</nav>
+
+</div>
+</div>
+</body>
+</html>

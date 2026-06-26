@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — GPU 实现方案</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-fmha { background: var(--clay-lt); color: var(--clay); }
+.tag-hstu { background: var(--olive-lt); color: var(--olive); }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+/* decision cards (U1-U4) */
+.decision-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 18px 0; max-width: 940px; }
+@media (max-width: 760px) { .decision-grid { grid-template-columns: 1fr; } }
+.decision-card { background: var(--white); border: 2px solid var(--clay); border-radius: 12px; padding: 16px 18px; box-shadow: 0 2px 10px rgba(217,119,87,.08); }
+.decision-card .u { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--clay); letter-spacing: 0.06em; margin-bottom: 4px; }
+.decision-card .t { font-weight: 600; color: var(--slate); font-size: 15px; margin-bottom: 10px; }
+.decision-card .rec { background: var(--clay-lt); border-radius: 6px; padding: 8px 12px; font-size: 13px; color: var(--slate); margin-bottom: 8px; }
+.decision-card .rec b { color: var(--clay); }
+.decision-card .why { font-size: 12.5px; color: var(--gray-700); }
+.decision-card code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward</div>
+  <h1>HSTU Attention Backward — GPU 实现方案</h1>
+  <p class="subtitle">为 HSTU attention 反向（现仅有 855 行 CPU reference）实现一套 GPU kernel。核心策略：最大化复用 FMHA bwd 的 3-kernel / 7-stage / 5-GEMM 体系与 default policy，把差异收敛到 MAIN pipeline 的两个 elementwise 段与两个 scale。</p>
+  <div class="audience">读者：要 review 该方案的工程师</div>
+  <div style="margin-top:12px; font-size:13px; color:var(--gray-500);">
+    源：<code style="font-family:var(--mono);font-size:12px;">reference_hstu_attention_bwd.hpp</code>(855) + <code style="font-family:var(--mono);font-size:12px;">ck_tile/ops/fmha/</code> &nbsp;&middot;&nbsp; 主目标 <strong style="color:var(--clay);">gfx950 (MI350/CDNA4)</strong>，gfx942 次之 &nbsp;&middot;&nbsp; 2026-06-04
+  </div>
+</header>
+
+<div class="layout">
+<main>
+
+<div class="tldr">
+  <div class="k">TL;DR — 总策略一句话</div>
+  <p><strong>复用 FMHA bwd 的 3-kernel（PRE/MAIN/POST）+ <code>kr_ktr_vr</code> 7-stage / 5-GEMM 体系与 default policy</strong>；PRE/POST/policy/shape/enum 近零成本复用，差异全部收敛到 MAIN pipeline 的两个 elementwise 段（激活双路 <span style="color:var(--clay);font-weight:600;">SiLU</span>/<span style="color:var(--olive);font-weight:600;">softmax</span> + HSTU 5 因子 mask）与两个 scale（<code>alpha</code> / <code>scale_p</code>），外加 HSTU 三模式（batch/jagged/group）索引与新增的反方向 mask 几何成员。</p>
+  <p style="margin-top:10px;font-size:13.5px;"><strong style="color:var(--clay);">主目标芯片 gfx950（MI350 / CDNA4）</strong>，gfx942（CDNA3）次之。算法 / 七阶段双路 / scale 接线两代一致；CDNA4 差异集中在<strong>占用率模型（加法）/ K-doubled MFMA tile / build</strong>，详见 <a href="#s4-cdna4" style="color:var(--clay);">§4.8</a>。</p>
+  <div class="badges">
+    <span class="badge ok">已过双 review（正确性 + 工程可行性）</span>
+    <span class="badge ok">P0 = 0</span>
+    <span class="badge ok">U1–U4 ✅ 用户已确认 2026-06-04</span>
+    <span class="badge gate">关键风险闸门 = M1（按 CDNA4 占用模型验）</span>
+  </div>
+</div>
+
+<!-- ============================== §0 摘要 ============================== -->
+<section id="s0">
+<h2>§0 摘要</h2>
+<p class="lede"><strong>目标</strong>：为 HSTU attention 反向实现一套 GPU kernel（现状仅有 855 行 CPU reference，无 GPU bwd）。<strong>目标芯片</strong>：<strong style="color:var(--clay);">主目标 gfx950（MI350 / CDNA4），gfx942（CDNA3）次之</strong>（沿用 fwd 的 <code>BUILD_HSTU_FOR_GFX95_ONLY</code> 宏分叉；CDNA4 专项见 <a href="#s4-cdna4" style="color:var(--clay);">§4.8</a>）。</p>
+<div class="note-block"><strong>本文定位</strong>：整合自三份设计（算法&amp;pipeline / mask&amp;模式&amp;参数 / 工程&amp;验证），是可交付用户最终 review 的<strong>单一方案</strong>；已逐条裁决跨组接口、消解冲突（见 §8）。事实 / 行号以源码为准。</div>
+
+<h3 id="s0-diff">与 FMHA bwd 的 6 个本质差异（决定改动面）</h3>
+<div class="legend">
+  <span><span class="sw" style="background:var(--clay);"></span>clay = SiLU / HSTU 特有 / 新写</span>
+  <span><span class="sw" style="background:var(--olive);"></span>olive = softmax / 复用 FMHA</span>
+</div>
+<div class="callout-grid">
+  <div class="callout clay">
+    <div class="k">Difference 1 · 激活</div>
+    <div class="t">默认 SiLU（非 softmax）</div>
+    <div class="d">STAGE2 重算 S 取 <code>dsilu</code>、不读 LSE；masked-out 必须<strong>显式置 0</strong>（<code>dsilu(0)=0.5&ne;0</code>，禁用 -inf）。</div>
+  </div>
+  <div class="callout clay">
+    <div class="k">Difference 2 · scale</div>
+    <div class="t">两套 scale</div>
+    <div class="d"><code>alpha</code>（QK）+ <code>scale_p</code>（SiLU 输出）；FMHA 只有 <code>1/&radic;d</code>。</div>
+  </div>
+  <div class="callout clay">
+    <div class="k">Difference 3 · mask</div>
+    <div class="t">HSTU 5 因子 mask</div>
+    <div class="d">causal / window / contextual / min_full / num_target；bwd 走 KV 外循环需<strong>反方向</strong> tile 范围 &rarr; 新增 mask 成员。</div>
+  </div>
+  <div class="callout clay">
+    <div class="k">Difference 4 · 模式</div>
+    <div class="t">三模式 + bshd</div>
+    <div class="d">jagged / group / batch 三模式 + bshd + cu_seqlens；group 每段独立超参。</div>
+  </div>
+  <div class="callout clay">
+    <div class="k">Difference 5 · 维度</div>
+    <div class="t">hdim_qk &ne; hdim_v</div>
+    <div class="d">Q/K/dQ/dK 用 <code>hdim_qk</code>；V/O/dO/dV 用 <code>hdim_v</code>，各开一档 tile setting。</div>
+  </div>
+  <div class="callout">
+    <div class="k">Difference 6 · 副产物</div>
+    <div class="t">仅 softmax 需 LSE / O</div>
+    <div class="d">softmax 路才需 LSE（fwd <code>kStoreLSE</code> 接线柱已就绪）+ O（PRE 算 D）；SiLU 路都不需要。</div>
+  </div>
+</div>
+</section>
+
+<!-- ============================== §1 架构 ============================== -->
+<section id="s1">
+<h2>§1 总体架构</h2>
+<p class="lede">沿用 FMHA 的 3-kernel 条件发射结构与 KV 外 / Q 内 tile 布局；HSTU 只在 MAIN pipeline 内部分叉。</p>
+
+<h3 id="s1-kernel">1.1 3-kernel 结构（沿用 FMHA，条件发射）</h3>
+
+<!-- ===== SVG 1: 3-kernel 架构流程图 ===== -->
+<svg viewBox="0 0 880 470" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:880px;display:block;margin:14px auto 6px;">
+  <defs>
+    <marker id="aC" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#D97757"/></marker>
+    <marker id="aO" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#788C5D"/></marker>
+    <marker id="aG" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#87867F"/></marker>
+  </defs>
+
+  <text x="20" y="26" font-size="12" fill="#D97757" font-weight="600">SiLU 路（默认）</text>
+  <text x="20" y="250" font-size="12" fill="#788C5D" font-weight="600">Softmax 路（可选 kUseSoftmax）</text>
+
+  <!-- SiLU lane -->
+  <rect x="20" y="40" width="150" height="44" rx="8" fill="#FDF6F0" stroke="#D97757" stroke-width="1.5"/>
+  <text x="95" y="60" text-anchor="middle" font-size="11" fill="#3D3D3A">Q, K, V, dO</text>
+  <text x="95" y="76" text-anchor="middle" font-size="9" fill="#87867F">无 LSE / O / D</text>
+
+  <rect x="330" y="34" width="220" height="56" rx="10" fill="#FFFFFF" stroke="#141413" stroke-width="1.5"/>
+  <text x="440" y="54" text-anchor="middle" font-size="12" fill="#141413" font-weight="600">[MAIN] DQDKDV</text>
+  <text x="440" y="70" text-anchor="middle" font-size="9.5" fill="#3D3D3A">5 GEMM / 7 stage · 恒发射</text>
+  <text x="440" y="83" text-anchor="middle" font-size="9" fill="#87867F">产 dV/dK + float dq_acc 累加</text>
+
+  <rect x="690" y="40" width="170" height="44" rx="8" fill="#FFFFFF" stroke="#141413" stroke-width="1.2"/>
+  <text x="775" y="58" text-anchor="middle" font-size="11" fill="#141413" font-weight="600">[POST] ConvertQGrad</text>
+  <text x="775" y="74" text-anchor="middle" font-size="9" fill="#87867F">dq_acc(float)&rarr;dQ · 恒发射</text>
+
+  <line x1="170" y1="62" x2="328" y2="62" stroke="#D97757" stroke-width="1.6" marker-end="url(#aC)"/>
+  <line x1="550" y1="62" x2="688" y2="62" stroke="#87867F" stroke-width="1.6" marker-end="url(#aG)"/>
+  <text x="245" y="54" text-anchor="middle" font-size="9" fill="#D97757">SiLU 留 g</text>
+  <text x="619" y="54" text-anchor="middle" font-size="9" fill="#87867F">SiLU: convert-only</text>
+
+  <!-- divider -->
+  <line x1="20" y1="225" x2="860" y2="225" stroke="#D1CFC5" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <!-- Softmax lane -->
+  <rect x="20" y="262" width="150" height="44" rx="8" fill="#FAF9F5" stroke="#788C5D" stroke-width="1.5"/>
+  <text x="95" y="282" text-anchor="middle" font-size="11" fill="#3D3D3A">O, dO</text>
+  <text x="95" y="298" text-anchor="middle" font-size="9" fill="#87867F">+ Q,K,V,LSE</text>
+
+  <rect x="210" y="262" width="150" height="44" rx="8" fill="#E4E9DC" stroke="#788C5D" stroke-width="1.5"/>
+  <text x="285" y="282" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="600">[PRE] OGradDotO</text>
+  <text x="285" y="298" text-anchor="middle" font-size="9" fill="#3D3D3A">D=rowsum(O&odot;dO)</text>
+
+  <rect x="400" y="256" width="200" height="56" rx="10" fill="#FFFFFF" stroke="#141413" stroke-width="1.5"/>
+  <text x="500" y="278" text-anchor="middle" font-size="12" fill="#141413" font-weight="600">[MAIN] DQDKDV</text>
+  <text x="500" y="294" text-anchor="middle" font-size="9.5" fill="#3D3D3A">读 LSE + D · exp(S&minus;LSE)</text>
+
+  <rect x="650" y="262" width="200" height="44" rx="8" fill="#FFFFFF" stroke="#141413" stroke-width="1.2"/>
+  <text x="750" y="280" text-anchor="middle" font-size="11" fill="#141413" font-weight="600">[POST] ConvertQGrad</text>
+  <text x="750" y="296" text-anchor="middle" font-size="9" fill="#87867F">deterministic: reduce+convert</text>
+
+  <line x1="170" y1="284" x2="208" y2="284" stroke="#788C5D" stroke-width="1.6" marker-end="url(#aO)"/>
+  <line x1="360" y1="284" x2="398" y2="284" stroke="#788C5D" stroke-width="1.6" marker-end="url(#aO)"/>
+  <line x1="600" y1="284" x2="648" y2="284" stroke="#788C5D" stroke-width="1.6" marker-end="url(#aO)"/>
+  <text x="285" y="252" text-anchor="middle" font-size="9" fill="#788C5D">仅 softmax 发 PRE</text>
+
+  <!-- bottom note -->
+  <rect x="20" y="350" width="840" height="100" rx="10" fill="#F0EEE6" stroke="#D1CFC5"/>
+  <text x="40" y="372" font-size="11" fill="#141413" font-weight="600">条件发射规则</text>
+  <text x="40" y="392" font-size="10" fill="#3D3D3A">· PRE：仅 kUseSoftmax 发射（block_fmha_bwd_dot_do_o.hpp 零改造，p_undrop=1.0）；SiLU 路 if constexpr 整体跳过，连 D buffer 都不分配。</text>
+  <text x="40" y="410" font-size="10" fill="#3D3D3A">· MAIN：block_fmha_bwd_dq_dk_dv_pipeline_kr_ktr_vr.hpp 作结构蓝本改写（不直接 include）。</text>
+  <text x="40" y="428" font-size="10" fill="#3D3D3A">· POST：两路恒发射（P1-E）。bf16/fp16 不能直接 atomic &rarr; 必须 POST cast。atomic 路 = convert-only（单份 cast），</text>
+  <text x="40" y="444" font-size="10" fill="#3D3D3A">&nbsp;&nbsp;deterministic 路 = reduce+convert。故每次 bwd kernel 计数恒为 2(SiLU) / 3(softmax)，atomic 路也需分配 float dq_acc(nsplits=1)。</text>
+</svg>
+<div class="svg-caption">图 1 — 3-kernel 架构与条件发射：SiLU 路（上, clay）省 PRE / LSE / O / D；softmax 路（下, olive）走完整 PRE&rarr;MAIN&rarr;POST</div>
+
+<h3 id="s1-tile">1.2 tile 布局：KV 外 / Q 内（与 CPU reference 同构）</h3>
+
+<!-- ===== SVG 2: KV外 / Q内 tile 布局 ===== -->
+<svg viewBox="0 0 880 360" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:880px;display:block;margin:14px auto 6px;">
+  <defs><marker id="bA" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#87867F"/></marker></defs>
+
+  <!-- grid along seqlen_k -->
+  <text x="20" y="28" font-size="12" fill="#141413" font-weight="600">MAIN grid 沿 seqlen_k 分块 · 每个 block 固定一个 KV 块 (i_n0 = blockIdx.x · kN0)</text>
+
+  <!-- KV column blocks -->
+  <text x="60" y="58" font-size="10" fill="#87867F">KV blocks (grid.x)</text>
+  <rect x="40" y="66" width="70" height="40" rx="5" fill="#E4E9DC" stroke="#788C5D"/>
+  <text x="75" y="90" text-anchor="middle" font-size="10" fill="#4B5C39">KV blk 0</text>
+  <rect x="40" y="112" width="70" height="40" rx="5" fill="#FDF6F0" stroke="#D97757" stroke-width="1.6"/>
+  <text x="75" y="136" text-anchor="middle" font-size="10" fill="#D97757" font-weight="600">KV blk i</text>
+  <rect x="40" y="158" width="70" height="40" rx="5" fill="#F0EEE6" stroke="#D1CFC5"/>
+  <text x="75" y="182" text-anchor="middle" font-size="10" fill="#87867F">KV blk ...</text>
+
+  <!-- one block detail -->
+  <rect x="160" y="60" width="430" height="240" rx="10" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+  <text x="375" y="82" text-anchor="middle" font-size="11" fill="#D97757" font-weight="600">一个 workgroup = 固定 KV 块 i</text>
+
+  <rect x="185" y="96" width="170" height="40" rx="6" fill="#FAF9F5" stroke="#788C5D"/>
+  <text x="270" y="113" text-anchor="middle" font-size="10" fill="#4B5C39" font-weight="600">dk_acc / dv_acc 留寄存器</text>
+  <text x="270" y="128" text-anchor="middle" font-size="9" fill="#3D3D3A">沿 Q 累加，末尾 epilogue 一次写回</text>
+
+  <text x="375" y="160" text-anchor="middle" font-size="10" fill="#141413" font-weight="600">内层扫 Q tile：</text>
+  <text x="375" y="178" text-anchor="middle" font-size="9.5" fill="#3D3D3A">[q_start,q_end) = mask.GetTileRangeAlongY(i_n0, kM0, kN0)</text>
+
+  <rect x="200" y="192" width="60" height="30" rx="4" fill="#F0EEE6" stroke="#D1CFC5"/>
+  <text x="230" y="211" text-anchor="middle" font-size="9" fill="#87867F">Q tile</text>
+  <rect x="266" y="192" width="60" height="30" rx="4" fill="#E4E9DC" stroke="#788C5D"/>
+  <text x="296" y="211" text-anchor="middle" font-size="9" fill="#4B5C39">Q tile</text>
+  <rect x="332" y="192" width="60" height="30" rx="4" fill="#FDF6F0" stroke="#D97757"/>
+  <text x="362" y="207" text-anchor="middle" font-size="8.5" fill="#D97757">edge</text>
+  <text x="362" y="217" text-anchor="middle" font-size="7.5" fill="#D97757">逐像素</text>
+  <rect x="398" y="192" width="60" height="30" rx="4" fill="#F0EEE6" stroke="#D1CFC5"/>
+  <text x="428" y="211" text-anchor="middle" font-size="9" fill="#87867F">Q tile</text>
+  <line x1="200" y1="237" x2="458" y2="237" stroke="#87867F" stroke-width="1.4" marker-end="url(#bA)"/>
+  <text x="329" y="252" text-anchor="middle" font-size="9" fill="#87867F">沿 Q 累加方向</text>
+
+  <text x="375" y="280" text-anchor="middle" font-size="9.5" fill="#3D3D3A">num_total_loop &le; 0 &rarr; 整块 early-exit；mask.IsEdgeTile(...) 决定是否逐像素</text>
+
+  <!-- evidence -->
+  <rect x="610" y="60" width="250" height="240" rx="10" fill="#F0EEE6" stroke="#D1CFC5"/>
+  <text x="630" y="82" font-size="11" fill="#141413" font-weight="600">实证</text>
+  <text x="630" y="104" font-size="9.5" fill="#3D3D3A">FMHA fmha_bwd_kernel.hpp</text>
+  <text x="642" y="120" font-size="9.5" fill="#87867F">:1063-1068, 1523-1581</text>
+  <text x="630" y="144" font-size="9.5" fill="#3D3D3A">reference 同构：</text>
+  <text x="642" y="160" font-size="9.5" fill="#87867F">固定 sk 累加器、外 for sq</text>
+  <text x="642" y="176" font-size="9.5" fill="#87867F">reference_...bwd.hpp:227-465</text>
+  <text x="630" y="206" font-size="9.5" fill="#3D3D3A">Q tile 范围由</text>
+  <text x="642" y="222" font-size="9.5" fill="#788C5D">GetTileRangeAlongY 求得</text>
+  <text x="630" y="246" font-size="9.5" fill="#3D3D3A">该成员被 MAIN</text>
+  <text x="630" y="262" font-size="9.5" fill="#D97757" font-weight="600">无条件调用 (:160-161)</text>
+  <text x="630" y="278" font-size="9" fill="#87867F">no-mask 也需平凡版 (P1-D)</text>
+</svg>
+<div class="svg-caption">图 2 — KV 外 / Q 内 tile 布局：grid 沿 seqlen_k，dk_acc/dv_acc 寄存器累加，内层扫 Q</div>
+
+<h3 id="s1-grid">1.3 GridSize / launch 顺序</h3>
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>kernel</th><th>GridSize</th><th>备注</th></tr></thead>
+<tbody>
+<tr><td>PRE</td><td><code>(ceil(seqlen_q,kM0), nhead, num_batch)</code></td><td>FMHA :1733；dot_do_o 块长断言 <code>kM0==kBlockSize</code>（:48）</td></tr>
+<tr><td>MAIN</td><td><code>(ceil(seqlen_kv,kN0), nhead, num_batch)</code></td><td>FMHA :1064</td></tr>
+<tr><td>POST</td><td><code>(ceil(seqlen_q,kM0), nhead, num_batch)</code></td><td>FMHA :2011</td></tr>
+</tbody>
+</table>
+</div>
+<div class="note-block">launch：<code>[PRE if softmax] &rarr; MAIN &rarr; POST</code>（<strong>POST 两路恒发射</strong>，P1-E）。group/jagged：grid.z=num_batch，kernel 内 <code>seq_*_offsets_ptr[i_batch]</code> 求 offset、<code>seqlen&le;i_*0</code> per-block early-return。</div>
+
+<h3 id="s1-flow">1.4 数据流</h3>
+<div class="formula formula-block">
+  <span class="line"><span style="color:#D97757;">SiLU :</span>   Q,K,V,dO &#9472;&#9658; MAIN &#9472;&#9658; dV,dK, float dq_acc &#9472;&#9658; POST &#9472;&#9658; dQ</span>
+  <span class="line"><span style="color:#788C5D;">Softmax:</span> O,dO &#9472;&#9658; PRE &#9472;&#9658; D &#9488;</span>
+  <span class="line">         Q,K,V,dO,LSE,D &#9472;&#9472;&#9524;&#9658; MAIN &#9472;&#9658; dV,dK, float dq_acc &#9472;&#9658; POST &#9472;&#9658; dQ</span>
+</div>
+<div class="note-block">POST 两路恒发射：atomic &rarr; convert-only / deterministic &rarr; reduce+convert（P1-E）。</div>
+</section>
+
+<!-- ============================== §2 七阶段 ============================== -->
+<section id="s2">
+<h2>§2 算法与七阶段（SiLU / softmax 双路）</h2>
+<p class="lede">5 个 GEMM 形状全部不变（FMHA :141-145），差异只在 STAGE2 / STAGE5 的 elementwise 段 + 两个 scale + mask。其余 5 个 GEMM 照搬 FMHA。</p>
+<div class="note-block"><strong>记号</strong>：<code>s_acc</code>=gemm_0 的 C tile；<code>p</code>/<code>g</code>=同分布派生 tile；<code>dp_acc</code>=gemm_2 的 C tile。FMHA 中 <code>p</code> 与 <code>dp_acc</code> 同 <code>i_j_idx</code> 索引（:665）&rarr; <code>s_acc/p/g</code> 与 <code>dp_acc</code> 可在 STAGE5 逐元素混算 —— 这是 SiLU 留 S/g <strong>无需额外 LDS</strong> 的关键。</div>
+
+<h3 id="s2-stages">2.1 reference 6 步 &harr; FMHA 7 stage &harr; 5 GEMM</h3>
+
+<!-- ===== SVG 3: 七阶段双路图 ===== -->
+<svg viewBox="0 0 880 560" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:880px;display:block;margin:14px auto 6px;">
+  <defs><marker id="sA" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#87867F"/></marker></defs>
+
+  <text x="20" y="24" font-size="12" fill="#141413" font-weight="600">MAIN 七阶段 · 灰=照搬 FMHA 的 GEMM ／ 仅 STAGE2 · STAGE5 分双路</text>
+  <text x="700" y="24" font-size="10" fill="#D97757" font-weight="600">SiLU</text>
+  <text x="760" y="24" font-size="10" fill="#788C5D" font-weight="600">softmax</text>
+
+  <!-- shared stages column on left -->
+  <!-- STAGE1 -->
+  <rect x="40" y="40" width="280" height="40" rx="6" fill="#F0EEE6" stroke="#D1CFC5"/>
+  <text x="55" y="58" font-size="10.5" fill="#141413" font-weight="600">STAGE1 · gemm_0</text>
+  <text x="55" y="73" font-size="9" fill="#3D3D3A">s_acc = Q·Kᵀ（未缩放）· 原样复用 (:518)</text>
+
+  <line x1="180" y1="80" x2="180" y2="96" stroke="#87867F" stroke-width="1.3" marker-end="url(#sA)"/>
+
+  <!-- STAGE2 dual -->
+  <rect x="20" y="98" width="840" height="118" rx="8" fill="#FFFFFF" stroke="#141413" stroke-width="1.3"/>
+  <text x="40" y="118" font-size="11" fill="#141413" font-weight="700">STAGE2（替换 :520-622）· 公共：s_acc *= alpha（物化真正的 S）</text>
+  <rect x="40" y="128" width="395" height="78" rx="6" fill="#FDF6F0" stroke="#D97757" stroke-width="1.4"/>
+  <text x="55" y="146" font-size="10" fill="#D97757" font-weight="600">SiLU</text>
+  <text x="55" y="163" font-size="9.5" fill="#3D3D3A">p = silu(s_acc)·scale_p   → dV</text>
+  <text x="55" y="179" font-size="9.5" fill="#3D3D3A">g = scale_p·dsilu(s_acc)  → STAGE5</text>
+  <text x="55" y="195" font-size="9" fill="#D97757">edge tile：set_tile_if 把 p,g masked-out 清 0 · 不读 LSE</text>
+
+  <rect x="450" y="128" width="395" height="78" rx="6" fill="#FAF9F5" stroke="#788C5D" stroke-width="1.4"/>
+  <text x="465" y="146" font-size="10" fill="#788C5D" font-weight="600">Softmax</text>
+  <text x="465" y="163" font-size="9.5" fill="#3D3D3A">p = exp2(log2e·s_acc − log2e·get_validated_lse(lse))</text>
+  <text x="465" y="179" font-size="9" fill="#788C5D">P1-1 NaN 守卫：全 masked 行 LSE=−inf → 用 get_validated_lse</text>
+  <text x="465" y="195" font-size="9" fill="#3D3D3A">masked-out 沿用 FMHA「s=−inf → p=0」(:557-568)</text>
+
+  <line x1="180" y1="216" x2="180" y2="232" stroke="#87867F" stroke-width="1.3" marker-end="url(#sA)"/>
+
+  <!-- STAGE3 -->
+  <rect x="40" y="234" width="380" height="40" rx="6" fill="#F0EEE6" stroke="#D1CFC5"/>
+  <text x="55" y="252" font-size="10.5" fill="#141413" font-weight="600">STAGE3 · gemm_1</text>
+  <text x="55" y="267" font-size="9" fill="#3D3D3A">gemm_1(dv_acc, pt(p), dot) 原样；dV 不乘任何 scale (:624-646)</text>
+
+  <!-- STAGE4 -->
+  <rect x="460" y="234" width="380" height="40" rx="6" fill="#F0EEE6" stroke="#D1CFC5"/>
+  <text x="475" y="252" font-size="10.5" fill="#141413" font-weight="600">STAGE4 · gemm_2</text>
+  <text x="475" y="267" font-size="9" fill="#3D3D3A">dp_acc = gemm_2(do, v) 原样，沿 hdim_v (:648-655)</text>
+
+  <line x1="180" y1="274" x2="180" y2="290" stroke="#87867F" stroke-width="1.3" marker-end="url(#sA)"/>
+  <line x1="650" y1="274" x2="650" y2="290" stroke="#87867F" stroke-width="1.3" marker-end="url(#sA)"/>
+
+  <!-- STAGE5 dual -->
+  <rect x="20" y="292" width="840" height="96" rx="8" fill="#FFFFFF" stroke="#141413" stroke-width="1.3"/>
+  <text x="40" y="312" font-size="11" fill="#141413" font-weight="700">STAGE5（替换 :657-669）· dS 双路</text>
+  <rect x="40" y="322" width="395" height="56" rx="6" fill="#FDF6F0" stroke="#D97757" stroke-width="1.4"/>
+  <text x="55" y="340" font-size="10" fill="#D97757" font-weight="600">SiLU</text>
+  <text x="55" y="358" font-size="9.5" fill="#3D3D3A">ds = dp_acc · g</text>
+  <text x="55" y="372" font-size="9" fill="#D97757">g 已含 scale_p；masked-out 因 g=0 自动为 0</text>
+
+  <rect x="450" y="322" width="395" height="56" rx="6" fill="#FAF9F5" stroke="#788C5D" stroke-width="1.4"/>
+  <text x="465" y="340" font-size="10" fill="#788C5D" font-weight="600">Softmax</text>
+  <text x="465" y="358" font-size="9.5" fill="#3D3D3A">ds = p · (dp_acc − d)</text>
+  <text x="465" y="372" font-size="9" fill="#788C5D">去掉 FMHA dropout 三元；d 来自 PRE</text>
+
+  <line x1="180" y1="388" x2="180" y2="404" stroke="#87867F" stroke-width="1.3" marker-end="url(#sA)"/>
+
+  <!-- STAGE6 -->
+  <rect x="40" y="406" width="380" height="44" rx="6" fill="#F0EEE6" stroke="#D1CFC5"/>
+  <text x="55" y="424" font-size="10.5" fill="#141413" font-weight="600">STAGE6 · gemm_3 → dK</text>
+  <text x="55" y="439" font-size="9" fill="#3D3D3A">gemm_3(dk_acc, dst(ds), qt) 原样；alpha 留收尾 (:698-708)</text>
+
+  <!-- STAGE7 -->
+  <rect x="460" y="406" width="380" height="44" rx="6" fill="#F0EEE6" stroke="#D1CFC5"/>
+  <text x="475" y="424" font-size="10.5" fill="#141413" font-weight="600">STAGE7 · gemm_4 → dQ</text>
+  <text x="475" y="439" font-size="9" fill="#3D3D3A">gemm_4(dq_acc, ds, kt_slice)；收尾 dq_acc *= alpha (:718-757)</text>
+
+  <!-- scale drop annotations -->
+  <rect x="20" y="470" width="840" height="70" rx="8" fill="#F0EEE6" stroke="#D97757" stroke-dasharray="4 3"/>
+  <text x="40" y="490" font-size="11" fill="#D97757" font-weight="700">scale 落点</text>
+  <text x="40" y="509" font-size="10" fill="#3D3D3A">· alpha：STAGE2 头 s_acc*=alpha + dQ(STAGE7 尾) + dK(收尾 :763-773) 末乘 alpha ——【dV 不吃】（== FMHA raw_scale 槽）</text>
+  <text x="40" y="527" font-size="10" fill="#3D3D3A">· scale_p：折进 p（→dV）与 g（→dS）；softmax 路不用 scale_p。收尾返回 (dk_acc, dv_acc)</text>
+</svg>
+<div class="svg-caption">图 3 — 七阶段双路：只有 STAGE2 / STAGE5 分 SiLU(clay) / softmax(olive)，其余 5 GEMM 照搬 FMHA；标 alpha / scale_p 落点</div>
+
+<div class="tbl-wrap">
+<table class="compact">
+<thead><tr><th>ref step</th><th>数学</th><th>FMHA stage / GEMM</th><th>HSTU 改造</th></tr></thead>
+<tbody>
+<tr><td>1 重算 S,P</td><td><code>S=alpha·Q·Kᵀ</code>；<code>P=silu(S)·scale_p</code> 或 <code>exp(S−LSE)</code></td><td>STAGE1 gemm_0 + STAGE2</td><td>双路；alpha 在 STAGE2 头乘入；SiLU 留 dsilu 因子 <code>g</code></td></tr>
+<tr><td>2 dV</td><td><code>dV += Pᵀ@dO</code></td><td>STAGE3 gemm_1</td><td>同 FMHA（P 已含 scale_p）</td></tr>
+<tr><td>3 dP</td><td><code>dP = dO@Vᵀ</code></td><td>STAGE4 gemm_2</td><td>同 FMHA（沿 hdim_v）</td></tr>
+<tr><td>4 dS</td><td>SiLU <code>dP·scale_p·dsilu(S)</code> / softmax <code>P·(dP−D)</code></td><td>STAGE5</td><td>双路；SiLU masked-out 显式 0</td></tr>
+<tr><td>5 dQ</td><td><code>alpha·dS@K</code></td><td>STAGE7 gemm_4 + 收尾 scale</td><td>alpha 用 FMHA <code>raw_scale</code> 槽</td></tr>
+<tr><td>6 dK</td><td><code>alpha·dSᵀ@Q</code></td><td>STAGE6 gemm_3 + 末尾 scale</td><td>alpha 用 <code>raw_scale</code> 槽</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="s2-detail">2.2 逐阶段改造（要点）</h3>
+<div class="callout-grid">
+  <div class="callout"><div class="k">STAGE1 (:518)</div><div class="t">原样复用</div><div class="d"><code>s_acc = gemm_0(q,k)</code>，产<strong>未缩放</strong> Q·Kᵀ。</div></div>
+  <div class="callout clay"><div class="k">STAGE2 (替换 :520-622)</div><div class="t">公共 + 双路</div><div class="d">公共 <code>s_acc *= alpha</code>（物化真正的 S；SiLU 必须拿已缩放 S 喂 dsilu，<strong>无法折进 exp</strong>）。SiLU 算 <code>p</code>/<code>g</code> 并对 edge tile <code>set_tile_if</code> 清 0；softmax 走 <code>exp2</code> + <code>get_validated_lse</code> 守卫。</div></div>
+  <div class="callout"><div class="k">STAGE3 (:624-646)</div><div class="t">dV</div><div class="d"><code>gemm_1(dv_acc, pt(p), dot)</code> 原样；dV 不乘任何 scale。</div></div>
+  <div class="callout"><div class="k">STAGE4 (:648-655)</div><div class="t">dP</div><div class="d"><code>dp_acc = gemm_2(do, v)</code> 原样，沿 hdim_v。</div></div>
+  <div class="callout clay"><div class="k">STAGE5 (替换 :657-669)</div><div class="t">dS 双路</div><div class="d">SiLU <code>ds = dp_acc * g</code>（g=0 自动得 0）；softmax <code>ds = p*(dp_acc − d)</code>（去掉 dropout 三元）。</div></div>
+  <div class="callout"><div class="k">STAGE6/7 + 收尾</div><div class="t">dK / dQ × alpha</div><div class="d">STAGE6 <code>gemm_3</code> dK、STAGE7 <code>gemm_4</code> dQ；收尾 <code>dq_acc*=alpha</code>(:747)、<code>dk_acc*=alpha</code>(:763-773)；<strong>dv_acc 不乘</strong>。</div></div>
+</div>
+<div class="note-block clay"><strong>STAGE2 P1-1 NaN 守卫（仅 softmax 路）</strong>：全 masked 行 fwd 存 <code>LSE=−inf</code>，直接 <code>(−inf)−(−inf)=NaN</code>；复用 FMHA <code>get_validated_lse</code>（<code>raw_lse==−inf ? 0 : raw_lse</code>，:571-583）&rarr; masked 位 <code>s=−inf</code> 经 <code>exp2(−inf)=0</code>，整行不产 NaN。SiLU 路 dsilu 已对极值饱和为 0，无此问题。</div>
+
+<h3 id="s2-skeleton">2.3 MAIN <code>operator()</code> 双路骨架（只标改造点）</h3>
+<div class="code-block"><span class="cm">// [同 FMHA] KV 预载寄存器、LDS 编排、early-exit (:151-491)</span>
+<span class="cm">//   ★ GetTileRangeAlongY 在 :160-161 被【无条件】调用(IsMasking 守卫之外)→ M1 no-mask 也需平凡版返回 (0,seqlen_q)</span>
+<span class="cm">//   ★ SiLU 路 lse/d 的 load 必须 if constexpr(kUseSoftmax) 跳过(FMHA 无条件 load_tile 会读空指针)</span>
+<span class="kw">while</span> (i_total_loops &lt; num_total_loop) {
+  <span class="kw">auto</span> q_reg = load_tile(q_lds_read_window);
+  decltype(...) lse;
+  <span class="kw">if constexpr</span>(kUseSoftmax) lse = load_tile(lse_lds_read_window);  <span class="cm">// SiLU 路不 load</span>
+
+  <span class="kw">auto</span> s_acc = gemm_0(q_reg, k_reg_tensor);                       <span class="cm">// STAGE1</span>
+  tile_elementwise_inout([&amp;](<span class="kw">auto</span>&amp; x){ x = <span class="hl">alpha</span> * x; }, s_acc);  <span class="cm">// ★ alpha 入 S</span>
+  SPBlockTileType p, g;
+  <span class="kw">if constexpr</span>(!kUseSoftmax) {                 <span class="cm">// SiLU</span>
+    p = silu(s_acc) * <span class="hl">scale_p</span>;                 <span class="cm">// → dV</span>
+    g = <span class="hl">scale_p</span> * dsilu(s_acc);                <span class="cm">// → dS(留到 STAGE5)</span>
+    <span class="kw">if</span> (mask.IsEdgeTile(seqlen_q_step, k_origin_x, kM0, kN0))     <span class="cm">// ★ 显式置 0</span>
+      set_tile_if(p &amp; g &lt;- 0, [&amp;](idx){ <span class="kw">return</span> !mask.IsTokenPairInsideMask(row,col); });
+  } <span class="kw">else</span> {                                     <span class="cm">// Softmax</span>
+    <span class="kw">if</span> (mask.IsEdgeTile(...)) set_tile_if(s_acc, -inf, !IsTokenPairInsideMask);   <span class="cm">// [同 FMHA]</span>
+    <span class="cm">// ★ P1-1 NaN 守卫：用 FMHA get_validated_lse(raw==-inf?0:raw)</span>
+    p = exp2(log2e*s_acc - log2e*get_validated_lse(lse));   <span class="cm">// = exp(S-LSE);仅 softmax 需此守卫</span>
+  }
+  <span class="kw">auto</span> p_gemm = cast_tile&lt;GemmDataType&gt;(p);
+  gemm_1(dv_acc, pt(p_gemm), dot_reg);                            <span class="cm">// STAGE3 dV</span>
+  <span class="cm">// ★ SiLU 路 d 的 load 同样 if constexpr(kUseSoftmax) 跳过(FMHA :628/:650 无条件)</span>
+  <span class="kw">auto</span> dp_acc = gemm_2(do_reg, v_reg_tensor);                     <span class="cm">// STAGE4 dP</span>
+  SPGradBlockTileType ds;                                         <span class="cm">// STAGE5</span>
+  <span class="kw">if constexpr</span>(!kUseSoftmax) sweep: ds[i_j] = dp_acc[i_j] * g[i_j];
+  <span class="kw">else</span>                       sweep: ds[i_j] = p[i_j] * (dp_acc[i_j] - d[i]);  <span class="cm">// d=load if softmax</span>
+  <span class="kw">auto</span> ds_gemm = cast_tile&lt;GemmDataType&gt;(ds);
+  gemm_3(dk_acc, dst(ds_gemm), qt_reg);                           <span class="cm">// STAGE6 dK</span>
+  gemm_4(dq_acc, ds(ds_gemm), kt_slice);                          <span class="cm">// STAGE7 dQ</span>
+  tile_elementwise_inout([&amp;](<span class="kw">auto</span>&amp; x){ x = x * <span class="hl">alpha</span>; }, dq_acc); <span class="cm">// ★ raw_scale→alpha</span>
+  kIsDeterministic ? store_tile(...) : update_tile(...);          <span class="cm">// atomic / split</span>
+}
+tile_elementwise_inout([&amp;](<span class="kw">auto</span>&amp; x){ x = x * <span class="hl">alpha</span>; }, dk_acc);   <span class="cm">// ★ dK ×alpha;dV 不乘</span>
+<span class="kw">return</span> make_tuple(dk_acc, dv_acc);</div>
+
+<h3 id="s2-g">2.4 SiLU 留 <code>g</code> vs 留整张 <code>S</code>（裁决见 §8-R2 / D3）</h3>
+<p class="lede">设计选<strong>留 <code>g</code>（=scale_p·dsilu(S)）</strong>：与 FMHA 的 <code>p</code>（活到 STAGE5）生命周期同形，distribution 兼容性已被 FMHA STAGE5 跨 tile-type 索引（:660-668）证明可行。</p>
+<div class="note-block clay"><strong>资源代价（P1-B）</strong>：SiLU 路 STAGE2-3 期间需<strong>同时</strong>留 <code>p</code>（→dV）与 <code>g</code>（→dS），峰值比 FMHA（只留 <code>p</code>）<strong>+1 个 SPBlockTileType</strong>；以 kM0&times;kN0=64&times;128、256 线程估 &asymp; <strong>+32 VGPR/线程</strong>。<strong>占用率模型按芯片分叉（关键，见 <a href="#s4-cdna4" style="color:var(--clay);">§4.8</a>）</strong>：gfx942（CDNA3）<code>occupancy=max(ArchVGPR,AGPR)</code>，+32 ArchVGPR 多半被 AGPR 侧吸收；<strong>gfx950（CDNA4，主目标）<code>occupancy=ArchVGPR+AGPR</code>（加法）</strong>，留 g 的 +32 ArchVGPR 直接<strong>叠加</strong>到 MFMA 累加器（dk_acc/dv_acc/dq_acc 占 AGPR）之上 &rarr; <strong>gfx950 掉 wave 风险高于 gfx942</strong>。<strong>定性：低实现风险 / 中资源风险（gfx950 偏中高）</strong>。M1 必须<strong>按 CDNA4 加法模型</strong>验 <code>ScratchSize=0</code> 且 VGPR 不致掉 wave；溢出则把 <code>g</code> 暂存 LDS（复用删掉的 bias LDS 区段；CDNA4 LDS 更大 + 64 banks + <code>ds_read_tr</code>，fallback 代价更低）。备选「留 S、STAGE5 再算 dsilu」等价但更费。</div>
+
+<h3 id="s2-contract">2.5 fwd 副产物契约</h3>
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>路径</th><th>bwd 输入集合</th><th>fwd 需存</th></tr></thead>
+<tbody>
+<tr><td><span class="tag tag-hstu">SiLU</span>（默认）</td><td><code>{Q,K,V,dO}</code></td><td><strong>无</strong>（S 重算；无 LSE/O/D/PRE）</td></tr>
+<tr><td><span class="tag tag-fmha">Softmax</span></td><td><code>{Q,K,V,dO,O,LSE}</code></td><td><strong>LSE</strong>（自然对数域，fwd <code>with_softmax</code> pipeline :604-613 已存 <code>m+log(l)</code>）+ <strong>O</strong>（PRE 算 D）</td></tr>
+</tbody>
+</table>
+</div>
+<div class="note-block">D 由 PRE 现算（非 fwd 存）。bwd softmax 必须用 <code>exp(S−LSE)</code>，<strong>alpha 已在 STAGE2 物化，切勿在 exp2 再乘 scale</strong>（双 scale 高危 bug）。LSE=−inf 守卫（P1-1）：softmax 路必须对 LSE 套 <code>get_validated_lse</code>；SiLU 路无此问题。</div>
+</section>
+
+<!-- ============================== §3 mask ============================== -->
+<section id="s3">
+<h2>§3 mask / 三模式 / 索引 / 参数</h2>
+
+<h3 id="s3-maskA">3.1 反方向 mask 几何缺口 → 方案 A（新增成员，纯加不改 fwd）</h3>
+<p class="lede">HSTU 四个 mask struct 只有 <code>GetTileRangeAlongX</code>（fwd 方向）、<code>IsFullTileInsideMask</code>、标量 <code>IsTokenPairInsideMask</code>；<strong>缺 <code>GetTileRangeAlongY</code>（KV-block→Q tile 区间）与 <code>IsEdgeTile</code></strong>（bwd KV 外循环必需）。</p>
+<div class="note-block olive"><strong>裁决：采纳方案 A</strong> —— 实测净新增 <strong>1 个非平凡成员（<code>GetTileRangeAlongY</code>）+ 1 个 wrapper（<code>IsEdgeTile</code>）</strong>；越界谓词直接内联 <code>!IsTokenPairInsideMask</code>，<strong>无需第三个成员</strong>（P2-1）。否决方案 C（FMHA generic mask 表达不了 contextual/min_full/num_target）；方案 B 全扫仅作 fallback。</div>
+<div class="callout-grid">
+  <div class="callout clay"><div class="k">新增成员 1</div><div class="t">GetTileRangeAlongY</div><div class="d"><code>(i_x, YTile, XTile) → [y_start,y_end)</code>，是 <code>GetTileRangeAlongX</code> 的转置。<strong>在 MAIN :160-161 被无条件调用</strong>（IsMasking early-exit 守卫之外）&rarr; 连 M1 的 no-mask 路也必须提供（平凡返回 <code>(0, seqlen_q)</code>，P1-D）。</div></div>
+  <div class="callout clay"><div class="k">正确性铁律</div><div class="t">必须是超集</div><div class="d">返回区间必须是 <code>IsTokenPairInsideMask</code> 真值集在 Y 方向的<strong>超集</strong>（宁放宽多算 tile，不可漏）。离线校验（§5.4）断言 <code>[y_start,y_end) ⊇ 真值集</code> 为 <strong>M2 硬性前置</strong>。</div></div>
+  <div class="callout clay"><div class="k">非连续陷阱 P1-C</div><div class="t">首版连续保守超集</div><div class="d">contextual/min_full/num_target 叠加时 attend 行集可能<strong>非连续</strong>（contextual 顶块 + 对角带 + target 尾块），单段区间无法表达 &rarr; <strong>首版返回连续保守超集</strong>（覆盖最小/最大行，中间空 tile 由逐像素清零兜底，perf 退化非正确性问题）。</div></div>
+</div>
+<div class="note-block"><strong>IsEdgeTile</strong>（wrapper）<code>:= !IsFullTileInsideMask(i_tile_top,i_tile_left,number&lt;TileWidth&gt;,number&lt;TileHeight&gt;)</code>（注意 4 参顺序，mask:237）。首版 <code>IsFullTileInsideMask</code> 仅在 <code>!is_tile_in_first_split</code> 给 true &rarr; 偏保守（多逐像素），正确优先，后续 profiling 再收紧。</div>
+
+<h3 id="s3-zero">3.2 masked-out 显式置 0（SiLU 最易错点）—— 统一口径</h3>
+<div class="callout-grid">
+  <div class="callout"><div class="k">真值源</div><div class="t">唯一</div><div class="d"><code>mask.IsTokenPairInsideMask(sq,sk)</code>（已编码 5 因子；reference bwd STAGE1/4 直接用，:246/380）。</div></div>
+  <div class="callout clay"><div class="k">GPU 落地（统一）</div><div class="t">STAGE2 清 p,g</div><div class="d">在 edge tile 上对 <code>p</code> 与 <code>g</code> 用 <code>set_tile_if</code> 清 0（谓词 <code>!IsTokenPairInsideMask</code>）。等价 reference「STAGE5 dS else 0」(:380-385)，前移到 STAGE2 只做一次更省；STAGE5 因 g=0 自动得 ds=0。整块 in-mask 跳过。</div></div>
+  <div class="callout olive"><div class="k">softmax 路</div><div class="t">自然零</div><div class="d">masked-out 走 <code>s=-inf → p=0 → ds=0</code> 自然零，无需显式清。<strong>禁止</strong> SiLU 走 -inf（<code>dsilu(-inf)→NaN</code>）。</div></div>
+</div>
+<div class="note-block">注意：GPU 上 gemm 会算出 masked-out 位的真实 Q·K（非 0）&rarr; 必须<strong>清输出 <code>p</code>、<code>g</code></strong>（而非依赖 reference 的「S 置 0」CPU 写法）；两者结果一致。</div>
+
+<h3 id="s3-sym">3.3 5 因子语义 bwd↔fwd 完全对称</h3>
+<p class="lede">同一 mask 对象、同一构造参数（bwd dispatch 复刻 fwd 的 <code>make_hstu_*_block_mask_*</code> 构造，含 <code>is_tile_in_first_split</code> 与最后一参的三元判定）。contextual（首行/列全可见）、min_full、num_target（<code>max_q_uih_len=seqlen_q−num_target</code>，target 行完整可见）在 bwd 经同一 <code>IsTokenPairInsideMask</code> 体现。唯一 bwd 特有动作是 tile 调度方向（Q 外→KV 外），<strong>非 mask 语义</strong>差异。</p>
+<div class="note-block"><strong><code>is_tile_in_first_split</code> 已查清</strong>（D2 已决）：fwd <strong>kernel</strong> 按 <strong>Q-tile</strong> 重算该 flag（<code>hstu_attention_fwd_kernel.hpp:691-716</code>），非 (batch,head) 常量；而元素级 <code>IsTokenPairInsideMask</code> 自洽、不依赖该 flag。故 bwd 元素级置零不受影响；<code>GetTileRangeAlongY</code> 首版用保守超集（min_full 区把 y_end 放到 seqlen_q），first_split 的 tile 级优化作为后续 perf 项。</div>
+
+<h3 id="s3-modes">3.4 三模式 + 索引</h3>
+<div class="tbl-wrap">
+<table class="compact">
+<thead><tr><th>模式</th><th>seqlen_q/kv</th><th>base offset</th><th>num_target</th><th>mask 超参</th></tr></thead>
+<tbody>
+<tr><td>batch</td><td>params 标量</td><td><code>i_batch*batch_stride</code></td><td><code>num_targets_ptr[i_batch]</code></td><td>全局标量 window/contextual/min_full</td></tr>
+<tr><td>jagged</td><td><code>seqstart[b+1]−seqstart[b]</code></td><td><code>seqstart[b]*seq_stride</code></td><td><code>num_targets_ptr[i_batch]</code></td><td>全局标量</td></tr>
+<tr><td>group</td><td><code>seqstart[b+1]−seqstart[b]</code></td><td><code>seqstart[b]*seq_stride</code></td><td><code>num_targets_ptr[i_batch]</code></td><td><code>group_*_ptr[i_group]</code>，<code>i_group=i_batch/num_batch_per_group</code></td></tr>
+</tbody>
+</table>
+</div>
+<div class="note-block"><code>GetTileIndex=(blockIdx.x,blockIdx.y,blockIdx.z)</code>（FMHA:1070）；grid.z=num_batch、grid.y=nhead、grid.x=seq-tile。HSTU jagged/group 索引与 FMHA group 分支同构（:1110-1159），差别仅多 mask 5 因子标量。</div>
+
+<h3 id="s3-hdim">3.5 hdim_qk &ne; hdim_v 接线</h3>
+<p class="lede">Q/K/dQ/dK 用 <code>hdim_qk</code>；V/O/dO/dV 用 <code>hdim_v</code>。收缩维：gemm_0(QKᵀ) / gemm_3(dSᵀ@Q) / gemm_4(dS@K) 沿 <code>hdim_qk</code>；gemm_1(Pᵀ@dO) / gemm_2(dO@Vᵀ) / PRE(dO·O) 沿 <code>hdim_v</code>。tile setting 的 <code>kQKHeaddim</code>/<code>kVHeaddim</code> 各开一档（FMHA <code>BlockFmhaShape</code> 已分离）。</p>
+</section>
+
+<!-- ============================== §4 工程 ============================== -->
+<section id="s4">
+<h2>§4 工程落地</h2>
+
+<h3 id="s4-files">4.1 文件结构（新建 vs 复用 FMHA）</h3>
+<div class="note-block">路线：<strong>HSTU 自有风格（自写 dispatch + <code>generate_instances.py</code> 字符串模板），不搬 FMHA <code>codegen/ops/fmha_bwd.py</code></strong>；只复用 FMHA device 端 pipeline/kernel 模板。全落 <code>example/ck_tile/18_hstu_attention/</code>，镜像 fwd 命名。</div>
+<div class="callout-grid">
+  <div class="callout clay"><div class="k">新建 <span class="tag tag-new">new</span></div><div class="t">HSTU bwd 文件</div><div class="d"><code>hstu_attention_bwd_{type_config,tile_setting_define,setting,pipeline_problem,traits,kernel}.hpp</code>、<code>hstu_attention_{no,with}_softmax_bwd_pipeline.hpp</code>（MAIN 双路）、<code>..._bwd_{dot_do_o,convert_dq}_pipeline.hpp</code>（thin wrapper）、<code>..._{batched,jagged,group}_backward_dispatch.hpp</code>、<code>..._{no_group,group}_backward_{bf16,fp16}.cpp</code>、<code>instances/</code>、<code>example_hstu_attention_bwd.cpp</code>。</div></div>
+  <div class="callout olive"><div class="k">直接 #include <span class="tag tag-reuse">reuse</span></div><div class="t">复用 FMHA</div><div class="d"><code>block_fmha_bwd_pipeline_default_policy.hpp</code>（整体继承）、<code>..._enum.hpp</code>、<code>..._dot_do_o.hpp</code>、<code>..._convert_dq.hpp</code>、<code>tile_fmha_shape.hpp::TileFmhaBwdShape</code>。</div></div>
+</div>
+<div class="note-block clay"><strong>gfx950 镜像 fwd（<a href="#s4-cdna4" style="color:var(--clay);">§4.8</a>）</strong>：<code>hstu_attention_bwd_setting.hpp</code> 必须含 <strong>gfx95 专用 tile setting 分支</strong>（对齐 <code>hstu_attention_fwd_setting.hpp</code> 的 gfx95 路径）；dispatch 文件镜像 fwd 的 <code>BUILD_HSTU_FOR_GFX95_ONLY</code> 宏分叉。</div>
+
+<h3 id="s4-problem">4.2 problem / traits / tile / policy</h3>
+<div class="note-block"><strong>HstuAttentionBwdPipelineProblem</strong>：抄 FMHA <code>BlockFmhaBwdPipelineProblem</code> 骨架，<strong>砍</strong> <code>RandValOutputDataType/FmhaDropout/BiasGradDataType/kHasBiasGrad</code>（已核 default policy 不引用这四个，grep 0 命中）；<strong>加</strong> <code>kUseSoftmax</code>（新轴）、<code>CompDataType</code>（dsilu）、<code>kUseGroup/kIsJagged/kIsCrossAttention</code>。<code>static_assert(!kUseGroup||kIsJagged)</code>。mask 不进模板（dispatch 阶段由 <code>HstuBlockMasking&lt;...&gt;</code> 选型后传入，同 fwd）。</div>
+<div class="gate-banner"><strong>★ 复用 default policy 的硬前提（P1-A）：Problem 必须保留</strong> <code>static constexpr auto BiasEnum = BlockAttentionBiasEnum::NO_BIAS;</code> + <code>using BiasDataType = InOutDataType;</code>（dummy）。因 <code>BlockFmhaBwdPipelineDefaultPolicy::GetSmemSizeBias()</code>（:1627-1628）内 <code>if constexpr(Problem::BiasEnum==ELEMENTWISE_BIAS) sizeof(Problem::BiasDataType)*...</code>，被 <code>GetSmemSize&lt;Problem&gt;()</code>（:1641-1647）无条件聚合、再被 pipeline <code>GetSmemSize()</code>（:80-83）必然实例化 &rarr; 删掉这 2 个成员 default policy 直接编译失败、policy 复用破产。<strong>kargs 不传 bias</strong>，只保留这 2 个 dead typedef（免费）。这把 R1 从「政策不确定」收敛为「保留 2 个占位 typedef」，并顺带回答 U1。</div>
+<div class="tbl-wrap">
+<table class="compact">
+<thead><tr><th>组件</th><th>内容</th></tr></thead>
+<tbody>
+<tr><td>traits</td><td><code>HstuAttentionBwdTraits</code>：<code>kPadSeqLenQ/K</code>、<code>kPadHeadDimQK/V</code>、<code>kBlockPerCu</code></td></tr>
+<tr><td>tile</td><td>9 元 <code>BlockTile = sequence&lt;kM0,kN0,kK0,kK1,kK2,kK3,kK4,kQKHeaddim,kVHeaddim&gt;</code>；<strong>按芯片分叉</strong>：gfx942（CDNA3）照搬 FMHA bwd per-hdim 预设(64/96/128/256)；<strong style="color:var(--clay);">gfx950（CDNA4，主目标）用 K-doubled MFMA tile（<code>32×32×16</code> / <code>16×16×32</code>，2× 吞吐 vs CDNA3 的 <code>32×32×8</code>/<code>16×16×16</code>），镜像 fwd_setting 的 gfx95 分支</strong>（<a href="#s4-cdna4" style="color:var(--clay);">§4.8</a>）</td></tr>
+<tr><td>policy</td><td><code>using Policy = BlockFmhaBwdPipelineDefaultPolicy;</code>，<strong>预期几乎无需覆写</strong>（5 GEMM 形状一致，差异在 elementwise），前提是保留上述 BiasEnum/BiasDataType。可行性 M1 验证（R1）</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="s4-dispatch">4.3 dispatch</h3>
+<div class="code-block">run_&lt;mode&gt;_backward_dispatch&lt;InOutDataType,kUseCausal,kUseSoftmax,kHasBias,kIsDeterministic,MaxK&gt;(param, stream)</div>
+<div class="note-block"><code>Run</code> 流程：选 tile setting &rarr; 算 pad &rarr; <code>BOOL_SWITCH</code> traits &rarr; <code>HstuBlockMasking</code> 选 mask &rarr; 组 problem / 选 pipeline（<code>kUseSoftmax?WithSoftmax:NoSoftmax</code>）&rarr; 组 3 kernel &rarr; 顺序 launch <code>[PRE?]→MAIN→[POST?]</code>。</div>
+
+<h3 id="s4-dq">4.4 dQ 写回两路（<strong>两路都过 POST</strong>，P1-E）</h3>
+<div class="callout-grid">
+  <div class="callout olive"><div class="k">路 A（默认）</div><div class="t">kIsDeterministic=false · atomic</div><div class="d">float <code>dq_acc</code>（nsplits=1）+ MAIN <code>atomic_add</code> + <strong>POST convert-only</strong>（cast→<code>dq_ptr</code>）。bf16/fp16 不能直接 atomic &rarr; 用 float dq_acc 中转；<strong>故 atomic 路也必须分配 float dq_acc 并发 POST，非「零额外 workspace」</strong>。</div></div>
+  <div class="callout clay"><div class="k">路 B</div><div class="t">kIsDeterministic=true · split</div><div class="d">每 K-tile 写独立 dq_acc slice（无 atomic）+ POST <code>BlockFmhaBwdConvertQGrad</code> 的 <strong>Reduce+Convert</strong>（:64-138）沿 split 归约 &rarr; 逐位可复现。</div></div>
+</div>
+<div class="note-block"><code>dq_acc</code> 形状：deterministic <code>[nsplits, Σseqlen_q, nhead, hdim_qk]</code> float，<code>nsplits=ceil(max_seqlen_k/kN0)</code>（=MAIN grid.x）；atomic 退化 nsplits=1。host 端 <code>hipMalloc</code>（对齐 fwd <code>o_acc_ptr/lse_acc_ptr</code> 临时 buffer 模式），填 <code>param.num_splits</code>。</div>
+
+<h3 id="s4-cmake">4.5 instances / CMake</h3>
+<div class="note-block">轴：<code>mode(3)×dtype(2)×causal(2)×softmax(2)×bias(2)×deterministic(2)×maxk(4)=384</code>。<strong>MVP 收敛</strong>：bias 恒 false、deterministic 恒 false、maxk 先 {64,128} &rarr; <strong>&asymp;48 instance</strong>（与 fwd 同量级）。<code>generate_instances.py</code> 加 <code>create_backward_instances</code>（字符串模板），每次清空 <code>instances/</code>；CMake <code>file(GLOB instances/*.cpp)</code> 自动纳入。新增独立 bwd target <code>tile_example_hstu_attention_bwd</code>（EXCLUDE_FROM_ALL）。gfx95/94 分叉、<code>-DCK_TILE_FLOAT_TO_BFLOAT16_DEFAULT=3</code> 沿用 fwd；<strong style="color:var(--clay);">gfx95 target 追加 <code>-fno-slp-vectorize</code>（改善 gfx950 pipelining，镜像 fwd CMake）+ <code>BUILD_HSTU_FOR_GFX95_ONLY</code> 宏</strong>（<a href="#s4-cdna4" style="color:var(--clay);">§4.8</a>）。CLI 增量：<code>--deterministic</code>、<code>--bwd_v</code>（对拍）、<code>--dump_grad</code>。</div>
+
+<h3 id="s4-fields">4.6 canonical 字段表（params / kargs — 三组统一命名）</h3>
+<p class="lede">两个新 struct 进 <code>hstu_attention_params.hpp</code>（复用 fwd 全部输入字段）：<code>HstuAttentionNoGroupBwdParams</code>（batch+jagged，<code>is_jagged</code> 区分）与 <code>HstuAttentionGroupBwdParams</code>（group）。</p>
+<div class="tbl-wrap">
+<table class="compact">
+<thead><tr><th>类别</th><th>字段（canonical）</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>复用 fwd 输入</td><td><code>q_ptr,k_ptr,v_ptr,o_ptr</code>，seq/nhead/batch stride，<code>num_targets_ptr</code>，<code>seq_q/kv_offsets_ptr</code>，<code>max_seqlen_q</code>，<code>is_cross_attention,is_jagged,use_causal,use_softmax</code></td><td>o_ptr softmax 路用</td></tr>
+<tr><td>mask 超参</td><td>batch/jagged：<code>window_size,contextual_seqlen,min_full_attn_seqlen</code>（标量）；group：<code>group_{window_size,contextual_seqlen,min_full_attn_seqlen,max_seqlen_q,attn_scale}_ptr</code> + <strong><code>num_group,num_batch_per_group</code></strong>（P2-3，reference:514）</td><td>group 按 i_group</td></tr>
+<tr><td>bwd 输入</td><td><code>do_ptr</code>；<code>lse_ptr</code>（仅 softmax，SiLU=nullptr）</td><td>—</td></tr>
+<tr><td>bwd 输出</td><td><code>dq_ptr,dk_ptr,dv_ptr</code> + 各自 seq/nhead/batch stride</td><td>dq/dk 宽 hdim_qk，dv 宽 hdim_v</td></tr>
+<tr><td>PRE 产物</td><td><code>d_ptr</code> + <code>nhead_stride_lsed</code> + <strong><code>batch_stride_lsed</code></strong>（P2-2，batched softmax 需要；LSE 与 D 同布局）</td><td>仅 softmax</td></tr>
+<tr><td>dQ workspace</td><td><code>dq_acc_ptr,stride_dq_acc,nhead_stride_dq_acc,batch_stride_dq_acc,split_stride_dq_acc,num_splits</code></td><td>float</td></tr>
+<tr><td>scale</td><td><code>alpha</code>（=fwd <code>scale_s</code>），<code>attn_scale</code>（scale_p 源）</td><td>见 §4.7</td></tr>
+<tr><td>开关</td><td><code>kIsDeterministic</code></td><td>模板轴，struct 留 bool 便于 host 选 instance</td></tr>
+</tbody>
+</table>
+</div>
+<div class="note-block">与 FMHA <code>fmha_bwd_args</code> 净差异：<strong>kargs 删</strong> dropout+bias+dbias 三组（注：Problem 仍保留 <code>BiasEnum=NO_BIAS</code>+<code>BiasDataType</code> dummy typedef，P1-A，仅 kargs 不传 bias）；mask kargs <strong>换</strong> HSTU 5 因子（batch 标量 / group 指针）；<strong>加</strong> scale_p 通路；<code>seqlen_k→seqlen_kv</code>、<code>hdim_q→hdim_qk</code> 改名；<code>nhead_ratio_qk=1</code>（HSTU 暂无 GQA，留常量占位，U4）。</div>
+
+<h3 id="s4-scale">4.7 scale 语义与接线表（固化，防双 scale bug）</h3>
+
+<!-- ===== SVG 4: scale 接线图 ===== -->
+<svg viewBox="0 0 880 300" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:880px;display:block;margin:14px auto 6px;">
+  <defs><marker id="scA" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#D97757"/></marker>
+  <marker id="scB" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="#788C5D"/></marker></defs>
+
+  <!-- alpha node -->
+  <rect x="40" y="30" width="130" height="50" rx="10" fill="#FDF6F0" stroke="#D97757" stroke-width="2"/>
+  <text x="105" y="52" text-anchor="middle" font-size="13" fill="#D97757" font-weight="700">alpha</text>
+  <text x="105" y="68" text-anchor="middle" font-size="9" fill="#3D3D3A">= fwd scale_s · 单标量</text>
+
+  <!-- alpha targets -->
+  <rect x="330" y="22" width="200" height="30" rx="6" fill="#FFFFFF" stroke="#D97757"/>
+  <text x="430" y="41" text-anchor="middle" font-size="10" fill="#3D3D3A">STAGE2 头：s_acc *= alpha</text>
+  <rect x="330" y="60" width="200" height="30" rx="6" fill="#FFFFFF" stroke="#D97757"/>
+  <text x="430" y="79" text-anchor="middle" font-size="10" fill="#3D3D3A">dQ(STAGE7 尾) 末乘 alpha</text>
+  <rect x="330" y="98" width="200" height="30" rx="6" fill="#FFFFFF" stroke="#D97757"/>
+  <text x="430" y="117" text-anchor="middle" font-size="10" fill="#3D3D3A">dK(收尾) 末乘 alpha</text>
+  <rect x="330" y="136" width="200" height="30" rx="6" fill="#F0EEE6" stroke="#D1CFC5" stroke-dasharray="4 3"/>
+  <text x="430" y="155" text-anchor="middle" font-size="10" fill="#87867F">dV ✗ 不乘 alpha</text>
+
+  <line x1="170" y1="50" x2="328" y2="37" stroke="#D97757" stroke-width="1.4" marker-end="url(#scA)"/>
+  <line x1="170" y1="55" x2="328" y2="75" stroke="#D97757" stroke-width="1.4" marker-end="url(#scA)"/>
+  <line x1="170" y1="60" x2="328" y2="113" stroke="#D97757" stroke-width="1.4" marker-end="url(#scA)"/>
+
+  <!-- scale_p node -->
+  <rect x="40" y="200" width="130" height="50" rx="10" fill="#FAF9F5" stroke="#788C5D" stroke-width="2"/>
+  <text x="105" y="222" text-anchor="middle" font-size="13" fill="#788C5D" font-weight="700">scale_p</text>
+  <text x="105" y="238" text-anchor="middle" font-size="9" fill="#3D3D3A">attn_scale ? : 1/max_sq</text>
+
+  <rect x="330" y="184" width="200" height="30" rx="6" fill="#FFFFFF" stroke="#788C5D"/>
+  <text x="430" y="203" text-anchor="middle" font-size="10" fill="#3D3D3A">折进 p（→dV）</text>
+  <rect x="330" y="222" width="200" height="30" rx="6" fill="#FFFFFF" stroke="#788C5D"/>
+  <text x="430" y="241" text-anchor="middle" font-size="10" fill="#3D3D3A">折进 g（→dS）</text>
+  <rect x="330" y="260" width="200" height="30" rx="6" fill="#F0EEE6" stroke="#D1CFC5" stroke-dasharray="4 3"/>
+  <text x="430" y="279" text-anchor="middle" font-size="10" fill="#87867F">softmax 路 ✗ 不用 scale_p</text>
+
+  <line x1="170" y1="218" x2="328" y2="199" stroke="#788C5D" stroke-width="1.4" marker-end="url(#scB)"/>
+  <line x1="170" y1="225" x2="328" y2="237" stroke="#788C5D" stroke-width="1.4" marker-end="url(#scB)"/>
+
+  <!-- danger note -->
+  <rect x="580" y="30" width="270" height="136" rx="10" fill="#F3D9CC" stroke="#D97757"/>
+  <text x="600" y="52" font-size="11" fill="#8A3B1E" font-weight="700">防双 scale bug</text>
+  <text x="600" y="74" font-size="9.5" fill="#6E2E15">· alpha 单标量（三模式均单值，</text>
+  <text x="600" y="88" font-size="9.5" fill="#6E2E15">&nbsp;&nbsp;group 也是单标量 ref:515）</text>
+  <text x="600" y="108" font-size="9.5" fill="#6E2E15">· scale_p per-group（group 走</text>
+  <text x="600" y="122" font-size="9.5" fill="#6E2E15">&nbsp;&nbsp;device 指针按 i_group 取）</text>
+  <text x="600" y="142" font-size="9.5" fill="#6E2E15">· softmax exp(S−LSE) 自然对数域</text>
+  <text x="600" y="156" font-size="9.5" fill="#6E2E15">&nbsp;&nbsp;切勿在 exp2 再乘 scale</text>
+
+  <rect x="580" y="186" width="270" height="104" rx="10" fill="#F0EEE6" stroke="#D1CFC5"/>
+  <text x="600" y="208" font-size="11" fill="#141413" font-weight="700">host 接线</text>
+  <text x="600" y="230" font-size="9.5" fill="#3D3D3A">· alpha：host 存 kargs 标量</text>
+  <text x="600" y="250" font-size="9.5" fill="#3D3D3A">· scale_p batch/jagged：host 预算</text>
+  <text x="600" y="264" font-size="9.5" fill="#3D3D3A">&nbsp;&nbsp;单值传入（免 kernel 分支）</text>
+  <text x="600" y="282" font-size="9.5" fill="#3D3D3A">· scale_p group：kernel 内取</text>
+</svg>
+<div class="svg-caption">图 4 — scale 接线：alpha(clay，STAGE2 头 + dQ/dK 尾，dV 不吃) vs scale_p(olive，折进 p/g，softmax 不用)</div>
+
+<div class="tbl-wrap">
+<table class="compact">
+<thead><tr><th>名称</th><th>含义</th><th>来源/默认</th><th>bwd 用处</th><th>per-group?</th></tr></thead>
+<tbody>
+<tr><td><code>alpha</code></td><td>QK 缩放（FMHA <code>1/&radic;d</code> 槽）</td><td>= fwd <code>scale_s</code></td><td>STAGE2 头 <code>s_acc*=alpha</code>；dQ(STAGE7)、dK(收尾) 末乘 alpha；<strong>dV 不乘</strong></td><td><strong>否</strong>（group 也是单标量，ref:515）</td></tr>
+<tr><td><code>scale_p</code></td><td>SiLU 输出缩放</td><td><code>attn_scale ? attn_scale : 1/max_seqlen_q</code></td><td>折进 <code>p</code>（→dV）与 <code>g</code>（→dS）；<strong>softmax 路不用</strong></td><td><strong>是</strong>（group：<code>group_attn_scale[i_group]?...:1/group_max_seqlen_q[i_group]</code>）</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="s4-cdna4">4.8 gfx950 / CDNA4 注意事项（主目标芯片）</h3>
+<p class="lede">当前机器为 <strong style="color:var(--clay);">gfx950（MI350 / CDNA4）</strong>，设为主目标，gfx942（CDNA3）次之。<strong>算法 / 七阶段双路、scale 接线、复用边界、wave64、MFMA 适用性两代一致</strong>，差异集中在<strong>占用率模型 / tile-MFMA preset / build</strong>三处；fwd 已有成套 gfx950 路径，bwd <strong>必须镜像</strong>。</p>
+
+<!-- ===== SVG 7: CDNA3 vs CDNA4 占用率模型对比 ===== -->
+<svg viewBox="0 0 880 250" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:880px;display:block;margin:14px auto 6px;">
+  <!-- CDNA3 -->
+  <rect x="20" y="20" width="410" height="210" rx="12" fill="#FAF9F5" stroke="#788C5D" stroke-width="2"/>
+  <text x="225" y="44" text-anchor="middle" font-size="13" fill="#4B5C39" font-weight="700">CDNA3 / gfx942 · 两个独立文件</text>
+  <rect x="50" y="64" width="160" height="120" rx="8" fill="#FFFFFF" stroke="#788C5D"/>
+  <text x="130" y="84" text-anchor="middle" font-size="10" fill="#3D3D3A">ArchVGPR 512</text>
+  <rect x="60" y="120" width="140" height="56" rx="5" fill="#E4E9DC" stroke="#788C5D"/>
+  <text x="130" y="143" text-anchor="middle" font-size="9" fill="#4B5C39">普通 reg</text>
+  <text x="130" y="158" text-anchor="middle" font-size="8.5" fill="#D97757">+ 留 g (+32)</text>
+  <rect x="240" y="64" width="160" height="120" rx="8" fill="#FFFFFF" stroke="#788C5D"/>
+  <text x="320" y="84" text-anchor="middle" font-size="10" fill="#3D3D3A">AGPR 512</text>
+  <rect x="250" y="110" width="140" height="66" rx="5" fill="#E4E9DC" stroke="#788C5D"/>
+  <text x="320" y="146" text-anchor="middle" font-size="9" fill="#4B5C39">MFMA 累加器</text>
+  <text x="225" y="210" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">occupancy = max(ArchVGPR, AGPR)</text>
+  <text x="225" y="225" text-anchor="middle" font-size="9" fill="#87867F">+32 多半被 AGPR 侧吸收</text>
+
+  <!-- CDNA4 -->
+  <rect x="450" y="20" width="410" height="210" rx="12" fill="#FDF6F0" stroke="#D97757" stroke-width="2"/>
+  <text x="655" y="44" text-anchor="middle" font-size="13" fill="#D97757" font-weight="700">CDNA4 / gfx950 · 统一寄存器池</text>
+  <rect x="490" y="64" width="330" height="120" rx="8" fill="#FFFFFF" stroke="#D97757"/>
+  <text x="655" y="84" text-anchor="middle" font-size="10" fill="#3D3D3A">统一 512 寄存器池</text>
+  <rect x="500" y="110" width="155" height="66" rx="5" fill="#E4E9DC" stroke="#788C5D"/>
+  <text x="577" y="140" text-anchor="middle" font-size="9" fill="#4B5C39">MFMA 累加器(AGPR)</text>
+  <rect x="660" y="110" width="150" height="66" rx="5" fill="#F3D9CC" stroke="#D97757"/>
+  <text x="735" y="136" text-anchor="middle" font-size="9" fill="#8A3B1E">ArchVGPR</text>
+  <text x="735" y="152" text-anchor="middle" font-size="8.5" fill="#8A3B1E" font-weight="700">+ 留 g (+32) 叠加</text>
+  <text x="655" y="210" text-anchor="middle" font-size="11" fill="#D97757" font-weight="700">occupancy = ArchVGPR + AGPR（加法）</text>
+  <text x="655" y="225" text-anchor="middle" font-size="9" fill="#8A3B1E">+32 直接叠加 → 掉 wave 风险更高</text>
+</svg>
+<div class="svg-caption">图 7 — CDNA3（左, olive, max 模型）vs CDNA4（右, clay, 加法模型）占用率差异：留 g 的 +32 ArchVGPR 在 gfx950 上直接叠加 AGPR 累加器</div>
+
+<div class="callout-grid">
+  <div class="callout clay"><div class="k">① 占用率模型 · 最关键</div><div class="t">加法模型（升级 R2/P1-B）</div><div class="d">CDNA3 <code>max(ArchVGPR,AGPR)</code>；<strong>CDNA4 <code>ArchVGPR+AGPR</code></strong>。bwd MFMA 累加器（<code>dk/dv/dq_acc</code>）占 AGPR，留 <code>g</code> 的 +~32 ArchVGPR 在 CDNA4 <strong>直接叠加</strong> &rarr; gfx950 掉 wave 风险高于 gfx942。<strong>M1 必须按 CDNA4 加法模型验 occupancy</strong>；掉 wave 则优先 g 暂存 LDS fallback。</div></div>
+  <div class="callout clay"><div class="k">② tile / MFMA preset</div><div class="t">K-doubled MFMA</div><div class="d">gfx950 tile_setting 用 CDNA4 <strong><code>32×32×16</code> / <code>16×16×32</code>（f16/bf16，2× 吞吐）</strong>，勿照搬 gfx942 的 <code>32×32×8</code>/<code>16×16×16</code>。走 gfx95 分支，镜像 <code>hstu_attention_fwd_setting.hpp</code>。</div></div>
+  <div class="callout clay"><div class="k">③ build / 结构镜像 fwd</div><div class="t">宏 + 编译选项 + 设备分支</div><div class="d">bwd dispatch/setting 加 <code>BUILD_HSTU_FOR_GFX95_ONLY</code> 分支；CMake 对 gfx95 加 <code>-fno-slp-vectorize</code>（改善 pipelining）；policy/pipeline 需要处加 <code>#ifdef __gfx950__</code>（对齐 fwd policy 的 3 处）。</div></div>
+  <div class="callout"><div class="k">④ LDS 更宽裕（利好 fallback）</div><div class="t">更大 + 64 banks + ds_read_tr</div><div class="d">CDNA4 LDS 比 CDNA3（64KB）更大、<strong>64 banks</strong>（CDNA3 32）+ 新 <code>ds_read_tr</code> 转置读变体（<code>B64_TR_B4/B8/B16</code>、<code>B96_TR_B6</code>）。<span class="src">（rocm-ref 对 CDNA4 LDS 具体容量记述不一致，此处只取定性「更大」，不固化数值。）</span></div></div>
+</div>
+<div class="note-block olive"><strong>不变项（gfx942 / gfx950 完全一致）</strong>：wave64、MFMA 适用、算法 / 七阶段双路、两个 scale 接线、复用 vs 新写边界。</div>
+</section>
+
+<!-- ============================== §5 验证 ============================== -->
+<section id="s5">
+<h2>§5 正确性验证</h2>
+
+<h3 id="s5-flow">5.1 对拍主流程（oracle = <code>reference_*_hstu_attention_bwd</code>）</h3>
+<div class="code-block">随机 seed → Q/K/V/dO (+ jagged offsets/num_targets/mask 超参)
+ ├ <span class="hl">GPU</span>：fwd 产 O(+LSE if softmax) → bwd(PRE→MAIN→POST) 产 dQ/dK/dV
+ └ <span class="str">CPU</span>：reference fwd 产 O/LSE → reference bwd 产 dQ*/dK*/dV*
+对比 (dQ,dK,dV) vs (dQ*,dK*,dV*)，用 ck_tile::check_err 分张量报 max/mean-err</div>
+<div class="note-block">oracle 签名（已核实）：<code>reference_no_group_hstu_attention_bwd&lt;InOut,GemmAcc,Comp,kIsJagged,kUseSoftmax,kUseCausal&gt;::Run(is_cross, q,k,v,lse,o,do, dq,dk,dv, num_batch, alpha, attn_scale, max_seqlen_q, max_seqlen_kv, seq_q_offsets, seq_kv_offsets, num_targets, contextual_seqlen, window_size, min_full_attn_seqlen)</code>；group 版多 <code>num_batch_per_group</code> + 5 个 <code>group_*</code> 数组。SiLU 路 lse 传空。</div>
+
+<h3 id="s5-tol">5.2 容差（初值，按实测收紧；分张量）</h3>
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>dtype</th><th>rel-err</th><th>max abs-err（归一）</th></tr></thead>
+<tbody>
+<tr><td>bf16 dQ/dK/dV</td><td>&le; 2e-2</td><td>&le; 5e-2</td></tr>
+<tr><td>fp16 dQ/dK/dV</td><td>&le; 5e-3</td><td>&le; 1e-2</td></tr>
+</tbody>
+</table>
+</div>
+<div class="note-block">dQ 误差通常最大（跨 block 累加），dV 最小。<strong>专项</strong>：SiLU masked-out 区校验 dS=0（不污染 dK/dV）。</div>
+
+<h3 id="s5-matrix">5.3 测试矩阵（分层抽样）</h3>
+<div class="note-block">激活{SiLU,softmax} &times; 模式{batched,jagged,group} &times; mask{no-mask,causal,+window,+contextual,+min_full,+num_target,组合} &times; dtype{bf16,fp16} &times; hdim{(64,64),(128,128),(128,64),(256,256)} &times; dQ 路{atomic,deterministic}。<strong>核心组合</strong>（SiLU×batched×causal×bf16×64）全跑，其余轴单轴变更 + 少量全组合 smoke。</div>
+
+<h3 id="s5-det">5.4 deterministic 逐位 + 边界</h3>
+<div class="callout-grid">
+  <div class="callout"><div class="k">deterministic</div><div class="t">逐位相等</div><div class="d"><code>--deterministic 1</code> 同输入两遍 &rarr; dQ bitwise 相等（memcmp）；atomic 路仅数值容差。</div></div>
+  <div class="callout"><div class="k">边界</div><div class="t">非整除 / cross / 退化</div><div class="d">seqlen 非 tile 整除（pad）、cross（seqlen_q≠kv）、单 batch、空 target、window=0、contextual=0、hdim_qk≠hdim_v、jagged 各段长度差异大。</div></div>
+  <div class="callout clay"><div class="k">高优</div><div class="t">GetTileRangeAlongY 离线校验</div><div class="d">随机 (seqlen,5 因子) 枚举每 KV tile，断言 <code>[y_start,y_end) ⊇ {sq:∃sk∈tile, IsTokenPairInsideMask(sq,sk)}</code>。<strong>M2 硬性前置</strong>。</div></div>
+</div>
+</section>
+
+<!-- ============================== §6 里程碑 ============================== -->
+<section id="s6">
+<h2>§6 分阶段里程碑（M1 为风险闸门）</h2>
+
+<!-- ===== SVG 5: 里程碑时间线 ===== -->
+<svg viewBox="0 0 880 330" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:880px;display:block;margin:14px auto 6px;">
+  <line x1="40" y1="70" x2="840" y2="70" stroke="#D1CFC5" stroke-width="2"/>
+
+  <!-- M0 -->
+  <circle cx="70" cy="70" r="9" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+  <text x="70" y="50" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">M0</text>
+  <text x="70" y="92" text-anchor="middle" font-size="8.5" fill="#3D3D3A">脚手架</text>
+
+  <!-- M1 GATE -->
+  <circle cx="165" cy="70" r="14" fill="#D97757" stroke="#8A3B1E" stroke-width="2.5"/>
+  <text x="165" y="46" text-anchor="middle" font-size="12" fill="#D97757" font-weight="700">M1 ★</text>
+  <text x="165" y="96" text-anchor="middle" font-size="8.5" fill="#D97757" font-weight="700">端到端·闸门</text>
+
+  <circle cx="260" cy="70" r="9" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+  <text x="260" y="50" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">M2</text>
+  <text x="260" y="92" text-anchor="middle" font-size="8.5" fill="#3D3D3A">mask 因子</text>
+
+  <circle cx="355" cy="70" r="9" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+  <text x="355" y="50" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">M3</text>
+  <text x="355" y="92" text-anchor="middle" font-size="8.5" fill="#3D3D3A">jagged</text>
+
+  <circle cx="450" cy="70" r="9" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+  <text x="450" y="50" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">M4</text>
+  <text x="450" y="92" text-anchor="middle" font-size="8.5" fill="#3D3D3A">group</text>
+
+  <circle cx="545" cy="70" r="9" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+  <text x="545" y="50" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">M5</text>
+  <text x="545" y="92" text-anchor="middle" font-size="8.5" fill="#3D3D3A">softmax 路</text>
+
+  <circle cx="640" cy="70" r="9" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+  <text x="640" y="50" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">M6</text>
+  <text x="640" y="92" text-anchor="middle" font-size="8.5" fill="#3D3D3A">deterministic</text>
+
+  <circle cx="735" cy="70" r="9" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+  <text x="735" y="50" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">M7</text>
+  <text x="735" y="92" text-anchor="middle" font-size="8.5" fill="#3D3D3A">多 dtype/maxk</text>
+
+  <circle cx="820" cy="70" r="9" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+  <text x="820" y="50" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="700">M8</text>
+  <text x="820" y="92" text-anchor="middle" font-size="8.5" fill="#3D3D3A">性能/收尾</text>
+
+  <!-- M1 gate detail box -->
+  <rect x="40" y="125" width="800" height="180" rx="10" fill="#FDF6F0" stroke="#D97757" stroke-width="1.6"/>
+  <text x="60" y="148" font-size="12" fill="#D97757" font-weight="700">M1 闸门 — batched + SiLU + no-mask + bf16 + atomic + hdim64</text>
+  <text x="60" y="170" font-size="10" fill="#3D3D3A">范围：MAIN 5 GEMM + dsilu + dQ(float dq_acc + POST convert-only)；含平凡 GetTileRangeAlongY→(0,seqlen_q)</text>
+  <text x="60" y="186" font-size="10" fill="#3D3D3A">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(P1-D：该调用在 IsMasking 守卫外，no-mask 也需) + 保留 BiasEnum/BiasDataType (P1-A)</text>
+  <text x="60" y="210" font-size="10.5" fill="#8A3B1E" font-weight="700">验收：对拍过 bf16 阈值；ScratchSize=0 且 VGPR 不掉 wave —— 按 CDNA4 加法模型 occupancy=ArchVGPR+AGPR (P1-B/§4.8)</text>
+  <text x="60" y="232" font-size="10" fill="#3D3D3A" font-weight="600">一次性验证 3 件高风险事：</text>
+  <text x="60" y="250" font-size="10" fill="#3D3D3A">&nbsp;&nbsp;① FMHA MAIN 能否被 HSTU 特化（SiLU 重算 S + masked-out 0 + scale_p）</text>
+  <text x="60" y="266" font-size="10" fill="#3D3D3A">&nbsp;&nbsp;② FMHA default policy 直接复用（R1）</text>
+  <text x="60" y="282" font-size="10" fill="#3D3D3A">&nbsp;&nbsp;③ 留 g 的 VGPR 代价（R2）</text>
+  <text x="60" y="300" font-size="9.5" fill="#87867F">闸门含义：M1 通过 = 三大技术风险闭环，后续 M2-M8 为铺量；M1 不过则按 R1/R2 回退策略。</text>
+</svg>
+<div class="svg-caption">图 5 — 里程碑时间线 M0→M8，高亮 M1 为风险闸门（clay）：一次性验证 policy 复用 / SiLU 特化 / 留 g 的 VGPR</div>
+
+<div class="tbl-wrap">
+<table class="compact">
+<thead><tr><th>阶段</th><th>范围</th><th>验收</th></tr></thead>
+<tbody>
+<tr><td>M0 脚手架</td><td>params bwd 字段、3 kernel 空壳、dispatch、CMake target、instances bwd 分支、CLI</td><td>编译过；launch 不崩；全 0 输出</td></tr>
+<tr style="background:var(--clay-lt);"><td><strong>M1 端到端</strong>（闸门）</td><td><strong>batched+SiLU+no-mask+bf16+atomic+hdim64</strong>（主目标 <strong style="color:var(--clay);">gfx950 / CDNA4</strong>，gfx95 tile preset）：MAIN 5 GEMM+dsilu+dQ(float dq_acc+POST convert-only)；含平凡 <code>GetTileRangeAlongY</code>→(0,seqlen_q)（P1-D）+ 保留 BiasEnum/BiasDataType（P1-A）</td><td>对拍过 bf16 阈值；<strong><code>ScratchSize=0</code> 且 VGPR 不掉 wave —— 按 CDNA4 加法模型 <code>occupancy=ArchVGPR+AGPR</code> 判据（P1-B / §4.8）</strong></td></tr>
+<tr><td>M2 mask 因子</td><td>逐加 causal→window→contextual→min_full→num_target→组合（非平凡 <code>GetTileRangeAlongY</code>/<code>IsEdgeTile</code>）</td><td>每因子对拍过；masked-out dS=0 校验过；<strong>离线超集校验（§5.4）硬性前置必须先过（P1-C）</strong></td></tr>
+<tr><td>M3 jagged</td><td>单组超参 + cu_seqlens</td><td>jagged 对拍过；非整除 pad 过</td></tr>
+<tr><td>M4 group</td><td>per-group 超参数组、grid.z=batch、early-exit</td><td>group 对拍过（<code>reference_group_*</code>）</td></tr>
+<tr><td>M5 softmax 路</td><td>PRE(D)+ LSE 读取 + <code>dS=P*(dP−D)</code></td><td>softmax 对拍过；消费 fwd kStoreLSE 产物</td></tr>
+<tr><td>M6 deterministic</td><td>split-workspace + POST Reduce+Convert</td><td>逐位可复现</td></tr>
+<tr><td>M7 多 dtype/maxk</td><td>fp16 + hdim{96,128,256}+qk≠v</td><td>抽样矩阵过</td></tr>
+<tr><td>M8 性能/收尾</td><td>tile 调优、occupancy、perf;(可选)bias/dbias</td><td>perf vs FMHA bwd 同 hdim 不显著落后</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ============================== §7 复用 vs 新写 ============================== -->
+<section id="s7">
+<h2>§7 复用 vs 新写总清单</h2>
+
+<!-- ===== SVG 6 (可选): 复用 vs 新写边界 ===== -->
+<svg viewBox="0 0 880 280" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:880px;display:block;margin:14px auto 6px;">
+  <rect x="20" y="20" width="410" height="240" rx="12" fill="#FAF9F5" stroke="#788C5D" stroke-width="2"/>
+  <text x="225" y="44" text-anchor="middle" font-size="13" fill="#4B5C39" font-weight="700">零/极小改动复用 FMHA</text>
+  <g font-size="10" fill="#3D3D3A">
+    <text x="40" y="72">· PRE (BlockFmhaBwdOGradDotO)</text>
+    <text x="40" y="92">· POST (BlockFmhaBwdConvertQGrad)</text>
+    <text x="40" y="112">· default policy</text>
+    <text x="40" y="132">· TileFmhaBwdShape · pipeline enum (KRKTRVR)</text>
+    <text x="40" y="152">· MAIN 全部 5 GEMM</text>
+    <text x="40" y="172">· KV-resident / LDS 编排 / shuffle / early-exit</text>
+    <text x="40" y="192">· STAGE1,3,4,6,7 的 GEMM 调用与写回</text>
+  </g>
+  <text x="225" y="232" text-anchor="middle" font-size="10" fill="#788C5D" font-weight="600">差异收敛在两个 elementwise 段 + 两个 scale</text>
+
+  <rect x="450" y="20" width="410" height="240" rx="12" fill="#FDF6F0" stroke="#D97757" stroke-width="2"/>
+  <text x="655" y="44" text-anchor="middle" font-size="13" fill="#D97757" font-weight="700">HSTU 新写 / 特化</text>
+  <g font-size="9.5" fill="#3D3D3A">
+    <text x="468" y="68">① STAGE2(alpha 物化 + 双路 + SiLU 置 0 + LSE NaN 守卫)</text>
+    <text x="468" y="86">② STAGE5(dS 双路)</text>
+    <text x="468" y="104">③ 收尾 scale raw_scale→alpha</text>
+    <text x="468" y="122">④ 删 bias/dropout/PE 死分支，保留 BiasEnum dummy(P1-A)</text>
+    <text x="468" y="140">&nbsp;&nbsp;&nbsp;+ SiLU 路 lse/d load if constexpr 跳过(P2-2)</text>
+    <text x="468" y="158">⑤ silu/dsilu device 函子</text>
+    <text x="468" y="176">⑥ 新模板轴 kUseSoftmax</text>
+    <text x="468" y="194">⑦ mask 新增 GetTileRangeAlongY + IsEdgeTile</text>
+    <text x="468" y="210">&nbsp;&nbsp;&nbsp;越界谓词内联 !IsTokenPairInsideMask(无第三成员,P2-1)</text>
+    <text x="468" y="228">⑧ 2 个 bwd params struct + kargs</text>
+    <text x="468" y="246">⑨ 三套 dispatch + instances + CMake + example/对拍</text>
+  </g>
+</svg>
+<div class="svg-caption">图 6 — 复用（左, olive）vs 新写（右, clay）边界：复用面占主体，新写收敛到 9 个明确点</div>
+</section>
+
+<!-- ============================== §8 风险 ============================== -->
+<section id="s8">
+<h2>§8 风险与未决问题</h2>
+
+<h3 id="s8-user">8.3 U1–U4 决策卡片 — ✅ 用户已确认（2026-06-04）★</h3>
+<div class="gate-banner"><strong>✅ 用户已于 2026-06-04 批准方案，U1–U4 全部采用以下默认值，无待确认项</strong>；并指定主目标芯片 <strong style="color:var(--clay);">gfx950（CDNA4）</strong>、需重点关注 CDNA4 差异（见 <a href="#s4-cdna4" style="color:var(--clay);">§4.8</a>）。下列默认即最终决策。</div>
+<div class="decision-grid">
+  <div class="decision-card">
+    <div class="u">U1 · bias / dbias</div>
+    <div class="t">是否支持 bias 梯度？</div>
+    <div class="rec"><b>✅ 已确认：不支持 dbias</b></div>
+    <div class="why">fwd <code>bias_ptr</code> 实际未用，下游大概率不需要 bias 梯度。Problem 仍<strong>保留 <code>BiasEnum=NO_BIAS</code>+<code>BiasDataType</code> dummy</strong>（P1-A 强制、免费）；真 dbias 路（FMHA :671-696 有蓝本）留 post-MVP。</div>
+  </div>
+  <div class="decision-card">
+    <div class="u">U2 · deterministic</div>
+    <div class="t">dQ 写回默认走哪路？</div>
+    <div class="rec"><b>✅ 已确认：默认 atomic</b></div>
+    <div class="why">省 split-workspace 与归约开销；<strong>但两路都过 POST</strong>（P1-E，atomic 不省 POST / 不省 float dq_acc）。deterministic 作显式可选，需逐位可复现再开（M6，接受 R4 显存）。</div>
+  </div>
+  <div class="decision-card">
+    <div class="u">U3 · MVP 覆盖面</div>
+    <div class="t">先做哪些组合？</div>
+    <div class="rec"><b>✅ 已确认：SiLU 全覆盖优先</b></div>
+    <div class="why">默认路 + M1 闸门，softmax 次之；bf16 优先（<code>CK_TILE_FLOAT_TO_BFLOAT16_DEFAULT=3</code> 已设）、fp16 跟进；hdim 先 {64,128}；三模式按 batched→jagged→group（M1→M3→M4）。</div>
+  </div>
+  <div class="decision-card">
+    <div class="u">U4 · GQA / MQA</div>
+    <div class="t">是否支持共享 KV head？</div>
+    <div class="rec"><b>✅ 已确认：nhead_ratio_qk=1（MHA）</b></div>
+    <div class="why">留 1 个常量字段占位。若后续模型共享 KV（KV head = q head/ratio），在三个 kernel 的 <code>i_nhead</code> 索引引入 ratio（FMHA 已支持），改动可控。</div>
+  </div>
+</div>
+<div class="note-block olive"><strong>用户拍板状态</strong>：✅ <strong>U1–U4 已全部确认（2026-06-04，全用默认），无待确认项</strong>；并指定主目标芯片 gfx950（CDNA4），CDNA4 专项见 <a href="#s4-cdna4" style="color:var(--olive);">§4.8</a>。技术风险（R1 policy 复用、R2 VGPR —— <strong>按 CDNA4 加法占用模型</strong>、R3 Y-range 边界）在 <strong>M1/M2 实测闭环</strong>，非设计期未决。</div>
+
+<h3 id="s8-decided">8.1 已决（跨组裁决，单一结论）</h3>
+<div class="tbl-wrap">
+<table class="compact">
+<thead><tr><th>项</th><th>结论</th></tr></thead>
+<tbody>
+<tr><td>D1 反方向 mask 缺口</td><td><strong>方案 A</strong>：新增 <code>GetTileRangeAlongY</code> + <code>IsEdgeTile</code>（纯加不改 fwd）。真值源 <code>IsTokenPairInsideMask</code>（标量）+ tile 版 <code>IsOutOfBound</code>/<code>IsEdgeTile</code>/<code>GetTileRangeAlongY</code>；STAGE2 与 STAGE5 共用同一布尔判定</td></tr>
+<tr><td>D2 <code>is_tile_in_first_split</code></td><td><strong>已查清</strong>——fwd kernel 按 Q-tile 重算此 flag（fwd_kernel:691-716），元素级 <code>IsTokenPairInsideMask</code> 不依赖它。bwd 元素级置零不受影响；<code>GetTileRangeAlongY</code> 首版保守超集，first_split 优化列后续 perf。<strong>pane-2 §5.5 未决 → 关闭</strong></td></tr>
+<tr><td>D3 留 g vs 留 S</td><td>设计选<strong>留 g</strong>（与 FMHA 寄存器同形），M1 实测验证 VGPR（R1/R2）</td></tr>
+<tr><td>D4 masked-out 置零</td><td>SiLU 必清 <code>g</code>(及 <code>p</code>)，<code>dsilu(0)=0.5</code>；<strong>禁用 -inf</strong>（NaN）。在 STAGE2 用 <code>set_tile_if</code> 对 edge tile 清零；softmax 走 -inf 自然零</td></tr>
+<tr><td>D5 scale 接线</td><td>见 §4.7 表。alpha 两处（STAGE2 头 + dQ/dK 收尾，dV 不吃，三模式单标量）；scale_p 折进 p/g（softmax 不用，group per-group）；softmax <code>exp(S−LSE)</code> 自然对数域，不重复乘 scale</td></tr>
+<tr><td>D6 group 超参取数</td><td><code>alpha</code> 全局单标量；<code>scale_p</code> 与 mask 超参 per-group device 指针，<code>i_group=i_batch/num_batch_per_group</code>；<code>num_target</code> per-batch</td></tr>
+<tr><td>D7 命名统一</td><td>params/kargs 字段以 §4.6 canonical 表为准（LSE/D 同布局统一用 <code>*_lsed</code>；<code>is_deterministic</code>→<code>kIsDeterministic</code>）</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="s8-rec">8.2 建议（已定方向，需 M1/实测确认）</h3>
+<div class="tbl-wrap">
+<table class="compact">
+<thead><tr><th>风险</th><th>方向 / 回退</th></tr></thead>
+<tbody>
+<tr><td>R1 FMHA default policy 直接复用可行性（<strong>最高工程风险</strong>）</td><td>policy tile 分布是否兼容 HSTU 在 GEMM 间插入 dsilu/mask 的中间 reg 分布。M1 先验；不匹配则派生 <code>HstuBwdPolicy</code> 覆写少量 <code>Make*Distribution</code>，最坏复制 MAIN 全文再改</td></tr>
+<tr><td>R2 留 g 的 VGPR/occupancy（P1-B，低实现/中资源，<strong>gfx950 偏中高</strong>）</td><td>峰值 +1 SPBlockTileType &asymp; +32 VGPR。<strong>主目标 gfx950（CDNA4）为加法占用模型 <code>occupancy=ArchVGPR+AGPR</code>，+32 ArchVGPR 叠加在 AGPR 累加器上，风险高于 gfx942 的 <code>max()</code> 模型</strong>（§4.8）。M1 在 hdim64 <strong>按 CDNA4 加法模型</strong>实测 <code>ScratchSize=0</code> 且不掉 wave；溢出则 g 暂存 LDS（CDNA4 LDS 更大 + 64 banks + <code>ds_read_tr</code>，fallback 代价更低）</td></tr>
+<tr><td>R3 <code>GetTileRangeAlongY</code> 精确边界（P1-C）</td><td>多分支转置易错，5 因子叠加下行集可能非连续。首版连续保守超集（不漏）→ 离线校验（§5.4，M2 硬性前置）→ 逐分支收紧。fallback 方案 B（Q 全扫）。该成员被 MAIN 无条件调用，M1 no-mask 需平凡版（P1-D）</td></tr>
+<tr><td>R4 deterministic dq_acc 显存</td><td>长序列 <code>[nsplits,Σseqlen_q,nhead,hdim_qk]</code> float 可能爆；atomic 为默认（nsplits=1），deterministic 显式开，可加 nsplits 上限/分块</td></tr>
+<tr><td>R5 编译规模</td><td>bwd instance ~3× fwd；MVP 48、按需开 bias/deterministic、ninja 并行、<code>extern template</code></td></tr>
+<tr><td>R6 SiLU 路 LDS 浪费（perf，M1 后）</td><td>若 SiLU MAIN 直接复用 <code>Policy::GetSmemSize</code>，会白算 <code>GetSmemSizeLSE/D</code>(:1570/1579) 段。M1 通过后让 HSTU MAIN 自算 smem（SiLU 减去 LSE/D 段）省 LDS、提 occupancy。非阻塞</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="s8-conflict">8.4 三份间冲突点（显式标注，均已消解）</h3>
+<div class="callout-grid">
+  <div class="callout"><div class="k">C1 (措辞)</div><div class="t">置零位置</div><div class="d">pane-1 选 STAGE2 清 p,g / pane-2 述 STAGE5 清 dS。<strong>裁决</strong>：STAGE2 清 p,g（D4），与 STAGE5-else-0 语义等价，前移更省；非事实冲突。</div></div>
+  <div class="callout"><div class="k">C2 (表述)</div><div class="t">masked-out 写法</div><div class="d">pane-2「STAGE1 set S=0/-inf」vs GPU 实情（gemm 产全 tile，需清输出）。<strong>裁决</strong>：SiLU 清输出 p,g；softmax set s=-inf。结果一致。</div></div>
+  <div class="callout"><div class="k">C3 (命名)</div><div class="t">stride/flag 命名</div><div class="d">LSE/D stride（<code>*_lsed</code> vs <code>*_d</code>）、<code>kIsDeterministic</code> vs <code>is_deterministic</code> → 以 §4.6 为准（D7）。</div></div>
+</div>
+<div class="note-block"><strong>无事实级冲突</strong>：三份对架构（KV 外/Q 内）、scale 接线、3-kernel 条件发射、复用边界一致。alpha 在 group 为单标量（pane-2 §4 与 pane-3 group params 一致），无分歧。</div>
+
+<h3 id="s8-review">8.5 双 review 落实记录（P0=0）</h3>
+<p class="lede">正确性（pane-2）+ 工程可行性（pane-3）两份 review 均<strong>无 P0</strong>。逐条落实：</p>
+<div class="tbl-wrap">
+<table class="compact">
+<thead><tr><th>项</th><th>来源</th><th>落实位置</th></tr></thead>
+<tbody>
+<tr><td><strong>P1-1</strong> softmax LSE=−inf NaN 守卫（<code>get_validated_lse</code>）</td><td>正确性</td><td>§2.2 / §2.3 骨架 / §2.5 / §7-①</td></tr>
+<tr><td><strong>P1-A</strong> 保留 <code>BiasEnum=NO_BIAS</code>+<code>BiasDataType</code>（policy 复用硬前提）</td><td>可行性</td><td>§4.2 / §4.6 / §7-④ / §8.3-U1</td></tr>
+<tr><td><strong>P1-E</strong> atomic 路也恒发 POST（修 §1.1↔§4.4 矛盾）</td><td>可行性</td><td>§1.1 / §1.3 / §1.4 / §4.4 / §8.3-U2</td></tr>
+<tr><td><strong>P1-B</strong> 留 g 的 VGPR ≈+32（中资源/低实现风险；<strong>gfx950 CDNA4 加法占用模型下风险更高，M1 按加法模型验 ScratchSize=0</strong>）</td><td>可行性</td><td>§2.4 / §4.8 / §6-M1 / §8.2-R2</td></tr>
+<tr><td><strong>P1-C</strong> <code>GetTileRangeAlongY</code> 非连续→连续保守超集 + 离线校验 M2 前置</td><td>可行性</td><td>§3.1 / §5.4 / §6-M2 / §8.2-R3</td></tr>
+<tr><td><strong>P1-D</strong> <code>GetTileRangeAlongY</code> 无条件调用，M1 no-mask 需平凡版</td><td>可行性</td><td>§3.1 / §6-M1 / §8.2-R3</td></tr>
+<tr><td>P2-1 越界谓词内联 <code>!IsTokenPairInsideMask</code>（无第三成员）</td><td>正确性</td><td>§3.1 / §7-⑦</td></tr>
+<tr><td>P2-2 SiLU 路 lse/d load <code>if constexpr</code> 跳过</td><td>正确性</td><td>§2.3 骨架 / §7-④</td></tr>
+<tr><td>P2-3 group params 补 <code>num_group/num_batch_per_group</code></td><td>正确性</td><td>§4.6</td></tr>
+<tr><td>P2(feas) PRE/POST GridSize 除数 <code>kBlockSize</code>→<code>kM0</code></td><td>可行性</td><td>§1.3</td></tr>
+<tr><td>P2(feas) 补 <code>batch_stride_lsed</code></td><td>可行性</td><td>§4.6</td></tr>
+<tr><td>P2(feas) SiLU 路自算 smem 省 LSE/D 段（perf）</td><td>可行性</td><td>§8.2-R6</td></tr>
+<tr><td>U1–U4 收为「建议默认 + 待用户确认」</td><td>两份</td><td>§8.3</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+</main>
+
+<!-- ============== TOC ============== -->
+<nav class="toc">
+  <div class="t-head">Contents</div>
+  <a href="#s0">§0 摘要</a>
+  <a href="#s0-diff" class="sub">6 个本质差异</a>
+  <a href="#s1">§1 总体架构</a>
+  <a href="#s1-kernel" class="sub">1.1 3-kernel（图1）</a>
+  <a href="#s1-tile" class="sub">1.2 tile 布局（图2）</a>
+  <a href="#s1-grid" class="sub">1.3 GridSize</a>
+  <a href="#s1-flow" class="sub">1.4 数据流</a>
+  <a href="#s2">§2 七阶段双路</a>
+  <a href="#s2-stages" class="sub">2.1 6步↔7stage（图3）</a>
+  <a href="#s2-detail" class="sub">2.2 逐阶段改造</a>
+  <a href="#s2-skeleton" class="sub">2.3 双路骨架</a>
+  <a href="#s2-g" class="sub">2.4 留 g vs 留 S</a>
+  <a href="#s2-contract" class="sub">2.5 fwd 副产物契约</a>
+  <a href="#s3">§3 mask / 三模式</a>
+  <a href="#s3-maskA" class="sub">3.1 方案 A</a>
+  <a href="#s3-zero" class="sub">3.2 masked-out 置零</a>
+  <a href="#s3-sym" class="sub">3.3 5 因子对称</a>
+  <a href="#s3-modes" class="sub">3.4 三模式 + 索引</a>
+  <a href="#s3-hdim" class="sub">3.5 hdim_qk≠hdim_v</a>
+  <a href="#s4">§4 工程落地</a>
+  <a href="#s4-files" class="sub">4.1 文件结构</a>
+  <a href="#s4-problem" class="sub">4.2 problem/policy (P1-A)</a>
+  <a href="#s4-dispatch" class="sub">4.3 dispatch</a>
+  <a href="#s4-dq" class="sub">4.4 dQ 两路 (P1-E)</a>
+  <a href="#s4-cmake" class="sub">4.5 instances/CMake</a>
+  <a href="#s4-fields" class="sub">4.6 canonical 字段表</a>
+  <a href="#s4-scale" class="sub">4.7 scale 接线（图4）</a>
+  <a href="#s4-cdna4" class="sub">4.8 gfx950 / CDNA4（图7）★</a>
+  <a href="#s5">§5 正确性验证</a>
+  <a href="#s5-flow" class="sub">5.1 对拍流程</a>
+  <a href="#s5-tol" class="sub">5.2 容差</a>
+  <a href="#s5-matrix" class="sub">5.3 测试矩阵</a>
+  <a href="#s5-det" class="sub">5.4 deterministic+边界</a>
+  <a href="#s6">§6 里程碑（图5）</a>
+  <a href="#s7">§7 复用 vs 新写（图6）</a>
+  <a href="#s8">§8 风险与未决</a>
+  <a href="#s8-user" class="sub">8.3 U1–U4 ✅已确认 ★</a>
+  <a href="#s8-decided" class="sub">8.1 已决 D1–D7</a>
+  <a href="#s8-rec" class="sub">8.2 建议 R1–R6</a>
+  <a href="#s8-conflict" class="sub">8.4 冲突点</a>
+  <a href="#s8-review" class="sub">8.5 review 落实</a>
+</nav>
+
+</div>
+</div>
+</body>
+</html>

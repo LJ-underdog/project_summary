@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU Attention Backward — M0（脚手架）代码改动 review</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --olive-lt: rgba(120,140,93,.12);
+  --clay-lt:  rgba(217,119,87,.10);
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.55;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1040px; margin: 0 auto; }
+header.page-head { margin-bottom: 44px; max-width: 820px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 32px; line-height: 1.18; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em; }
+.subtitle { font-size: 15px; color: var(--gray-500); margin-bottom: 12px; max-width: 740px; }
+.audience { font-family: var(--mono); font-size: 12px; color: var(--gray-700); background: var(--gray-150); padding: 8px 14px; border-radius: 8px; display: inline-block; border: 1px solid var(--gray-300); }
+.layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+section { margin-bottom: 56px; scroll-margin-top: 24px; }
+h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); margin: 8px 0 16px; letter-spacing: -0.01em; border-bottom: 2px solid var(--gray-300); padding-bottom: 8px; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 17px; color: var(--slate); margin: 22px 0 10px; padding-left: 10px; border-left: 3px solid var(--clay); }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 13.5px; color: var(--gray-700); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+p.lede { font-size: 14.5px; max-width: 760px; margin-bottom: 10px; }
+p { font-size: 14px; max-width: 820px; margin-bottom: 10px; }
+ul, ol { margin: 8px 0 14px 22px; }
+li { font-size: 13.5px; margin-bottom: 6px; max-width: 800px; }
+.toc { position: sticky; top: 32px; border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px; max-height: calc(100vh - 64px); overflow-y: auto; }
+.toc .t-head { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px; }
+.toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 3px 0; }
+.toc a:hover { color: var(--clay); }
+.toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+.tldr { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--slate); border-radius: 12px; padding: 20px 24px; margin-bottom: 36px; max-width: 820px; }
+.tldr .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px; }
+.tldr p { font-size: 14.5px; color: var(--slate); }
+.tldr p + p { margin-top: 8px; }
+.tldr .badges { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tldr .badge { font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+.badge.ok { background: #E4E9DC; color: #4B5C39; }
+.badge.gate { background: #F3D9CC; color: #8A3B1E; }
+.badge.info { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.formula { background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 8px; padding: 12px 18px; margin: 10px 0; font-family: var(--mono); font-size: 13.5px; color: var(--slate); overflow-x: auto; max-width: 860px; }
+.formula-block { display: flex; flex-direction: column; gap: 6px; }
+.formula-block .line { white-space: pre; }
+em { font-style: italic; color: var(--slate); }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 16px; font-size: 13.5px; max-width: 920px; }
+th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px; border-bottom: 2px solid var(--gray-300); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; font-size: 13px; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--gray-150); }
+td code, th code { font-size: 12px; }
+.tbl-wrap { overflow-x: auto; }
+table.compact td { padding: 6px 10px; font-size: 12.5px; }
+.code-block { background: var(--slate); color: #E8E6DE; border-radius: 10px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; margin: 10px 0; max-width: 920px; white-space: pre; }
+.code-block .kw { color: var(--clay); }
+.code-block .str { color: var(--olive); }
+.code-block .cm { color: var(--gray-500); }
+.code-block .fn { color: #C9B98A; }
+.code-block .hl { color: #F0B080; font-weight: 600; }
+.code-block .ttl { display:block; font-size:11px; color:var(--gray-500); margin-bottom:6px; letter-spacing:0.04em; }
+.note-block { background: var(--gray-150); border-left: 3px solid var(--gray-500); padding: 10px 14px; margin: 8px 0 14px; font-size: 13px; color: var(--gray-700); border-radius: 0 6px 6px 0; max-width: 840px; }
+.note-block strong { color: var(--slate); }
+.note-block.clay { border-left-color: var(--clay); background: var(--clay-lt); }
+.note-block.olive { border-left-color: var(--olive); background: var(--olive-lt); }
+.callout-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 16px 0; max-width: 960px; }
+@media (max-width: 800px) { .callout-grid { grid-template-columns: 1fr; } }
+.callout { background: var(--white); border: 1px solid var(--gray-300); border-top: 3px solid var(--olive); border-radius: 8px; padding: 14px 16px; }
+.callout.clay { border-top-color: var(--clay); }
+.callout .k { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--olive); font-weight: 600; margin-bottom: 6px; }
+.callout.clay .k { color: var(--clay); }
+.callout .t { font-weight: 600; color: var(--slate); font-size: 14px; margin-bottom: 6px; }
+.callout .d { font-size: 12.5px; color: var(--gray-700); }
+.callout code { font-size: 11.5px; background: var(--gray-150); padding: 1px 4px; border-radius: 3px; }
+.svg-wrap { background: var(--white); border: 1px solid var(--gray-300); border-radius: 12px; padding: 18px 10px 6px; margin: 16px 0 6px; overflow-x: auto; }
+.svg-caption { text-align: center; font-size: 12px; color: var(--gray-500); font-style: italic; margin: -6px 0 18px; max-width: 760px; margin-left: auto; margin-right: auto; }
+.tag { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 5px; font-weight: 600; vertical-align: middle; }
+.tag-new  { background: #F3D9CC; color: #8A3B1E; }
+.tag-reuse{ background: #E4E9DC; color: #4B5C39; }
+.tag-mod  { background: var(--gray-150); color: var(--gray-700); border: 1px solid var(--gray-300); }
+.tag-noise{ background: #EFE7D8; color: #8A6D2F; border: 1px solid #D9C9A6; }
+.src { font-family: var(--mono); font-size: 11px; color: var(--gray-500); }
+svg text { font-family: var(--mono); }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--gray-700); margin: 6px 0 14px; }
+.legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+.statgrid { display:grid; grid-template-columns: repeat(4,1fr); gap:12px; margin:16px 0; max-width:920px; }
+@media (max-width: 760px){ .statgrid{ grid-template-columns: repeat(2,1fr);} }
+.stat { background:var(--white); border:1px solid var(--gray-300); border-radius:10px; padding:14px 16px; text-align:center; }
+.stat .v { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--clay); }
+.stat .l { font-size:11.5px; color:var(--gray-500); margin-top:4px; }
+.gate-banner { background: linear-gradient(90deg, #F3D9CC, #FDF6F0); border: 1.5px solid var(--clay); border-radius: 10px; padding: 12px 18px; margin: 14px 0; font-size: 13.5px; color: #8A3B1E; max-width: 880px; }
+.gate-banner strong { color: #6E2E15; }
+.status-yes { color:#4B5C39; font-weight:700; }
+.status-no  { color:#8A3B1E; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">CK &middot; HSTU Backward &middot; M0 代码改动 review</div>
+  <h1>HSTU Attention Backward — M0（脚手架）：先立骨架，后填数学</h1>
+  <p class="subtitle">M0 不实现任何反向数学，它一次性立好「字段全集（params）+ 3-kernel 流水线外壳 + dispatch 模板 + 编译目标 + 实例 + 能跑通的 harness」。本文按最佳阅读顺序逐文件解读每处改动的<strong>动机</strong>，所有引用以 <code>git show 23166ffb:&lt;file&gt;</code> 行号为准。</p>
+  <div class="audience">读者：要 review 这套 bwd 脚手架的工程师（零基础友好，关键术语配一句白话）</div>
+</header>
+
+<div class="layout">
+<main>
+
+<div class="tldr">
+  <div class="k">TL;DR — 一句话看懂 M0</div>
+  <p class="lede">M0 = <strong>纯脚手架</strong>。把后续 8 个里程碑要长出来的「形状」全部先画好——尤其是 <code>params</code> 字段名一次定死，换来 M1–M8 全程<strong>零 params 重构</strong>。此刻 <code>RunSilu</code> 只是 <code>hipMemsetAsync</code> 把 dQ/dK/dV 清零的桩，目的是让 <em>fwd→bwd→对拍</em> 链路在真正的反向 kernel 落地之前就被端到端跑通。</p>
+  <div class="badges">
+    <span class="badge info">+1078 / −0 · 13 文件全新建</span>
+    <span class="badge gate">反向数学：未实现（占位 throw）</span>
+    <span class="badge ok">链路可端到端跑通（输出为 0）</span>
+  </div>
+  <div class="statgrid">
+    <div class="stat"><div class="v">13</div><div class="l">新建文件</div></div>
+    <div class="stat"><div class="v">6</div><div class="l">dispatch 模板轴</div></div>
+    <div class="stat"><div class="v">3</div><div class="l">kernel 流水线阶段</div></div>
+    <div class="stat"><div class="v">4</div><div class="l">显式实例 (causal×softmax)</div></div>
+  </div>
+</div>
+
+<section id="s1">
+  <h2>1&nbsp;&nbsp;总览：M0 到底改了什么</h2>
+  <p class="lede">一句话四件事：</p>
+  <div class="callout-grid">
+    <div class="callout"><div class="k">契约</div><div class="t">params 字段全集</div><div class="d">host↔device 的数据契约一次定死（<code>bwd_params.hpp:17-107</code>），Group 占位（<code>:116-119</code>）。</div></div>
+    <div class="callout"><div class="k">骨架</div><div class="t">3-kernel 流水线蓝图</div><div class="d">PRE / MAIN / POST 的形状与各里程碑 TODO 钉进 <code>bwd_kernel.hpp:15-25</code>（无可执行体）。</div></div>
+    <div class="callout clay"><div class="k">选型</div><div class="t">dispatch + 占位 throw</div><div class="d">6 轴模板；未实现路径用 <code>if constexpr</code>+<code>throw</code> 占位（<code>dispatch:88-108</code>），零编译开销。</div></div>
+    <div class="callout"><div class="k">构建/验证</div><div class="t">CMake 目标 + harness</div><div class="d"><code>EXCLUDE_FROM_ALL</code> 隔离半成品；harness 先跑 fwd 产 O 再 bwd 对拍。</div></div>
+  </div>
+  <div class="note-block olive"><strong>为什么先做空壳？</strong>&nbsp;<code>bwd_params.hpp:13-15</code> 立了军令状——「所有字段名现在就定死，M1+ 只加 device 接线，<em>绝不重构 params</em>」。这是整条 M 链能干净增量的前提：每个里程碑只往既定接口里填逻辑，永不回头改结构。</div>
+</section>
+
+<section id="s2">
+  <h2>2&nbsp;&nbsp;最佳阅读顺序</h2>
+  <p class="lede">按「<strong>契约 → 入口 → 骨架 → 选型 → 实例化 → 构建 → 验证</strong>」的依赖方向读，每层只依赖上一层。下图是依赖流，表格是逐步导引。</p>
+
+  <div class="svg-wrap">
+  <svg viewBox="0 0 940 250" width="100%" role="img" aria-label="M0 阅读顺序依赖流">
+    <defs>
+      <marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#87867F"/></marker>
+    </defs>
+    <!-- row 1: contract -> entry -> skeleton -->
+    <g font-size="12">
+      <rect x="14"  y="20" width="150" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="89" y="42" text-anchor="middle" fill="#141413" font-weight="700">① params.hpp</text>
+      <text x="89" y="60" text-anchor="middle" fill="#87867F">数据契约</text>
+
+      <rect x="210" y="20" width="150" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="285" y="42" text-anchor="middle" fill="#141413" font-weight="700">② api.hpp</text>
+      <text x="285" y="60" text-anchor="middle" fill="#87867F">入口签名</text>
+
+      <rect x="406" y="20" width="150" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="481" y="42" text-anchor="middle" fill="#141413" font-weight="700">③ bwd_kernel.hpp</text>
+      <text x="481" y="60" text-anchor="middle" fill="#87867F">3-kernel 骨架</text>
+
+      <rect x="602" y="20" width="160" height="54" rx="8" fill="#FFFFFF" stroke="#D97757" stroke-width="1.5"/>
+      <text x="682" y="42" text-anchor="middle" fill="#141413" font-weight="700">④ ...dispatch.hpp</text>
+      <text x="682" y="60" text-anchor="middle" fill="#87867F">选型 + 占位 throw</text>
+
+      <line x1="164" y1="47" x2="208" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="360" y1="47" x2="404" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="556" y1="47" x2="600" y2="47" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- down to row 2 -->
+      <line x1="682" y1="74" x2="682" y2="110" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 2: entry cpp -> instances -> generator -->
+      <rect x="602" y="112" width="160" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="682" y="134" text-anchor="middle" fill="#141413" font-weight="700">⑤ no_group_bwd.cpp</text>
+      <text x="682" y="152" text-anchor="middle" fill="#87867F">BOOL_SWITCH 降维</text>
+
+      <rect x="406" y="112" width="150" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="481" y="134" text-anchor="middle" fill="#141413" font-weight="700">⑥ instances/*</text>
+      <text x="481" y="152" text-anchor="middle" fill="#87867F">显式实例化</text>
+
+      <rect x="210" y="112" width="150" height="54" rx="8" fill="#FFFFFF" stroke="#D1CFC5"/>
+      <text x="285" y="134" text-anchor="middle" fill="#141413" font-weight="700">⑦ generate_*.py</text>
+      <text x="285" y="152" text-anchor="middle" fill="#87867F">实例生成器</text>
+
+      <line x1="602" y1="139" x2="558" y2="139" stroke="#87867F" marker-end="url(#ar)"/>
+      <line x1="406" y1="139" x2="362" y2="139" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- down to row 3 -->
+      <line x1="285" y1="166" x2="285" y2="200" stroke="#87867F" marker-end="url(#ar)"/>
+
+      <!-- row 3: cmake -> harness -->
+      <rect x="210" y="202" width="150" height="40" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="285" y="226" text-anchor="middle" fill="#141413" font-weight="700">⑧ CMakeLists.txt</text>
+
+      <rect x="406" y="202" width="220" height="40" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+      <text x="516" y="226" text-anchor="middle" fill="#141413" font-weight="700">⑨ example_..._bwd.cpp (harness)</text>
+
+      <line x1="360" y1="222" x2="404" y2="222" stroke="#87867F" marker-end="url(#ar)"/>
+    </g>
+  </svg>
+  </div>
+  <p class="svg-caption">读法：先吃透契约层（①②③橙=核心），再看怎么把契约接到代码（④⑤⑥⑦），最后看怎么编译与验证（⑧⑨绿）。</p>
+
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>#</th><th>文件</th><th>读它回答的问题</th><th>重点行</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>hstu_attention_bwd_params.hpp</code></td><td>host↔device 的<strong>数据契约</strong>长什么样</td><td><code>:17-107</code> / <code>:116-119</code></td></tr>
+      <tr><td>2</td><td><code>hstu_attention_api.hpp</code></td><td>对外<strong>入口函数</strong>签名</td><td><code>:20-22</code></td></tr>
+      <tr><td>3</td><td><code>hstu_attention_bwd_kernel.hpp</code></td><td>反向<strong>算法骨架</strong>（3-kernel）规划</td><td><code>:15-25</code></td></tr>
+      <tr><td>4</td><td><code>hstu_attention_batched_backward_dispatch.hpp</code></td><td>6 轴如何<strong>选型</strong>、各路径<strong>何时占位报错</strong></td><td><code>:34-40</code> / <code>:86-112</code></td></tr>
+      <tr><td>5</td><td><code>hstu_attention_no_group_backward_bf16.cpp</code></td><td>入口如何用 <code>BOOL_SWITCH</code> 把运行时 bool <strong>降为模板实参</strong></td><td><code>:23-32</code></td></tr>
+      <tr><td>6</td><td><code>instances/*backward*.cpp</code> + <code>*_ref.hpp</code></td><td>模板如何<strong>显式实例化</strong>（编译期 fan-out）</td><td>ref <code>:12-42</code></td></tr>
+      <tr><td>7</td><td><code>generate_instances.py</code></td><td>实例文件<strong>怎么生成</strong>的</td><td><code>:23-55</code></td></tr>
+      <tr><td>8</td><td><code>CMakeLists.txt</code></td><td>bwd 目标如何<strong>编译/链接</strong>（为什么带 fwd）</td><td>hunk <code>@@ -23</code></td></tr>
+      <tr><td>9</td><td><code>example_hstu_attention_bwd.cpp</code></td><td><strong>怎么验证</strong>：fwd 产 O → bwd → 对拍</td><td>整体（506 行）</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="s3">
+  <h2>3&nbsp;&nbsp;逐文件 review（为什么这样改）</h2>
+
+  <h3>① params.hpp — 数据契约（核心）<span class="tag tag-new">新增</span></h3>
+  <ul>
+    <li><code>:17</code> <code>HstuAttentionNoGroupBwdParams</code>：<strong>一个结构体同时承载 batched + jagged</strong>，靠 <code>:24 is_jagged</code> 运行时区分（DESIGN §4.6）。Group 单列结构体 <code>:116</code>，M0 仅占位（<code>:118</code> 注释「M4 实现」）。</li>
+    <li><code>:19-41</code> <strong>复用 fwd 输入全集</strong>（Q/K/V/O + hdim/num_head/strides），刻意与 <code>hstu_attention_params.hpp</code> 对齐，降低 host 构造成本。<code>:36 o_ptr</code> 注明只有 softmax 路径要 O（PRE 算 <code>D=rowsum(O.*dO)</code>）。</li>
+    <li><code>:43-45</code> <strong>scales</strong>：<code>alpha</code>=QK 缩放（= fwd <code>scale_s</code>）；<code>attn_scale</code>→SiLU 输出缩放 <code>scale_p</code>，softmax 不用。两个 scale 先入字段，M1 才真正传进 pipeline。</li>
+    <li><code>:69-95</code> <strong>bwd 专属字段</strong>：<code>do_ptr</code>（dO）、<code>lse_ptr</code>（softmax 才有，SiLU=nullptr）、dq/dk/dv 三件套、<code>d_ptr</code>（PRE 产物）。</li>
+    <li><code>:97-103</code> <strong>dQ workspace</strong>：<code>dq_acc_ptr</code> 为 float 累加区，atomic 路径 <code>num_splits=1</code>，deterministic 路径 <code>ceil(max_seqlen_k/kN0)</code>（M6）。dQ 数值正确性的关键预留。</li>
+    <li><code>:106 kIsDeterministic</code>：虽是模板轴，但<strong>以 bool 字段存在</strong>，让 host 据此挑实例。</li>
+  </ul>
+
+  <h3>② api.hpp — 入口 <span class="tag tag-new">新增</span></h3>
+  <ul><li><code>:20-22</code> 仅新增 <code>hstu_attention_no_group_backward_bf16</code> 一个 entry；注释明确 fp16→M7、group→M4。最小暴露面。</li></ul>
+
+  <h3>③ bwd_kernel.hpp — 算法骨架（只有注释 + 空 namespace）<span class="tag tag-new">新增</span></h3>
+  <ul>
+    <li><code>:15-20</code> <strong>3-kernel 流水线蓝图</strong>：<code>[PRE] D=rowsum(O.*dO)</code>(M5) → <code>[MAIN] 5 GEMM/7 stage 出 dV/dK + float dq_acc</code>(M1) → <code>[POST] dq_acc(float)→dQ</code>(M1)。SiLU 只跑 MAIN→POST。</li>
+    <li><code>:22-25</code> M1/M5/M6 的 TODO 钉死在代码里——<strong>文档即代码</strong>。M0 此文件无可执行内容，纯粹把后续要长出来的形状先画好。</li>
+  </ul>
+
+  <h3>④ batched_backward_dispatch.hpp — 选型 + 占位 <span class="tag tag-new">新增</span></h3>
+  <ul>
+    <li><code>:34-40</code> <strong>6 轴模板签名</strong>：<code>&lt;InOutDataType, kUseCausal, kUseSoftmax, kHasBias, kIsDeterministic, MaxK&gt;</code>，与 fwd / DESIGN §4.3 对齐。</li>
+    <li><code>:42-62</code> <strong>hd64 tile 形状</strong>直接搬 FMHA bwd '64' preset。M0 定义但 <code>RunSilu</code> 暂未用——为 M1 预铺。</li>
+    <li><code>:66-84</code> <code>RunSilu</code> = <strong>M0 的桩</strong>：<code>hipMemsetAsync</code> 把 dQ/dK/dV 清零，<code>:72-76</code> 用 <code>num_batch * batch_stride_*</code> 算元素数。<em>为什么是 memset</em>：让 harness 的 fwd→bwd→对拍 端到端跑起来（结果虽 0），先验证接线，再填数学。</li>
+  </ul>
+  <div class="code-block"><span class="ttl">hstu_attention_batched_backward_dispatch.hpp:86-112 — Run 的 if-constexpr 占位阶梯</span><span class="kw">static void</span> <span class="fn">Run</span>(HstuAttentionNoGroupBwdParams&amp; param, hipStream_t stream)
+{
+    <span class="kw">if constexpr</span>(kIsDeterministic)
+        <span class="kw">throw</span> std::runtime_error(<span class="str">"... deterministic ... (M6)"</span>);   <span class="cm">// 未启用→不实例化</span>
+    <span class="kw">else if constexpr</span>(kUseSoftmax)
+        <span class="kw">throw</span> std::runtime_error(<span class="str">"... softmax ... (M5)"</span>);
+    <span class="kw">else if constexpr</span>(kUseCausal)
+        <span class="kw">throw</span> std::runtime_error(<span class="str">"... causal/mask ... (M2)"</span>);
+    <span class="kw">else</span> {
+        <span class="kw">if</span>(param.is_jagged) <span class="kw">throw</span> ...;                  <span class="cm">// M3</span>
+        <span class="kw">if</span>(param.hdim_qk != 64 || param.hdim_v != 64) <span class="kw">throw</span> ...;  <span class="cm">// M7</span>
+        <span class="hl">RunSilu</span>(param, stream);                          <span class="cm">// M0: memset 桩</span>
+    }
+}</div>
+  <div class="note-block clay"><strong>M0 最精妙处：</strong>&nbsp;未实现路径各编译成一句 <code>throw</code>，但因 <code>if constexpr</code> 包裹，<strong>未启用的分支根本不实例化</strong>——编译开销为零、运行时给出清晰「未实现，见 Mx」报错。这把「未来要支持但现在没有」编码成了<em>可执行的占位</em>。</div>
+
+  <h3>⑤ no_group_backward_bf16.cpp — 入口实现 <span class="tag tag-new">新增</span></h3>
+  <ul>
+    <li><code>:23</code> <code>BOOL_SWITCH_2(use_causal, …, use_softmax, …)</code>：把两个运行时 bool <strong>降维成模板常量</strong>，再调 <code>:25 run_batched_backward_dispatch&lt;bf16, …&gt;</code>。</li>
+    <li><code>:28-30</code> bias/deterministic 写死 false、MaxK 写死 64（DESIGN §4.5 MVP）；完整 fan-out 留 M1+。</li>
+  </ul>
+
+  <h3>⑥ instances/* — 显式实例化 <span class="tag tag-new">新增</span></h3>
+  <ul>
+    <li><code>*_ref.hpp:12-42</code>：4 个 <code>extern template</code>（causal×softmax 的 2×2），告诉每个 TU「这些实例在别处定义」。</li>
+    <li>4 个 <code>*.cpp</code> 各<strong>显式实例化一个</strong>组合（如 <code>has_causal_softmax_true...:12-18</code>）。<em>为什么拆文件</em>：每组合独立编译单元 → 并行/增量编译，CK 一贯做法。</li>
+    <li>文件头 <code>:5-7</code> 标注「自动生成，勿改」。</li>
+  </ul>
+
+  <h3>⑦ generate_instances.py — 实例生成器 <span class="tag tag-mod">改动</span></h3>
+  <ul><li><code>:23-41</code> fwd/bwd 实例的模板字符串 + 文件名模板；<code>:45-58</code> bool→字符串映射。<strong>改生成器而非手写</strong>，保证实例与 dispatch 签名永远同步。</li></ul>
+
+  <h3>⑧ CMakeLists.txt — 构建目标 <span class="tag tag-mod">改动</span></h3>
+  <ul>
+    <li>新增 <code>tile_example_hstu_attention_bwd</code>，<strong><code>EXCLUDE_FROM_ALL</code></strong>：默认全量构建不带它，半成品不污染 CI。</li>
+    <li><code>file(GLOB ...*backward*.cpp)</code> + <strong>额外 GLOB <code>*forward_bf16*.cpp</code></strong>：注释点明——bwd harness 要先在 GPU 跑 fwd 产 O 再做 bwd，故必须把 fwd bf16 entry/实例一起链入。</li>
+    <li>gfx950 分支 <code>-fno-slp-vectorize</code>（镜像 fwd 的流水线优化开关）。</li>
+  </ul>
+
+  <h3>⑨ example_hstu_attention_bwd.cpp — 验证 harness（506 行）<span class="tag tag-new">新增</span></h3>
+  <ul><li>端到端骨架：随机 Q/K/V → GPU fwd 得 O → 调 <code>hstu_attention_no_group_backward_bf16</code> → （M0 阶段 bwd 输出全 0，仅验证不崩、接线通）。后续里程碑在此加 CPU 参考对拍。</li></ul>
+</section>
+
+<section id="s4">
+  <h2>4&nbsp;&nbsp;设计动机小结</h2>
+  <ol>
+    <li><strong>接口先冻结，逻辑后填充</strong>：params 字段名一次定死（<code>params.hpp:13-15</code>），换来 M1–M8 全程零 params 重构。</li>
+    <li><strong>未实现 = 可执行占位</strong>：<code>if constexpr</code>+<code>throw</code>（<code>dispatch:88-108</code>）让未来路径有清晰报错、零编译开销、零误用。</li>
+    <li><strong>先通链路再填数学</strong>：<code>RunSilu</code> 用 memset 桩（<code>:66-84</code>），先把 fwd→bwd→对拍 跑通。</li>
+    <li><strong>构建隔离</strong>：<code>EXCLUDE_FROM_ALL</code> 让半成品不污染主构建；GLOB 自动纳管实例。</li>
+    <li><strong>生成器优先</strong>：实例由 <code>generate_instances.py</code> 产出，杜绝手写实例与签名漂移。</li>
+  </ol>
+</section>
+
+<section id="s5">
+  <h2>5&nbsp;&nbsp;遗留 / 边界（M0 明确不做）</h2>
+  <div class="tbl-wrap">
+  <table class="compact">
+    <thead><tr><th>能力</th><th>落地里程碑</th></tr></thead>
+    <tbody>
+      <tr><td>反向数学（dV/dK/dQ）</td><td>M1</td></tr>
+      <tr><td>mask（causal + HSTU 5-factor）</td><td>M2</td></tr>
+      <tr><td>jagged / group</td><td>M3 / M4</td></tr>
+      <tr><td>softmax 路径（PRE + LSE）</td><td>M5</td></tr>
+      <tr><td>deterministic dQ</td><td>M6</td></tr>
+      <tr><td>fp16 / 非 hd64</td><td>M7</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+</main>
+
+<nav class="toc">
+  <div class="t-head">目录</div>
+  <a href="#s1">1 总览</a>
+  <a href="#s2">2 最佳阅读顺序</a>
+  <a href="#s3">3 逐文件 review</a>
+  <a href="#s3" class="sub">①params ②api ③kernel</a>
+  <a href="#s3" class="sub">④dispatch ⑤entry ⑥instances</a>
+  <a href="#s3" class="sub">⑦generator ⑧cmake ⑨harness</a>
+  <a href="#s4">4 设计动机小结</a>
+  <a href="#s5">5 遗留 / 边界</a>
+</nav>
+
+</div><!-- /layout -->
+</div><!-- /page -->
+</body>
+</html>

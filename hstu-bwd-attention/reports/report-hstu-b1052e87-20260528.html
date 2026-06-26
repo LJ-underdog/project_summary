@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Commit b1052e87 -- HSTU Forward SplitKV for Softmax Path</title>
+  <style>
+    :root {
+      --ivory:    #FAF9F5;
+      --slate:    #141413;
+      --clay:     #D97757;
+      --oat:      #E3DACC;
+      --olive:    #788C5D;
+      --gray-150: #F0EEE6;
+      --gray-300: #D1CFC5;
+      --gray-500: #87867F;
+      --gray-700: #3D3D3A;
+      --white:    #FFFFFF;
+      --serif: ui-serif, Georgia, 'Times New Roman', serif;
+      --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: var(--sans);
+      background: var(--ivory);
+      color: var(--gray-700);
+      line-height: 1.55;
+      padding: 56px 32px 120px;
+      -webkit-font-smoothing: antialiased;
+    }
+    .page { max-width: 1040px; margin: 0 auto; }
+
+    /* header */
+    header.page-head { margin-bottom: 44px; max-width: 820px; }
+    .eyebrow {
+      font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--gray-500); margin-bottom: 12px;
+    }
+    h1 {
+      font-family: var(--serif); font-weight: 500; font-size: 34px;
+      line-height: 1.15; color: var(--slate); margin-bottom: 10px; letter-spacing: -0.01em;
+    }
+    .pr-meta {
+      display: flex; flex-wrap: wrap; gap: 18px;
+      font-family: var(--mono); font-size: 12.5px; color: var(--gray-500); margin-bottom: 18px;
+    }
+    .pr-meta .stat strong { color: var(--slate); font-weight: 600; }
+    .pr-meta .add { color: var(--olive); }
+    .pr-meta .del { color: var(--clay); }
+
+    /* layout */
+    .layout { display: grid; grid-template-columns: 1fr 220px; gap: 48px; align-items: start; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+
+    section { margin-bottom: 56px; scroll-margin-top: 24px; }
+    h2 {
+      font-family: var(--serif); font-weight: 500; font-size: 25px;
+      color: var(--slate); margin-bottom: 14px; letter-spacing: -0.01em;
+    }
+    h3 {
+      font-family: var(--sans); font-weight: 600; font-size: 16px;
+      color: var(--slate); margin: 20px 0 10px;
+    }
+    p.lede { font-size: 15px; max-width: 720px; margin-bottom: 12px; }
+    p + p.lede { margin-top: 8px; }
+
+    /* toc */
+    .toc {
+      position: sticky; top: 32px;
+      border-left: 1.5px solid var(--gray-300); padding-left: 18px; font-size: 13px;
+    }
+    .toc .t-head {
+      font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px;
+    }
+    .toc a { display: block; color: var(--gray-700); text-decoration: none; padding: 4px 0; }
+    .toc a:hover { color: var(--clay); }
+    .toc .sub { padding-left: 12px; color: var(--gray-500); font-size: 12.5px; }
+
+    /* tldr */
+    .tldr {
+      background: var(--white); border: 1.5px solid var(--gray-300);
+      border-left: 4px solid var(--clay); border-radius: 12px;
+      padding: 20px 24px; margin-bottom: 48px; max-width: 760px;
+    }
+    .tldr .k {
+      font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 8px;
+    }
+    .tldr p { font-size: 15px; color: var(--slate); }
+
+    /* tables */
+    table { width: 100%; border-collapse: collapse; margin: 14px 0 18px; font-size: 13.5px; }
+    th {
+      text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--gray-500); padding: 8px 12px;
+      border-bottom: 2px solid var(--gray-300); white-space: nowrap;
+    }
+    td { padding: 8px 12px; border-bottom: 1px solid var(--gray-300); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: var(--gray-150); }
+    td code, th code { font-size: 12px; }
+    .tbl-wrap { overflow-x: auto; }
+
+    /* code */
+    .code {
+      background: var(--slate); border-radius: 10px; padding: 16px 18px; overflow-x: auto;
+      margin: 10px 0 6px;
+    }
+    .code pre {
+      font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
+      color: #E8E6DE; white-space: pre;
+    }
+    .code .kw  { color: var(--clay); }
+    .code .str { color: var(--olive); }
+    .code .cm  { color: var(--gray-500); }
+    .code .fn  { color: #C9B98A; }
+    .code .add { background: rgba(120,140,93,.22); display: inline-block; width: 100%; }
+    .code .del { background: rgba(217,119,87,.18); display: inline-block; width: 100%; text-decoration: line-through; text-decoration-color: rgba(217,119,87,.6); }
+    .code-note {
+      font-size: 12.5px; color: var(--gray-500); margin: 2px 0 14px; padding-left: 4px;
+      font-style: italic;
+    }
+
+    /* file tour (collapsible) */
+    .file-tour { display: flex; flex-direction: column; gap: 16px; }
+    .file {
+      background: var(--white); border: 1.5px solid var(--gray-300);
+      border-radius: 12px; overflow: hidden;
+    }
+    .file summary {
+      padding: 14px 20px; cursor: pointer; display: flex; align-items: center; gap: 12px;
+      list-style: none; background: var(--gray-150); border-bottom: 1.5px solid var(--gray-300);
+    }
+    .file[open] summary { border-bottom-color: var(--gray-300); }
+    .file:not([open]) summary { border-bottom: none; }
+    .file summary::-webkit-details-marker { display: none; }
+    .file summary .chev {
+      width: 8px; height: 8px; border-right: 2px solid var(--gray-500);
+      border-bottom: 2px solid var(--gray-500); transform: rotate(-45deg);
+      transition: transform .15s ease; flex-shrink: 0;
+    }
+    .file[open] summary .chev { transform: rotate(45deg); }
+    .file summary .path { font-family: var(--mono); font-size: 13px; color: var(--slate); flex: 1; }
+    .file summary .badge {
+      font-family: var(--mono); font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: 0.05em; padding: 2px 8px; border-radius: 6px; font-weight: 600;
+    }
+    .badge.new { background: #E4E9DC; color: #4B5C39; }
+    .badge.mod { background: var(--oat); color: var(--slate); }
+    .file summary .stat { font-family: var(--mono); font-size: 12px; }
+    .file summary .stat .add { color: var(--olive); }
+    .file summary .stat .del { color: var(--clay); }
+    .file .file-body { padding: 18px 20px 22px; }
+    .file .why { font-size: 14px; margin-bottom: 10px; max-width: 680px; }
+    .file .why strong { color: var(--slate); }
+
+    /* risk cards */
+    .focus { display: flex; flex-direction: column; gap: 14px; max-width: 780px; }
+    .focus .item {
+      background: var(--white); border: 1.5px solid var(--gray-300);
+      border-radius: 10px; padding: 16px 20px; display: flex; gap: 16px;
+    }
+    .focus .n {
+      font-family: var(--mono); font-size: 13px; font-weight: 600;
+      color: var(--white); background: var(--clay);
+      width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 2px;
+    }
+    .focus .t { font-weight: 600; color: var(--slate); font-size: 15px; margin-bottom: 2px; }
+    .focus .d { font-size: 13.5px; color: var(--gray-500); }
+    .focus .d code { font-size: 12px; background: var(--gray-150); padding: 1px 5px; border-radius: 4px; }
+
+    /* warning box */
+    .warn-box {
+      background: #FDF6F0; border: 1.5px solid var(--clay); border-radius: 10px;
+      padding: 16px 20px; margin: 14px 0; max-width: 780px;
+    }
+    .warn-box .k {
+      font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--clay); margin-bottom: 6px; font-weight: 600;
+    }
+    .warn-box p, .warn-box li { font-size: 13.5px; color: var(--gray-700); }
+    .warn-box ul { list-style: disc; padding-left: 18px; margin-top: 6px; }
+    .warn-box li { margin-bottom: 4px; }
+
+    /* before/after panels */
+    .ba { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 18px 0 10px; }
+    @media (max-width: 720px) { .ba { grid-template-columns: 1fr; } }
+    .ba .panel {
+      background: var(--white); border: 1.5px solid var(--gray-300);
+      border-radius: 12px; padding: 18px 20px;
+    }
+    .ba .panel.after { border-color: var(--olive); }
+    .ba .k {
+      font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 10px;
+    }
+    .ba .after .k { color: var(--olive); }
+    .ba ul { list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+    .ba li::before { content: '\00b7'; color: var(--gray-500); margin-right: 8px; }
+    .ba .after li::before { color: var(--olive); }
+
+    /* svg overrides */
+    svg text { font-family: var(--mono); }
+  </style>
+</head>
+<body>
+<div class="page">
+
+<!-- ======================== HEADER ======================== -->
+<header class="page-head">
+  <div class="eyebrow">Commit Analysis &middot; CK_HSTU</div>
+  <h1>HSTU Forward SplitKV for Softmax Path</h1>
+  <div class="pr-meta">
+    <span class="stat"><strong>b1052e87</strong></span>
+    <span>branch <strong>hstu_attention_fwd</strong></span>
+    <span><strong>19</strong> files</span>
+    <span class="stat"><span class="add">+1138</span> / <span class="del">-162</span></span>
+    <span>follow-up: <strong>1dbd127d</strong></span>
+  </div>
+</header>
+
+<!-- ======================== LAYOUT ======================== -->
+<div class="layout">
+<main>
+
+<!-- TL;DR -->
+<div class="tldr">
+  <div class="k">TL;DR</div>
+  <p>HSTU attention 的 splitkv 路径此前仅支持 no-softmax (SiLU) 模式。本 commit 新增 softmax 路径的 split kernel LSE 输出 + combine pipeline（logsumexp 归并 + 加权累加），同时在 batched / jagged / group 三种 dispatch 中删除 <code>!kUseSoftmax</code> 门控，使 softmax 路径也能在 CU 占用率不足时自动启用 splitkv 加速。</p>
+</div>
+
+<!-- ======================== S1: ALGORITHM ======================== -->
+<section id="algo">
+<h2>1. Algorithm -- HSTU + SplitKV</h2>
+
+<h3>1.1 HSTU Attention vs FlashAttention</h3>
+<p class="lede">HSTU (Hierarchical Sequential Transduction Units) 是 Meta 面向生成式推荐的 attention 变体。核心公式：<code>S = Q @ K^T</code> &rarr; mask &rarr; SiLU &rarr; <code>P</code> &rarr; <code>O = P @ V</code>。</p>
+
+<table>
+<thead><tr><th>Dimension</th><th>FlashAttention</th><th>HSTU Attention</th></tr></thead>
+<tbody>
+<tr><td>Activation</td><td>row-wise softmax (max + LSE)</td><td><strong>SiLU</strong> element-wise, no row reduction ("no-softmax" path)</td></tr>
+<tr><td>Mask</td><td>causal / sliding window</td><td>causal + <code>context_len</code> + <code>min_full_len</code> + local diagonal window + <code>target</code></td></tr>
+<tr><td>Batch layout</td><td>dense <code>[B,H,S,D]</code></td><td>jagged (variable-length flat) + group (multi-group batch)</td></tr>
+<tr><td>Pipeline</td><td>single softmax pipeline</td><td><code>with_softmax_*</code> / <code>no_softmax_*</code> two parallel pipelines</td></tr>
+</tbody>
+</table>
+
+<h3>1.2 Why SplitKV</h3>
+<p class="lede">Standard FlashAttention parallelism = <code>batch * head * ceil(seqlen_q / tile_M)</code>. When batch and head are small but KV sequence is long (inference: B=1, few heads, S_kv in thousands~100k), GPU CUs are underutilized. SplitKV partitions the KV dimension into <code>num_splits</code> segments, each processed by an independent workgroup, multiplying parallelism by <code>num_splits</code>.</p>
+
+<!-- SVG: SplitKV two-phase diagram -->
+<svg viewBox="0 0 740 620" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:740px;margin:18px auto;display:block;">
+  <!-- Input tensors -->
+  <rect x="180" y="10" width="380" height="56" rx="8" fill="#FAF9F5" stroke="#D1CFC5" stroke-width="1.5"/>
+  <text x="370" y="30" text-anchor="middle" font-size="12" fill="#3D3D3A">Q : [seqlen_q, hdim_qk]</text>
+  <text x="370" y="47" text-anchor="middle" font-size="12" fill="#3D3D3A">K : [seqlen_kv, hdim_qk]    V : [seqlen_kv, hdim_v]</text>
+
+  <!-- Arrow down -->
+  <line x1="370" y1="66" x2="370" y2="100" stroke="#87867F" stroke-width="1.5" marker-end="url(#ah)"/>
+  <text x="370" y="88" text-anchor="middle" font-size="10" fill="#87867F">split KV into num_splits segments</text>
+
+  <!-- Split kernel boxes -->
+  <rect x="30"  y="106" width="140" height="100" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+  <rect x="200" y="106" width="140" height="100" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+  <rect x="400" y="106" width="140" height="100" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+  <rect x="575" y="106" width="140" height="100" rx="8" fill="#FFFFFF" stroke="#788C5D" stroke-width="1.5"/>
+  <!-- ... ellipsis -->
+  <text x="560" y="160" text-anchor="middle" font-size="18" fill="#87867F">...</text>
+
+  <text x="100" y="126" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="600">SplitKV #0</text>
+  <text x="100" y="143" text-anchor="middle" font-size="10" fill="#3D3D3A">local max/exp/sum</text>
+  <text x="100" y="158" text-anchor="middle" font-size="10" fill="#3D3D3A">O_partial</text>
+  <text x="100" y="173" text-anchor="middle" font-size="10" fill="#3D3D3A">LSE_partial</text>
+  <text x="100" y="195" text-anchor="middle" font-size="9" fill="#87867F">(softmax only)</text>
+
+  <text x="270" y="126" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="600">SplitKV #1</text>
+  <text x="270" y="143" text-anchor="middle" font-size="10" fill="#3D3D3A">local max/exp/sum</text>
+  <text x="270" y="158" text-anchor="middle" font-size="10" fill="#3D3D3A">O_partial</text>
+  <text x="270" y="173" text-anchor="middle" font-size="10" fill="#3D3D3A">LSE_partial</text>
+
+  <text x="470" y="126" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="600">SplitKV #2</text>
+  <text x="470" y="143" text-anchor="middle" font-size="10" fill="#3D3D3A">local max/exp/sum</text>
+  <text x="470" y="158" text-anchor="middle" font-size="10" fill="#3D3D3A">O_partial</text>
+  <text x="470" y="173" text-anchor="middle" font-size="10" fill="#3D3D3A">LSE_partial</text>
+
+  <text x="645" y="126" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="600">SplitKV #N-1</text>
+  <text x="645" y="143" text-anchor="middle" font-size="10" fill="#3D3D3A">local max/exp/sum</text>
+  <text x="645" y="158" text-anchor="middle" font-size="10" fill="#3D3D3A">O_partial</text>
+  <text x="645" y="173" text-anchor="middle" font-size="10" fill="#3D3D3A">LSE_partial</text>
+
+  <!-- Arrows down from split kernels -->
+  <line x1="100" y1="206" x2="100" y2="240" stroke="#87867F" stroke-width="1"/>
+  <line x1="270" y1="206" x2="270" y2="240" stroke="#87867F" stroke-width="1"/>
+  <line x1="470" y1="206" x2="470" y2="240" stroke="#87867F" stroke-width="1"/>
+  <line x1="645" y1="206" x2="645" y2="240" stroke="#87867F" stroke-width="1"/>
+
+  <!-- DRAM workspace -->
+  <rect x="30" y="244" width="685" height="72" rx="8" fill="#F0EEE6" stroke="#D1CFC5" stroke-width="1.5"/>
+  <text x="372" y="265" text-anchor="middle" font-size="11" fill="#87867F" font-weight="600">DRAM Workspace</text>
+  <text x="372" y="282" text-anchor="middle" font-size="11" fill="#3D3D3A">o_acc : [num_splits, seqlen_q, hdim_v]</text>
+  <text x="372" y="298" text-anchor="middle" font-size="11" fill="#D97757">lse_acc : [num_splits, seqlen_q]   (softmax path only)</text>
+
+  <!-- Arrow down -->
+  <line x1="370" y1="316" x2="370" y2="345" stroke="#87867F" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- Combine kernel box -->
+  <rect x="80" y="350" width="580" height="190" rx="10" fill="#FFFFFF" stroke="#D97757" stroke-width="2"/>
+  <text x="370" y="372" text-anchor="middle" font-size="12" fill="#D97757" font-weight="600">Combine Kernel (one workgroup per query block)</text>
+
+  <!-- Softmax path steps -->
+  <rect x="100" y="384" width="260" height="144" rx="6" fill="#FDF6F0" stroke="#D97757" stroke-width="1"/>
+  <text x="230" y="400" text-anchor="middle" font-size="11" fill="#D97757" font-weight="600">softmax path</text>
+  <text x="110" y="418" font-size="10" fill="#3D3D3A">1. load lse_acc[m][s]</text>
+  <text x="110" y="434" font-size="10" fill="#3D3D3A">2. lse_max[m] = max_s(lse[m][s])</text>
+  <text x="110" y="450" font-size="10" fill="#3D3D3A">3. exp(lse - lse_max) &rarr; sum &rarr; log</text>
+  <text x="110" y="466" font-size="10" fill="#3D3D3A">   &rarr; LSE_global</text>
+  <text x="110" y="482" font-size="10" fill="#3D3D3A">4. scale[m][s] = exp(lse - LSE_global)</text>
+  <text x="110" y="498" font-size="10" fill="#3D3D3A">5. store scale to LDS</text>
+  <text x="110" y="516" font-size="10" fill="#3D3D3A">6. O += O_partial[s] * scale[m][s]</text>
+
+  <!-- No-softmax path steps -->
+  <rect x="390" y="384" width="254" height="80" rx="6" fill="#E4E9DC" stroke="#788C5D" stroke-width="1"/>
+  <text x="517" y="400" text-anchor="middle" font-size="11" fill="#4B5C39" font-weight="600">no-softmax path</text>
+  <text x="400" y="420" font-size="10" fill="#3D3D3A">No LSE, no exp, no scale</text>
+  <text x="400" y="438" font-size="10" fill="#3D3D3A">for s: O += O_partial[s]</text>
+  <text x="400" y="454" font-size="10" fill="#87867F">(pure summation)</text>
+
+  <!-- Arrow down from combine -->
+  <line x1="370" y1="540" x2="370" y2="570" stroke="#87867F" stroke-width="1.5" marker-end="url(#ah)"/>
+
+  <!-- Output -->
+  <rect x="250" y="575" width="240" height="36" rx="8" fill="#FAF9F5" stroke="#141413" stroke-width="1.5"/>
+  <text x="370" y="598" text-anchor="middle" font-size="12" fill="#141413" font-weight="600">O : [seqlen_q, hdim_v]</text>
+
+  <defs><marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#87867F"/></marker></defs>
+</svg>
+
+<h3>1.3 Softmax vs No-Softmax Combine</h3>
+<table>
+<thead><tr><th>Phase</th><th>no-softmax (SiLU)</th><th>with-softmax (new)</th></tr></thead>
+<tbody>
+<tr><td>LSE handling</td><td>N/A</td><td>load &rarr; max &rarr; exp &rarr; sum &rarr; log &rarr; scale</td></tr>
+<tr><td>LDS usage</td><td>not needed</td><td>stores <code>scale[m][s]</code></td></tr>
+<tr><td>O merge</td><td>equal-weight <code>O += O_partial</code></td><td>weighted <code>O += O_partial * scale</code></td></tr>
+<tr><td>Reg/LDS cost</td><td>minimal</td><td>higher (LDS = <code>kM*kMaxSplits*sizeof(LSE)</code>)</td></tr>
+<tr><td>Applicable</td><td>HSTU default (SiLU)</td><td>HSTU softmax variant (training / cross-attn)</td></tr>
+</tbody>
+</table>
+
+<h3>1.4 New Combine Pipeline -- Key Algorithm</h3>
+<p class="lede">File: <code>hstu_attention_with_softmax_fwd_splitkv_combine_pipeline.hpp</code> (270 lines new)</p>
+
+<div class="code"><pre><span class="cm">// Step A: load per-split LSE</span>
+<span class="kw">auto</span> lse_acc = <span class="fn">load_tile</span>(lse_acc_dram_window);
+
+<span class="cm">// Step B: row-wise max across splits (numerical stability)</span>
+<span class="kw">auto</span> lse_max = <span class="fn">block_tile_reduce</span>&lt;LSEDataType&gt;(
+    lse_acc, sequence&lt;1&gt;{}, f_max, -numeric&lt;LSEDataType&gt;::<span class="fn">infinity</span>());
+
+<span class="cm">// Step C: exp(lse_split - lse_max); all-inf rows &rarr; 0</span>
+lse_exp(i_j_idx) = <span class="fn">exp</span>(lse_acc[i_j_idx] - lse_max[i_idx]);
+
+<span class="cm">// Step D: sum &rarr; logsumexp = log(sum) + max</span>
+<span class="kw">auto</span> lse_sum = <span class="fn">block_tile_reduce</span>&lt;LSEDataType&gt;(lse_exp, sequence&lt;1&gt;{}, f_sum, 0);
+lse_logsum(i_idx) = <span class="fn">log</span>(lse_sum[i_idx]) + lse_max[i_idx];
+
+<span class="cm">// Step E: scale = exp(lse_split - lse_global); reuse lse_acc register</span>
+lse_acc_type&amp; lse_scale = lse_acc;
+lse_scale(i_j_idx) = <span class="fn">exp</span>(lse_acc[i_j_idx] - lse_logsum[i_idx]);
+
+<span class="cm">// Step F: write scale to LDS for random (row, split) access</span>
+<span class="fn">store_tile</span>(lse_scale_lds_write_window, lse_scale, partition_index);
+<span class="fn">block_sync_lds</span>();
+
+<span class="cm">// Step G: weighted accumulation over splits</span>
+<span class="kw">for</span>(<span class="kw">int</span> i_split = 0; i_split &lt; num_splits; i_split++) {
+    <span class="kw">auto</span> o_acc_tile = <span class="fn">load_tile</span>(o_acc_dram_window);  <span class="cm">// offset by split stride</span>
+    o_acc(i_j_idx) += o_acc_tile[i_j_idx] * lse_scale_lds(row, i_split);
+}</pre></div>
+<div class="code-note">Design: LDS serves as a lookup table for scale weights; O tile distribution differs from LSE tile distribution, so scales are materialized in LDS for random row-indexed access. Register reuse via reference aliasing avoids extra register pressure.</div>
+
+<h3>1.5 Pseudocode</h3>
+<div class="code"><pre>combine_pipeline(lse_acc[kM][kMaxSplits], o_acc[kM][kHeaddim] x num_splits):
+    <span class="cm"># ---- LSE merge ----</span>
+    lse[m][s]     := load_lse(m, s)
+    lse_max[m]    := max_s lse[m][s]
+    lse_exp[m][s] := exp(lse[m][s] - lse_max[m])
+    lse_sum[m]    := sum_s lse_exp[m][s]
+    lse_logsum[m] := log(lse_sum[m]) + lse_max[m]       <span class="cm"># = LSE_global</span>
+    scale[m][s]   := exp(lse[m][s] - lse_logsum[m])      <span class="cm"># sum_s scale == 1</span>
+    store_lds(scale)
+
+    <span class="cm"># ---- O weighted accumulate ----</span>
+    O[m][d] := 0
+    <span class="kw">for</span> s <span class="kw">in</span> 0..num_splits-1:
+        O_partial := load(o_acc + s * split_stride)
+        O[m][d]  += O_partial[m][d] * scale[m][s]        <span class="cm"># via LDS row lookup</span>
+    <span class="kw">return</span> O</pre></div>
+
+</section>
+
+<!-- ======================== S2: DIFF ======================== -->
+<section id="diff">
+<h2>2. Diff -- 19 Files at a Glance</h2>
+
+<div class="tbl-wrap">
+<table>
+<thead><tr><th>File</th><th>+/-</th><th>Role</th><th>Key Change</th></tr></thead>
+<tbody>
+<tr><td><code>hstu_attention_batched_forward_dispatch.hpp</code></td><td class="add">+8</td><td>Dispatch</td><td>Remove <code>!kUseSoftmax</code> gate</td></tr>
+<tr><td><code>hstu_attention_group_forward_dispatch.hpp</code></td><td class="add">+8</td><td>Dispatch</td><td>Same</td></tr>
+<tr><td><code>hstu_attention_jagged_forward_dispatch.hpp</code></td><td class="add">+8</td><td>Dispatch</td><td>Same</td></tr>
+<tr><td><code>hstu_attention_batched_forward_splitkv_dispatch.hpp</code></td><td class="add">+92</td><td>Dispatch (splitkv)</td><td>LSE workspace alloc + <code>MAX_SPLITS_SWITCH</code> for softmax combine</td></tr>
+<tr><td><code>hstu_attention_group_forward_splitkv_dispatch.hpp</code></td><td class="add">+92</td><td>Dispatch (splitkv)</td><td>Same</td></tr>
+<tr><td><code>hstu_attention_jagged_forward_splitkv_dispatch.hpp</code></td><td class="add">+90</td><td>Dispatch (splitkv)</td><td>Same</td></tr>
+<tr><td><code>hstu_attention_fwd_kernel.hpp</code></td><td class="add">+66</td><td>Kernel</td><td>Pass <code>null_tile_window</code> as LSE placeholder for non-splitkv softmax</td></tr>
+<tr><td><code>hstu_attention_fwd_splitkv_kernel.hpp</code></td><td class="add">+151</td><td>Kernel (split)</td><td>New <code>HstuAttentionFwdSoftmaxKargs{lse_acc_ptr}</code>, <code>MakeKargs</code> overloads, <code>lse_acc_dram_window</code> construction</td></tr>
+<tr><td><code>hstu_attention_fwd_splitkv_combine_kernel.hpp</code></td><td class="add">+123</td><td>Kernel (combine)</td><td>LSE types/workspace/window, softmax branch, <code>BlockSize()</code> Wave32 hack</td></tr>
+<tr><td><code>hstu_attention_with_softmax_fwd_pipeline.hpp</code></td><td class="add">+46</td><td>Pipeline</td><td>Accept <code>LSEaccDramBlockWindowTmp</code>, write <code>lse = m + log(l)</code> at loop end</td></tr>
+<tr><td><code>hstu_attention_with_softmax_fwd_trload_pipeline.hpp</code></td><td class="add">+47</td><td>Pipeline</td><td>Mirror of above (trload variant)</td></tr>
+<tr><td><code>..._with_softmax_fwd_splitkv_combine_pipeline.hpp</code></td><td class="add">+270</td><td>Pipeline <span style="color:var(--olive);font-weight:600">NEW</span></td><td><strong>Core: softmax LSE-rescale combine algorithm</strong></td></tr>
+<tr><td><code>..._no_softmax_fwd_splitkv_combine_pipeline.hpp</code></td><td class="add">+9</td><td>Pipeline</td><td><code>GetSmemSize()</code> via policy; rename <code>o_acc_split_stride</code></td></tr>
+<tr><td><code>..._fwd_splitkv_combine_pipeline_policy.hpp</code></td><td class="add">+89</td><td>Policy <span style="color:var(--olive);font-weight:600">NEW</span></td><td>LSE tile distribution, LDS descriptor, alignment, smem size</td></tr>
+<tr><td><code>hstu_attention_pipeline_problem.hpp</code></td><td class="add">+14</td><td>Problem</td><td>Add <code>LSEDataType_</code> / <code>kMaxSplits_</code> template params</td></tr>
+<tr><td><code>hstu_attention_traits.hpp</code></td><td class="add">+5</td><td>Traits</td><td>Add <code>kPadNumSplits_</code></td></tr>
+<tr><td><code>hstu_attention_params.hpp</code></td><td class="add">+2</td><td>Params</td><td>Add <code>void* lse_acc_ptr</code> to both param structs</td></tr>
+<tr><td><code>hstu_attention_fwd_setting.hpp</code></td><td class="add">+2</td><td>Setting</td><td><code>get_suggested_num_splits</code> clamp to <code>min(i, 64)</code></td></tr>
+<tr><td><code>hstu_attention_max_splits_switch.hpp</code></td><td class="add">+31</td><td>Switch <span style="color:var(--olive);font-weight:600">NEW</span></td><td><code>MAX_SPLITS_SWITCH</code> macro: 16/32/64 discrete values</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>2.1 Three New Pipeline Files</h3>
+<div class="file-tour">
+
+<details class="file">
+<summary>
+  <span class="chev"></span>
+  <span class="path">hstu_attention_with_softmax_fwd_splitkv_combine_pipeline.hpp</span>
+  <span class="badge new">new</span>
+  <span class="stat"><span class="add">+270</span></span>
+</summary>
+<div class="file-body">
+  <p class="why"><strong>Core of this commit.</strong> Implements the softmax LSE-rescale combine: reads <code>[kM, kMaxSplits]</code> LSE tile, computes row-wise logsumexp, derives per-split scale weights, stores to LDS, then loops over splits for weighted O accumulation. <code>static_assert(kUseSoftmax == true)</code>; <code>static_assert(kOHeaddim &lt;= 256)</code>.</p>
+</div>
+</details>
+
+<details class="file">
+<summary>
+  <span class="chev"></span>
+  <span class="path">hstu_attention_fwd_splitkv_combine_pipeline_policy.hpp</span>
+  <span class="badge new">new</span>
+  <span class="stat"><span class="add">+89</span></span>
+</summary>
+<div class="file-body">
+  <table>
+  <thead><tr><th>Method</th><th>Purpose</th></tr></thead>
+  <tbody>
+  <tr><td><code>MakeLSEaccDramTileDistribution</code></td><td><code>[kM, kMaxSplits]</code> tile distribution; two layouts by <code>OtherK &lt; warp_size</code></td></tr>
+  <tr><td><code>MakeLSEscaleLdsBlockDescriptor</code></td><td>LDS <code>[kMPerBlock, kKPerBlock]</code>, stride <code>[kKPerBlock, 1]</code></td></tr>
+  <tr><td><code>GetAlignmentLSEacc</code></td><td>Forwards <code>Problem::GetLSEaccDramTileAccessMaxVectorSize()</code></td></tr>
+  <tr><td><code>GetSmemSize</code></td><td>softmax: <code>sizeof(LSE) * lds_size</code>; else <code>return 128</code> (non-zero smem hack)</td></tr>
+  </tbody>
+  </table>
+</div>
+</details>
+
+<details class="file">
+<summary>
+  <span class="chev"></span>
+  <span class="path">hstu_attention_max_splits_switch.hpp</span>
+  <span class="badge new">new</span>
+  <span class="stat"><span class="add">+31</span></span>
+</summary>
+<div class="file-body">
+  <p class="why"><code>MAX_SPLITS_SWITCH(num_splits, CONST_NAME, ...)</code> macro dispatches to compile-time constants <strong>16, 32, 64</strong>. Throws <code>std::runtime_error</code> for <code>num_splits &gt; 64</code>. Paired with <code>get_suggested_num_splits</code> which clamps to <code>min(i, 64)</code>.</p>
+</div>
+</details>
+
+</div><!-- file-tour -->
+
+<h3>2.2 Dispatch Gate Change</h3>
+<div class="code"><pre><span class="cm">// Before (b1052e87^)</span>
+<span class="del"><span class="cm">// ToDo: enable splitkv when kUseSoftmax is true</span></span>
+<span class="del"><span class="kw">if</span>(!disable_fwd_splitkv &amp;&amp; !kUseSoftmax &amp;&amp; shall_use_splitkv(...))</span>
+
+<span class="cm">// After (b1052e87)</span>
+<span class="add"><span class="kw">if</span>(!disable_fwd_splitkv &amp;&amp; shall_use_splitkv(...))</span></pre></div>
+<div class="code-note">The <code>!kUseSoftmax</code> guard and the inner <code>if constexpr(!kUseSoftmax)</code> are removed, unlocking splitkv for all paths.</div>
+
+<h3>2.3 Config Layer Changes</h3>
+<table>
+<thead><tr><th>File</th><th>Change</th></tr></thead>
+<tbody>
+<tr><td><code>pipeline_problem.hpp</code></td><td>Add <code>LSEDataType_</code>, <code>kMaxSplits_</code> template params + <code>GetLSEaccDramTileAccessMaxVectorSize()</code></td></tr>
+<tr><td><code>traits.hpp</code></td><td>Add <code>kPadNumSplits_ = false</code> to <code>SplitKVCombineTraits</code></td></tr>
+<tr><td><code>params.hpp</code></td><td>Add <code>void* lse_acc_ptr</code> to both param structs</td></tr>
+<tr><td><code>fwd_setting.hpp</code></td><td><code>get_suggested_num_splits</code> returns <code>min(i, 64)</code></td></tr>
+</tbody>
+</table>
+
+</section>
+
+<!-- ======================== S3: IMPACT ======================== -->
+<section id="impact">
+<h2>3. Impact -- Triggers, Performance, Tests</h2>
+
+<h3>3.1 Trigger Condition</h3>
+<div class="code"><pre><span class="cm">// hstu_attention_fwd_setting.hpp:499-507</span>
+<span class="kw">static bool</span> <span class="fn">shall_use_splitkv</span>(<span class="kw">int</span> num_batches, <span class="kw">int</span> num_heads, <span class="kw">int</span> max_seqlen_q) {
+    <span class="kw">const float</span> threshold = 0.8f;
+    <span class="kw">if</span>(<span class="fn">get_estimated_cu_coverage_ratio</span>(num_batches, num_heads, max_seqlen_q) &lt; threshold)
+        <span class="kw">return true</span>;
+    <span class="kw">return false</span>;
+}</pre></div>
+<div class="code-note">Criterion: CU utilization &lt; 80%. When <code>batch * nhead * ceil(seqlen_q/64) &lt; 0.8 * 2 * num_CUs</code>, splitkv activates. <code>num_splits</code> derived by <code>get_suggested_num_splits()</code>, upper-bounded at 64. Env var <code>HSTU_DISABLE_SPLITKV</code> for global override.</div>
+
+<h3>3.2 Performance Expectations</h3>
+<div class="ba">
+  <div class="panel">
+    <div class="k">Benefits</div>
+    <ul>
+      <li>CU occupancy improves from &lt;0.8 toward 1.0</li>
+      <li>Best case: small batch + long seqlen (inference)</li>
+      <li>CU-ratio heuristic more general than fixed seqlen threshold</li>
+    </ul>
+  </div>
+  <div class="panel after">
+    <div class="k">Costs</div>
+    <ul>
+      <li><code>hipMallocAsync</code>/<code>hipFreeAsync</code> for o_acc + lse_acc workspace</li>
+      <li>Combine kernel launch overhead</li>
+      <li>LSE reduce cost grows with <code>num_splits</code></li>
+    </ul>
+  </div>
+</div>
+
+<h3>3.3 Test Coverage</h3>
+
+<div class="warn-box">
+  <div class="k">Coverage Gap Warning</div>
+  <p>Existing softmax tests (b=10, nhead=4, seqlen~256) <strong>do trigger splitkv on gfx950 (256 CUs)</strong> since <code>ratio = 160/512 = 0.3125 &lt; 0.8</code>. Happy path is covered. However:</p>
+  <ul>
+    <li>Corner cases missing: extreme <code>num_splits</code> near 64, padding boundaries (<code>kPadNumSplits</code>), very long seqlen (&ge;4096)</li>
+    <li>No splitkv on/off comparison: no script runs both <code>HSTU_DISABLE_SPLITKV=0</code> and <code>=1</code> to assert numerical consistency</li>
+    <li>Jagged + softmax + splitkv is a new path combination -- needs b=1~2, variable seqlens, softmax=1 end-to-end case</li>
+    <li>Hardware-dependent: same params may not trigger splitkv on GPUs with different CU counts</li>
+  </ul>
+</div>
+
+<h3>3.4 API Compatibility</h3>
+<p class="lede"><code>hstu_attention_api.hpp</code> is <strong>unmodified</strong>. Source-compatible; ABI change only in params structs (added <code>lse_acc_ptr</code>), managed internally by dispatch -- callers need not change.</p>
+
+<h3>3.5 Follow-up: HEAD 1dbd127d</h3>
+<p class="lede">Commit <code>1dbd127d</code> modifies the two files created/heavily changed by b1052e87: replaces the manual <code>sweep_tile_span</code> OOB fill with <code>buffer_view</code> OOB=-inf. This is a <strong>correctness + performance fix</strong> for the splitkv-softmax path, confirming the path was still being iterated post-merge.</p>
+
+<div class="code"><pre><span class="cm">// b1052e87: manual OOB fill (removed by 1dbd127d)</span>
+<span class="del"><span class="kw">if</span>(col &gt;= num_splits) lse_acc(i_j_idx) = -inf;</span>
+
+<span class="cm">// 1dbd127d: buffer_view OOB returns -inf automatically</span>
+<span class="add"><span class="kw">auto</span> lse_acc_buf_view = <span class="fn">make_buffer_view</span>&lt;global&gt;(</span>
+<span class="add">    lse_acc_ptr, size, -numeric&lt;LSEDataType&gt;::<span class="fn">infinity</span>());</span></pre></div>
+
+<h3>3.6 Three-Mode Symmetry</h3>
+<table>
+<thead><tr><th>Aspect</th><th>Batched</th><th>Group</th><th>Jagged</th></tr></thead>
+<tbody>
+<tr><td>Gate removal</td><td>+8/-13</td><td>+8/-12</td><td>+8/-12</td></tr>
+<tr><td>SplitKV dispatch</td><td>+92/-8</td><td>+92/-8</td><td>+90/-8</td></tr>
+<tr><td><code>kIsJagged</code></td><td>false</td><td>true</td><td>true</td></tr>
+<tr><td>seqlen param</td><td><code>param.seqlen_q</code></td><td><code>param.max_seqlen_q</code></td><td><code>param.max_seqlen_q</code></td></tr>
+<tr><td>LSE workspace offset</td><td><code>i_batch * seqlen_q * nhead * num_splits</code></td><td colspan="2"><code>query_start * nhead * num_splits</code></td></tr>
+</tbody>
+</table>
+<div class="code-note">All three dispatch files share identical structure. The only variation is kIsJagged and seqlen source. Symmetry is good.</div>
+
+</section>
+
+<!-- ======================== S4: RISKS ======================== -->
+<section id="risks">
+<h2>4. Risks &amp; Open Items</h2>
+
+<div class="focus">
+  <div class="item">
+    <div class="n">1</div>
+    <div>
+      <div class="t">LSE Numerical Stability &amp; OOB Handling</div>
+      <div class="d">When <code>num_splits &lt; kMaxSplits</code>, padding LSE must be <code>-inf</code> to avoid polluting <code>exp(lse_split - lse_max)</code>. b1052e87 uses manual <code>sweep_tile_span</code> fill; 1dbd127d switches to <code>buffer_view</code> OOB. Review: does <code>kAlignmentLSEacc = kPadNumSplits ? 1 : ...</code> affect buffer_load OOB semantics? Do all padding positions map to OOB addresses?</div>
+    </div>
+  </div>
+  <div class="item">
+    <div class="n">2</div>
+    <div>
+      <div class="t">Combine Overhead at Large num_splits</div>
+      <div class="d"><code>MAX_SPLITS_SWITCH</code> instantiates 16/32/64, then <code>kMaxSplits</code> may be multiplied up to 4x (to satisfy <code>kM * kMaxSplits &gt;= kBlockSize</code>). Extreme case <code>kMaxSplits=256</code>: LDS/register pressure + 256-way reduce. <code>kBlockPerCu=2</code> is hardcoded. Needs real-device profiling.</div>
+    </div>
+  </div>
+  <div class="item">
+    <div class="n">3</div>
+    <div>
+      <div class="t">Jagged + Softmax + SplitKV Interaction</div>
+      <div class="d">LSE workspace sized by <code>num_batch * max_seqlen_q * nhead * num_splits</code> (max, not actual seqlen). Combine must strictly follow <code>seq_q_offsets_ptr</code> for valid rows. This is a <strong>new path combination</strong>; no existing test covers jagged variable-length + softmax + splitkv together.</div>
+    </div>
+  </div>
+  <div class="item">
+    <div class="n">4</div>
+    <div>
+      <div class="t">Workspace Allocation Leak</div>
+      <div class="d">Two <code>hipMallocAsync</code> calls (o_acc, lse_acc): if the second fails, the first is not freed (no cleanup path). Softmax path doubles the leak surface by adding <code>lse_acc_ptr</code>.</div>
+    </div>
+  </div>
+</div>
+
+<h3>4.1 Hacks / TODOs / Known Issues</h3>
+<table>
+<thead><tr><th>Location</th><th>Type</th><th>Detail</th></tr></thead>
+<tbody>
+<tr><td><code>batched_forward_splitkv_dispatch.hpp:158-159</code><br>(group/jagged same)</td><td>ToDo</td><td><code>// ToDo: be carefule to use get_warp_size() on host-layer on Wave32</code></td></tr>
+<tr><td><code>fwd_splitkv_combine_kernel.hpp:209-217</code></td><td>hack</td><td><code>BlockSize()</code> halves block size for Wave32 because <code>get_warp_size()</code> always returns 64 on host</td></tr>
+<tr><td><code>with_softmax_fwd_splitkv_combine_pipeline.hpp:106-107</code></td><td>ToDo</td><td><code>// ToDo: use buffer_view interface...</code> (fixed in 1dbd127d)</td></tr>
+<tr><td><code>fwd_splitkv_combine_pipeline_policy.hpp:181-184</code></td><td>hack</td><td><code>GetSmemSize</code> returns 128 for non-softmax ("smem_ptr[] should not be zero bytes")</td></tr>
+<tr><td><code>max_splits_switch.hpp</code></td><td>limitation</td><td><code>num_splits &gt; 64</code> throws <code>std::runtime_error</code></td></tr>
+<tr><td><code>kMaxSplits</code> up-scaling logic</td><td>design risk</td><td><code>kBlockSize = NumWarps * get_warp_size()</code> on host always 64; Wave32 actual block size mismatch (same root cause as BlockSize hack)</td></tr>
+</tbody>
+</table>
+
+</section>
+
+</main>
+
+<!-- ======================== TOC (sidebar) ======================== -->
+<nav class="toc">
+  <div class="t-head">Contents</div>
+  <a href="#algo">1. Algorithm</a>
+  <a href="#algo" class="sub">HSTU vs FlashAttention</a>
+  <a href="#algo" class="sub">SplitKV diagram</a>
+  <a href="#algo" class="sub">Combine pipeline</a>
+  <a href="#diff">2. Diff (19 files)</a>
+  <a href="#diff" class="sub">File overview</a>
+  <a href="#diff" class="sub">New pipelines</a>
+  <a href="#diff" class="sub">Dispatch gate</a>
+  <a href="#impact">3. Impact</a>
+  <a href="#impact" class="sub">Trigger condition</a>
+  <a href="#impact" class="sub">Test coverage</a>
+  <a href="#impact" class="sub">Follow-up 1dbd127d</a>
+  <a href="#risks">4. Risks</a>
+  <a href="#risks" class="sub">4 risk cards</a>
+  <a href="#risks" class="sub">Hack/TODO table</a>
+</nav>
+
+</div><!-- layout -->
+</div><!-- page -->
+</body>
+</html>
