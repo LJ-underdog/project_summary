@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSTU bwd 实现对比：qianfeng vs 我们</title>
+<style>
+  :root {
+    --bg: #fafaf9; --surface: #ffffff; --surface-2: #f5f5f4;
+    --text: #1c1917; --muted: #78716c; --border: #e7e5e4;
+    --accent: #2563eb; --accent-light: #eff6ff;
+    --ours: #2563eb; --ours-light: #eff6ff;
+    --qf: #7c3aed; --qf-light: #f5f3ff;
+    --success: #16a34a; --success-bg: #dcfce7;
+    --warning: #d97706; --warning-bg: #fef3c7;
+    --danger: #dc2626; --danger-bg: #fef2f2;
+    --radius: 8px; --shadow: 0 1px 3px rgba(0,0,0,0.08);
+    --shadow-hover: 0 4px 14px rgba(0,0,0,0.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1917; --surface: #292524; --surface-2: #232020;
+      --text: #fafaf9; --muted: #a8a29e; --border: #44403c;
+      --accent: #60a5fa; --accent-light: #1e293b;
+      --ours: #60a5fa; --ours-light: #17233b;
+      --qf: #a78bfa; --qf-light: #241b3a;
+      --success: #4ade80; --success-bg: #14311f;
+      --warning: #fbbf24; --warning-bg: #3a2c0a;
+      --danger: #f87171; --danger-bg: #3a1414;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.65;
+    padding: 2rem 1.25rem; max-width: 1180px; margin: 0 auto;
+    -webkit-font-smoothing: antialiased;
+  }
+  header { margin-bottom: 2rem; border-bottom: 2px solid var(--border); padding-bottom: 1.25rem; }
+  h1 { font-size: 1.85rem; margin-bottom: 0.4rem; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); font-size: 0.95rem; }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; margin-top: 0.75rem; font-size: 0.82rem; color: var(--muted); }
+  .meta-row code { background: var(--surface-2); padding: 1px 6px; border-radius: 4px; font-size: 0.85em; }
+  h2 { font-size: 1.3rem; margin: 2.4rem 0 1rem; padding-left: 0.6rem; border-left: 4px solid var(--accent); }
+  h3 { font-size: 1.05rem; margin: 1.4rem 0 0.6rem; }
+  p { margin-bottom: 0.7rem; }
+  .lead { font-size: 1.02rem; background: var(--surface); border: 1px solid var(--border);
+          border-radius: var(--radius); padding: 1.1rem 1.25rem; box-shadow: var(--shadow); }
+  .lead strong.ours { color: var(--ours); }
+  .lead strong.qf { color: var(--qf); }
+
+  /* stat strip */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 0.9rem; margin: 1.4rem 0; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; box-shadow: var(--shadow); }
+  .stat .n { font-size: 1.5rem; font-weight: 700; }
+  .stat .l { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .stat.ours { border-top: 3px solid var(--ours); }
+  .stat.qf { border-top: 3px solid var(--qf); }
+
+  /* two-col cards */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 1.2rem 0; }
+  @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; box-shadow: var(--shadow); transition: transform 150ms ease, box-shadow 150ms ease; }
+  .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+  .card.ours { border-top: 3px solid var(--ours); }
+  .card.qf { border-top: 3px solid var(--qf); }
+  .card h3 { margin-top: 0; display: flex; align-items: center; gap: 0.5rem; }
+  .tag { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+  .tag.ours { background: var(--ours-light); color: var(--ours); }
+  .tag.qf { background: var(--qf-light); color: var(--qf); }
+  .card ul { list-style: none; }
+  .card li { padding: 0.28rem 0 0.28rem 1.2rem; position: relative; font-size: 0.92rem; }
+  .card li::before { content: "›"; position: absolute; left: 0; color: var(--muted); font-weight: 700; }
+  .src { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.76em; color: var(--muted); }
+
+  /* table */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); margin: 1.1rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; background: var(--surface); }
+  th, td { padding: 0.62rem 0.85rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th { background: var(--surface-2); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); position: sticky; top: 0; }
+  th.ours-h { color: var(--ours); } th.qf-h { color: var(--qf); }
+  tbody tr:hover { background: var(--surface-2); }
+  td.dim { font-weight: 600; white-space: nowrap; }
+  .yes { color: var(--success); font-weight: 600; }
+  .no  { color: var(--danger); font-weight: 600; }
+  .partial { color: var(--warning); font-weight: 600; }
+  .cell-note { display: block; font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+
+  /* callout */
+  .callout { border-radius: var(--radius); padding: 1rem 1.15rem; margin: 1.2rem 0; border: 1px solid var(--border); background: var(--surface); }
+  .callout.key { border-left: 4px solid var(--accent); background: var(--accent-light); }
+  .callout.warn { border-left: 4px solid var(--warning); background: var(--warning-bg); }
+  .callout .t { font-weight: 700; margin-bottom: 0.35rem; }
+
+  /* svg diagram */
+  .diagram { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; margin: 1.2rem 0; box-shadow: var(--shadow); overflow-x: auto; }
+  .diagram svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+
+  details { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin: 0.6rem 0; overflow: hidden; }
+  summary { cursor: pointer; padding: 0.75rem 1rem; font-weight: 600; list-style: none; user-select: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "▸ "; color: var(--accent); }
+  details[open] summary::before { content: "▾ "; }
+  details .body { padding: 0 1rem 1rem; font-size: 0.92rem; }
+  code.inl { font-family: ui-monospace, "SF Mono", Menlo, monospace; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: 0.85em; }
+  .foot { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.8rem; color: var(--muted); }
+  .legend { display: flex; gap: 1.25rem; flex-wrap: wrap; font-size: 0.82rem; margin: 0.5rem 0 0; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  @media print {
+    body { max-width: none; }
+    details { break-inside: avoid; } details:not([open]) .body { display: block; }
+    .card:hover { transform: none; box-shadow: var(--shadow); }
+    details summary::before { content: ""; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>HSTU backward 实现对比：qianfeng vs 我们</h1>
+  <div class="sub">两套 HSTU attention backward GPU kernel 的架构 · 能力 · 工程策略 · 成熟度 全面对比</div>
+  <div class="meta-row">
+    <span>📅 2026-07-09</span>
+    <span>我们：<code>LJ-underdog/composable_kernel</code> @ <code>a86529dc</code>（<code>hstu_attention_fwd_bwd_v2</code>）</span>
+    <span>qianfeng：<code>qianfengz/composable_kernel</code> @ <code>fa6562820</code>（<code>hstu_attention_bwd_work</code>）</span>
+    <span>目标硬件：MI350X / gfx950 / CDNA4</span>
+  </div>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--ours)"></span>我们的实现</span>
+    <span><span class="sw" style="background:var(--qf)"></span>qianfeng 的实现</span>
+    <span><span class="sw" style="background:var(--success)"></span>支持 / 优势</span>
+    <span><span class="sw" style="background:var(--warning)"></span>部分 / 注意</span>
+    <span><span class="sw" style="background:var(--danger)"></span>不支持 / 短板</span>
+  </div>
+</header>
+
+<!-- 一句话结论 -->
+<p class="lead">
+  两套实现算的是<strong>同一个 HSTU bwd 数学</strong>（dV=P<sup>T</sup>dO、dP=dO·V、dQ=α·dS·K、dK=α·dS<sup>T</sup>·Q），
+  但走了<strong>两条相反的工程路线</strong>：
+  <strong class="ours">我们 = 单融合 kernel</strong>（一个 KV-block 并行 kernel 同时出 dQ/dK/dV，dQ 靠 atomic/split 累加），
+  已完成 M0–M8 里程碑、百级对拍、perf 调优；
+  <strong class="qf">qianfeng = 双 kernel 拆分</strong>（Kernel1 出 dQ、Kernel2 出 dK/dV，天然无 atomic），
+  额外带 <strong>dropout</strong>，但处于"刚编译打通"的早期阶段、缺测试与调优。
+</p>
+
+<div class="stats">
+  <div class="stat ours"><div class="n">1<span style="font-size:1rem;font-weight:500">+PRE/POST</span></div><div class="l">我们：核心 GPU kernel 数（融合）</div></div>
+  <div class="stat qf"><div class="n">2</div><div class="l">qianfeng：核心 GPU kernel 数（拆分）</div></div>
+  <div class="stat ours"><div class="n">64</div><div class="l">我们：预编译 instance 数</div></div>
+  <div class="stat qf"><div class="n">192</div><div class="l">qianfeng：预编译 instance 数</div></div>
+  <div class="stat ours"><div class="n">253</div><div class="l">我们：对拍 run 全通过（220 self + 33 cross）</div></div>
+  <div class="stat qf"><div class="n">2</div><div class="l">qianfeng：bwd 分支提交数</div></div>
+</div>
+
+<!-- 架构差异 -->
+<h2>1. 核心架构差异：单融合 kernel vs 双 kernel 拆分</h2>
+<p>这是两套实现<strong>最根本</strong>的分歧，几乎决定了后面所有差异（atomic、instance 数、perf 路径）。</p>
+
+<div class="diagram">
+<svg viewBox="0 0 900 430" role="img" aria-label="两套 bwd 架构对比图">
+  <style>
+    .lbl{font:600 13px -apple-system,sans-serif;fill:var(--text)}
+    .sm{font:11px ui-monospace,monospace;fill:var(--muted)}
+    .ttl{font:700 14px -apple-system,sans-serif}
+    .boxo{fill:var(--ours-light);stroke:var(--ours);stroke-width:1.5}
+    .boxq{fill:var(--qf-light);stroke:var(--qf);stroke-width:1.5}
+    .boxn{fill:var(--surface-2);stroke:var(--border);stroke-width:1}
+    .arr{stroke:var(--muted);stroke-width:1.5;fill:none;marker-end:url(#ah)}
+    .ttlo{fill:var(--ours)} .ttlq{fill:var(--qf)}
+    .arrhead{fill:var(--muted)} .sep{stroke:var(--border)}
+  </style>
+  <defs><marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 z" class="arrhead"/></marker></defs>
+
+  <!-- 我们 -->
+  <text x="20" y="28" class="ttl ttlo">我们：单融合 MAIN（KV-block 并行）</text>
+  <rect x="20" y="45" width="120" height="42" rx="6" class="boxn"/>
+  <text x="80" y="63" text-anchor="middle" class="lbl">PRE</text>
+  <text x="80" y="79" text-anchor="middle" class="sm">D=rowsum(O∘dO)</text>
+  <rect x="160" y="45" width="90" height="42" rx="6" class="boxn"/>
+  <text x="205" y="63" text-anchor="middle" class="lbl">memset</text>
+  <text x="205" y="79" text-anchor="middle" class="sm">zero dq_acc</text>
+  <rect x="270" y="38" width="270" height="56" rx="6" class="boxo"/>
+  <text x="405" y="60" text-anchor="middle" class="lbl">MAIN kernel（5 GEMM / 7 STAGE）</text>
+  <text x="405" y="80" text-anchor="middle" class="sm">同时出 dV · dK · dq_acc(float)</text>
+  <rect x="560" y="45" width="120" height="42" rx="6" class="boxn"/>
+  <text x="620" y="63" text-anchor="middle" class="lbl">POST</text>
+  <text x="620" y="79" text-anchor="middle" class="sm">dq_acc→dQ</text>
+  <path class="arr" d="M140,66 H158"/>
+  <path class="arr" d="M250,66 H268"/>
+  <path class="arr" d="M540,66 H558"/>
+  <text x="700" y="52" class="sm">→ dK/dV 直接写</text>
+  <text x="700" y="70" class="sm">→ dQ 经 float 工作区</text>
+  <text x="700" y="88" class="sm">   + atomic 或 split</text>
+
+  <line x1="20" y1="120" x2="880" y2="120" class="sep" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <!-- qianfeng -->
+  <text x="20" y="152" class="ttl ttlq">qianfeng：双 kernel（各选天然并行轴）</text>
+  <rect x="20" y="175" width="330" height="70" rx="6" class="boxq"/>
+  <text x="185" y="200" text-anchor="middle" class="lbl">Kernel 1（并行轴 = Q-tile）</text>
+  <text x="185" y="219" text-anchor="middle" class="sm">出 dQ ＋ softmax 的 delta=rowsum(dO∘O)</text>
+  <text x="185" y="235" text-anchor="middle" class="sm">每个 dQ tile 由唯一 workgroup 独占 → 直接写</text>
+  <rect x="20" y="265" width="330" height="70" rx="6" class="boxq"/>
+  <text x="185" y="290" text-anchor="middle" class="lbl">Kernel 2（并行轴 = K/V-tile）</text>
+  <text x="185" y="309" text-anchor="middle" class="sm">出 dK · dV，寄存器累加器跨 Q 循环</text>
+  <text x="185" y="325" text-anchor="middle" class="sm">每个 dK/dV tile 由唯一 workgroup 独占 → 直接写</text>
+  <path class="arr" d="M185,245 V263"/>
+  <text x="205" y="259" class="sm">同 stream 顺序 launch</text>
+
+  <rect x="400" y="200" width="470" height="120" rx="6" class="boxn"/>
+  <text x="420" y="224" class="lbl">关键取舍</text>
+  <text x="420" y="248" class="sm">✓ 每个输出 tile 唯一归属 → 全程无 atomic，天然确定性</text>
+  <text x="420" y="270" class="sm">✗ 两个 kernel 各自重算 S=QK<tspan font-family="sans-serif">ᵀ</tspan>（冗余 GEMM）</text>
+  <text x="420" y="292" class="sm">✗ 两次 kernel launch；jagged 下长度悬殊会负载不均</text>
+  <text x="420" y="312" class="sm" style="fill:var(--qf)">= 经典 Flash-Attention bwd 拆分范式</text>
+</svg>
+</div>
+
+<div class="callout key">
+  <div class="t">💡 关键洞察：并行轴决定了要不要 atomic</div>
+  单 kernel 无法同时让 dQ 的行、dK/dV 的列都"各归一个 workgroup"。<strong>我们</strong>选 KV-block 并行 → 一行 dQ 被多个 KV block 触碰 → <strong>必须 atomic_add 或 split+reduce</strong>累加。
+  <strong>qianfeng</strong>用两个 kernel、各选让自己输出天然独占的并行轴 → <strong>完全不需要 atomic</strong>，代价是 <strong>S 重算两遍 + 两次 launch</strong>。这不是谁对谁错，是"一次融合 launch 换 atomic" vs "无 atomic 换冗余计算"的取舍。
+</div>
+
+<div class="cols">
+  <div class="card ours">
+    <h3><span class="tag ours">我们</span> 单融合 MAIN</h3>
+    <ul>
+      <li>一个 KV-block 并行 kernel 同时产 dV/dK（epilogue 直接写）+ dQ（float <code class="inl">dq_acc</code> 工作区）<span class="src">bwd_kernel.hpp:444-482</span></li>
+      <li>softmax 路多一个 PRE kernel 算 D=rowsum(O∘dO)<span class="src">bwd_kernel.hpp:1700-1754</span></li>
+      <li>POST 把 float dq_acc 转成 dQ（convert 或 reduce+convert）<span class="src">:1763-1792</span></li>
+      <li>MAIN 内 4 个 kernel 结构体：{batched+jagged, group} × {SiLU, softmax}</li>
+      <li>S=QK<sup>T</sup> 只算一次（融合内复用）</li>
+    </ul>
+  </div>
+  <div class="card qf">
+    <h3><span class="tag qf">qianfeng</span> 双 kernel 拆分</h3>
+    <ul>
+      <li>Kernel1 出 dQ（+softmax 的 delta）<span class="src">bwd_kernel_1.hpp:19-21,230</span></li>
+      <li>Kernel2 出 dK/dV，寄存器累加跨 Q 循环后一次写<span class="src">bwd_kernel_2.hpp:895-943</span></li>
+      <li>dispatch 同 stream 顺序 launch，delta 用 <code class="inl">hipMallocAsync</code> 临时 workspace 传递<span class="src">batched_dispatch:149-156</span></li>
+      <li>拆分理由：dQ 行间不累加、dK/dV 列上需跨 Q 累加，两种模式不对称<span class="src">HSTU_BWD_DESIGN.md:51-63</span></li>
+      <li>两个 kernel 各自重算 S（冗余 GEMM）</li>
+    </ul>
+  </div>
+</div>
+
+<!-- dQ 累加 -->
+<h2>2. dQ 累加与确定性</h2>
+<div class="cols">
+  <div class="card ours">
+    <h3><span class="tag ours">我们</span> atomic + 可选确定性</h3>
+    <ul>
+      <li>默认 <code class="inl">atomic_add</code>（num_splits=1）<span class="src">bwd_kernel.hpp:363-372</span></li>
+      <li>deterministic 模式：每个 KV-block 写独立 split slot（<code class="inl">set</code>，无原子）+ POST 按<strong>固定升序</strong> reduce → <strong>逐位可复现</strong><span class="src">:1789-1792</span></li>
+      <li><code class="inl">kIsDeterministic</code> 是编译期模板轴，host 端运行时 BOOL_SWITCH 选实例</li>
+      <li>提供"性能(atomic) ↔ 可复现(determ)"两档给用户选</li>
+    </ul>
+  </div>
+  <div class="card qf">
+    <h3><span class="tag qf">qianfeng</span> 天然确定性（无开关）</h3>
+    <ul>
+      <li>bwd <strong>源码</strong>（.hpp/.cpp/.py）grep atomic/deterministic 零命中；atomic 仅出现在设计文档<span class="src">HSTU_BWD_DESIGN.md:329-334（dBias 累加策略）、:350（deferred split）</span></li>
+      <li>每个 dQ / dK / dV 输出 tile 由唯一 workgroup 负责 → <strong>无需 atomic，天然逐位确定</strong></li>
+      <li>没有"性能 vs 复现"开关——只有一条确定性路径</li>
+      <li>代价：不做 split，jagged 序列长度悬殊时负载不均（DESIGN 列为 deferred）<span class="src">HSTU_BWD_DESIGN.md:344-351</span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- 能力矩阵 -->
+<h2>3. 能力矩阵（feature matrix）</h2>
+<p>逐维对比。<span class="yes">绿=支持/优势</span>，<span class="partial">黄=部分/注意</span>，<span class="no">红=不支持/短板</span>。</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>维度</th><th class="ours-h">我们（a86529dc）</th><th class="qf-h">qianfeng（bwd_work）</th></tr></thead>
+  <tbody>
+    <tr><td class="dim">数据类型</td>
+      <td><span class="yes">bf16 + fp16</span></td>
+      <td><span class="yes">bf16 + fp16</span><span class="cell-note">其它 throw</span></td></tr>
+    <tr><td class="dim">激活路径</td>
+      <td><span class="yes">SiLU + softmax</span><span class="cell-note">两套同构 pipeline</span></td>
+      <td><span class="yes">SiLU(no_softmax) + softmax</span><span class="cell-note">kUseSoftmax 编译期轴</span></td></tr>
+    <tr><td class="dim">模式</td>
+      <td><span class="yes">batched / jagged / group</span><span class="cell-note">jagged 运行时分支、group 独立 kernel</span></td>
+      <td><span class="yes">batched / jagged / group</span><span class="cell-note">三者各有编译期实例轴</span></td></tr>
+    <tr><td class="dim">HSTU 5 因子 mask</td>
+      <td><span class="yes">全 5 + 任意组合</span><span class="cell-note">causal/window/contextual/min_full/num_target</span></td>
+      <td><span class="yes">全 5</span><span class="cell-note">复用 fwd 的 masking 基建</span></td></tr>
+    <tr><td class="dim">causal {0,1}</td>
+      <td><span class="yes">是</span></td><td><span class="yes">是</span></td></tr>
+    <tr><td class="dim">cross-attention<br>(seqlen_q≠kv)</td>
+      <td><span class="yes">全方向</span><span class="cell-note">运行时 BOOL_SWITCH，零 instance 增长</span></td>
+      <td><span class="yes">支持</span><span class="cell-note">运行时 is_cross_attention 分支</span></td></tr>
+    <tr><td class="dim">hdim</td>
+      <td><span class="yes">(0,256] 任意</span><span class="cell-note">对称+非对称+非典范 via pad（M7c）</span></td>
+      <td><span class="partial">{64,96,128,256} 桶 + 非对称</span><span class="cell-note">HDIM_SWITCH 向上归桶 + pad；&gt;256 throw</span></td></tr>
+    <tr><td class="dim">确定性 dQ</td>
+      <td><span class="yes">atomic + 可复现 determ 双档</span></td>
+      <td><span class="yes">天然确定（架构自带）</span><span class="cell-note">但无 atomic 高性能档</span></td></tr>
+    <tr><td class="dim">dropout</td>
+      <td><span class="no">不支持</span><span class="cell-note">HSTU 主线不需要</span></td>
+      <td><span class="yes">已实现</span><span class="cell-note">BlockDropout + 独立随机数生成 kernel（与其 DESIGN "deferred" 矛盾，以码为准）</span></td></tr>
+    <tr><td class="dim">bias / dBias</td>
+      <td><span class="no">不支持</span><span class="cell-note">NO_BIAS 硬编码</span></td>
+      <td><span class="partial">代码 plumbed 但实例只出 has_bias=False</span><span class="cell-note">运行时不可用，dBias 未实现</span></td></tr>
+  </tbody>
+</table>
+</div>
+<div class="callout warn">
+  <div class="t">⚠ 能力上的净差异（互有对方没有的）</div>
+  <strong>qianfeng 有、我们没有</strong>：dropout（真实现）。<br>
+  <strong>我们有、qianfeng 没有</strong>：非典范任意 hdim（M7c pad）、atomic 高性能 dQ 档、GetTileRangeAlongY perf 紧致化、成体系的对拍测试。<br>
+  <strong>都不支持</strong>：可用的 bias/dBias（qianfeng 有骨架但未开）。
+</div>
+
+<!-- instance 策略 -->
+<h2>4. instance / build 策略</h2>
+<div class="cols">
+  <div class="card ours">
+    <h3><span class="tag ours">我们</span> 精简：64 个</h3>
+    <ul>
+      <li>轴：2 dtype × 2 causal × 2 softmax × 2 <strong>determ</strong> × 4 hdim = <strong>64</strong>（仅 batched）<span class="src">generate_instances.py:175-198</span></li>
+      <li>运行时 switch（零增长）：<strong>cross、jagged、window/local</strong></li>
+      <li>group 直接 inline 编译，无独立 instance 文件</li>
+      <li>刻意把轴推成运行时以压制膨胀</li>
+    </ul>
+  </div>
+  <div class="card qf">
+    <h3><span class="tag qf">qianfeng</span> 膨胀：192 个</h3>
+    <ul>
+      <li>轴：3 <strong>mode</strong> × 2 dtype × 2 causal × 2 softmax × 2 <strong>dropout</strong> × 4 hdim = <strong>192</strong><span class="src">generate_bwd_instances.py:92-170</span></li>
+      <li>mode(batched/jagged/group) 与 dropout 都是编译期轴 → 数量大</li>
+      <li>cross 是运行时 switch（这点与我们一致）</li>
+      <li>典型 CK instance 膨胀取向，build 体积/时间偏重</li>
+    </ul>
+  </div>
+</div>
+<p style="font-size:0.9rem;color:var(--muted)">
+  差异根源：我们把 <em>jagged</em> 做成运行时分支、把 <em>group</em> 做成独立 inline 编译的 kernel（自带 .cpp 入口、内部 BOOL_SWITCH，不计入 batched 的 64）、且无 dropout 轴，但多了 determ 轴；qianfeng 把 <em>mode(batched/jagged/group) / dropout</em> 做成编译期轴。<em>window / cross</em> 两侧都是运行时分支、对实例数差异无贡献。净结果 64 vs 192。
+</p>
+
+<!-- perf -->
+<h2>5. 性能工作</h2>
+<div class="cols">
+  <div class="card ours">
+    <h3><span class="tag ours">我们</span> 有测量基建 + 已调优</h3>
+    <ul>
+      <li><code class="inl">bwd_perf.hpp</code>：<code class="inl">time_op</code> 计时基建，非 <code class="inl">-perf</code> 时 device 码字节不变（零回归）<span class="src">bwd_perf.hpp:14-45</span></li>
+      <li><strong>GetTileRangeAlongY 紧致化</strong>：B2(causal) / B3(window) 砍掉 MAIN 无效 Q-tile 迭代<span class="src">hstu_block_masking.hpp:961-995 / 269-326</span></li>
+      <li>离线 <code class="inl">validate_tile_range_y</code> 穷举校验器守 silent-wrong</li>
+      <li>旧机实测：MAIN causal <strong>1.25–1.6×</strong>、window <strong>4.7–9.8×</strong>（本机无 GPU，未复测）</li>
+    </ul>
+  </div>
+  <div class="card qf">
+    <h3><span class="tag qf">qianfeng</span> 尚无调优</h3>
+    <ul>
+      <li>最后一个提交是 <em>"Fix errors while building"</em>——刚编译打通</li>
+      <li>gfx94 / gfx95 各一套 tile preset<span class="src">bwd_setting.hpp:16-380</span></li>
+      <li>未见计时基建、未见 loop 紧致化优化</li>
+      <li>处于"架构成型"阶段，无 perf commit</li>
+    </ul>
+  </div>
+</div>
+
+<!-- 成熟度 -->
+<h2>6. 工程成熟度</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>指标</th><th class="ours-h">我们</th><th class="qf-h">qianfeng</th></tr></thead>
+  <tbody>
+    <tr><td class="dim">开发轨迹</td>
+      <td><span class="yes">M0→M8 + cross 完整里程碑链</span></td>
+      <td><span class="partial">2 个 bwd 提交（初版 + 编译修复）</span></td></tr>
+    <tr><td class="dim">对拍测试</td>
+      <td><span class="yes">独立回归套件 253 run 全通过</span><span class="cell-note">run_bwd_tests.py，~101 条用例定义参数化展开为 253 run（220 self + 33 cross，14 bit-repro）；覆盖 softmax/jagged/group/determ/cross/fp16/非对称 hdim</span></td>
+      <td><span class="partial">仅 example 内置自检（no_group + group 均有对拍）</span><span class="cell-note">run_group_hstu_forward_backward:748 / check_err:1277-1283；但无独立回归套件</span></td></tr>
+    <tr><td class="dim">对拍 harness / oracle</td>
+      <td><span class="partial">bwd 专属 harness，消费 GPU 前向 kernel 自产的 O/LSE</span><span class="cell-note">无独立 CPU 前向 oracle；dO 随机 fill；不覆盖 dropout（example_bwd.cpp:183,510,711）</span></td>
+      <td><span class="yes">fwd+bwd 融合 harness，独立 CPU 前向 oracle 重算 O/LSE</span><span class="cell-note">CPU 参考链完整、且 CPU bwd reference 覆盖 dropout 回放（:117,629,657；reference_bwd.hpp:68,165）</span></td></tr>
+    <tr><td class="dim">数值容差<br>(rtol/atol)</td>
+      <td><span class="yes">按 dtype 分档</span><span class="cell-note">bf16 2e-2/5e-2、fp16 5e-3/1e-2（example_bwd.cpp:157-164）</span></td>
+      <td><span class="partial">两 dtype 单一口径</span><span class="cell-note">rtol 1.6e-2 / atol 1e-5（:99-110）；atol 比我们严 3~4 个数量级 → 两边"对拍通过"不同口径，不可直接横比含金量</span></td></tr>
+    <tr><td class="dim">已知缺陷</td>
+      <td><span class="yes">无活跃 FIXME（旧 TODO 注释均已实现）</span></td>
+      <td><span class="no">校验 <code class="inl">||</code> 短路：dq 通过则不查 dk/dv</span><span class="cell-note">example_bwd.cpp:707-713（推断为逻辑缺陷，未运行验证）</span></td></tr>
+    <tr><td class="dim">git 状态</td>
+      <td><span class="yes">全部提交、工作树干净</span></td>
+      <td><span class="partial">初版编译刚修复</span></td></tr>
+    <tr><td class="dim">设计文档</td>
+      <td><span class="yes">project_summary 全套 + 14 篇 HTML 讲义</span></td>
+      <td><span class="yes">HSTU_BWD_DESIGN.md（详尽，但部分已被代码超越）</span></td></tr>
+  </tbody>
+</table>
+</div>
+
+<!-- 代码规模 -->
+<h2>7. 代码规模</h2>
+<div class="stats">
+  <div class="stat ours"><div class="n">1795</div><div class="l">我们：主 kernel 行数（融合）</div></div>
+  <div class="stat qf"><div class="n">1192+1212</div><div class="l">qianfeng：两 kernel 行数</div></div>
+  <div class="stat ours"><div class="n">~6.5k</div><div class="l">我们：核心手写 bwd 行数</div></div>
+  <div class="stat qf"><div class="n">10.4k</div><div class="l">qianfeng：21 个核心 bwd 文件行数</div></div>
+</div>
+<p style="font-size:0.9rem;color:var(--muted)">qianfeng 代码量更大，主因是双 kernel × 双激活 = 4 套 pipeline（<code class="inl">*_dq</code> / <code class="inl">*_dk_dv</code> 各含 softmax/no_softmax 变体）+ 独立随机数生成 kernel（dropout）+ 192 instance。我们靠单融合 kernel + 运行时轴更紧凑。</p>
+
+<!-- 取舍总结 -->
+<h2>8. 取舍总结：各自赢在哪</h2>
+<div class="cols">
+  <div class="card ours">
+    <h3><span class="tag ours">我们</span> 更适合</h3>
+    <ul>
+      <li>追求<strong>单次 launch + S 只算一次</strong>的计算效率</li>
+      <li>需要<strong>用户可选</strong> atomic(快) / determ(可复现)</li>
+      <li>需要<strong>任意 hdim</strong>（非典范 via pad）</li>
+      <li>要<strong>可交付/可回归</strong>：测试齐、已调优、里程碑清晰</li>
+      <li>想要<strong>小 build</strong>（64 instance）</li>
+    </ul>
+  </div>
+  <div class="card qf">
+    <h3><span class="tag qf">qianfeng</span> 更适合</h3>
+    <ul>
+      <li>想要<strong>零 atomic、结构最简单</strong>的确定性 bwd</li>
+      <li>需要 <strong>dropout</strong>（唯一已实现的一方）</li>
+      <li>偏好<strong>经典 FA 双 kernel</strong>范式、便于对照标准实现</li>
+      <li>（前提）能接受<strong>早期成熟度</strong>：待补测试、待修校验 bug、待调优</li>
+    </ul>
+  </div>
+</div>
+
+<h2>9. 细节展开（点击）</h2>
+<details>
+  <summary>数学与激活路径细节</summary>
+  <div class="body">
+    <p><strong>SiLU（no_softmax）路</strong>：前向 <code class="inl">P=silu(S)·scale_p</code>，bwd 从 Q/K <strong>重算 S</strong>（无保存值），<code class="inl">dS=dP·scale_p·dsilu(S)</code>，masked-out 显式置 0。两边都用 <code class="inl">dsilu(x)=σ(x)(1+x(1−σ(x)))</code>。</p>
+    <p><strong>softmax 路</strong>：前向存 LSE，bwd 用 <code class="inl">P=exp(S−LSE)</code> 恢复，<code class="inl">dS=P·(dP−D)</code>；D=rowsum(dO∘O)。我们在 PRE kernel 算 D，qianfeng 在 Kernel1 顺带算 delta 传给 Kernel2。</p>
+    <p>收尾都是 dQ、dK ×α，<strong>dV 不缩放</strong>。<span class="src">我们 no_softmax_pipeline.hpp:402-438 / with_softmax_pipeline.hpp:460-514；qianfeng *_dq/*_dk_dv pipeline</span></p>
+  </div>
+</details>
+<details>
+  <summary>tile / block shape 对比（按块角色对齐）</summary>
+  <div class="body">
+    <p>因两边（乃至 qianfeng 两个 kernel）的 tile 序列语义/长度不同，<strong>不能按原始槽位并列</strong>，下表按「Q 块 / KV 块」角色重排。qianfeng 另按 <code class="inl">BUILD_HSTU_FOR_GFX95</code> 分 gfx94/gfx95 两套 preset，此处取值可能随该宏不同。</p>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>hdim</th><th class="ours-h">我们 Q块/KV块</th><th class="qf-h">qianfeng K1 (Q并行)</th><th class="qf-h">qianfeng K2 (KV并行)</th></tr></thead>
+      <tbody>
+        <tr><td class="dim">64</td><td>32 / 128</td><td>M=128</td><td>M=64</td></tr>
+        <tr><td class="dim">96</td><td>32 / 128</td><td>M=128</td><td>M=64</td></tr>
+        <tr><td class="dim">128</td><td>16 / 128</td><td>M=64</td><td>M=64</td></tr>
+        <tr><td class="dim">256</td><td>16 / 64</td><td>M=64</td><td>M=64</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p style="font-size:0.85rem;color:var(--muted)">来源：我们 <code class="inl">bwd_shape.hpp:36/67/96/128</code>（<code class="inl">sequence&lt;bm0,bn0,...&gt;</code>，bn0=KV 块）；qianfeng <code class="inl">bwd_setting.hpp:25/33/41/49</code>（K1）、<code class="inl">:110/119/128/137</code>（K2）。K1 的 M 指 Q-tile、K2 的 M 指其独占的 KV-tile（两 kernel 各有独立 tile 表，故只标 M 以免误对齐）；hd128/256 在 gfx94 与 gfx95 两套 preset 数值有别。</p>
+  </div>
+</details>
+<details>
+  <summary>为什么 qianfeng 要重算 S 两遍</summary>
+  <div class="body">
+    <p>Kernel1 算 dQ=α·dS·K 需要 dS→需要 S；Kernel2 算 dK=α·dS<sup>T</sup>·Q 同样需要 S。两个 kernel 各自独立、不共享中间量，所以 S=QK<sup>T</sup> 这个 GEMM 在两个 kernel 里各做一遍。我们的融合 kernel 因为 dQ/dK/dV 在同一个 kernel 内，S 算一次即被三路复用——这是"融合换省算"的直接体现，代价是引入了 dQ 的 atomic 累加。</p>
+  </div>
+</details>
+<details>
+  <summary>qianfeng DESIGN.md 与实际代码的偏差</summary>
+  <div class="body">
+    <ul>
+      <li><strong>dropout</strong>：DESIGN 写 "deferred"，实际代码<strong>已实现</strong>（BlockDropout + 独立随机数 kernel）。</li>
+      <li><strong>bias</strong>：DESIGN 列 dBias deferred；代码里 <code class="inl">kHasBias</code> 模板全程 plumbed，但实例生成器只出 <code class="inl">has_bias=False</code> → 运行时不可用。</li>
+      <li>结论：读 qianfeng 要<strong>以源码为准</strong>，DESIGN 是早期规划、已被部分超越。</li>
+    </ul>
+  </div>
+</details>
+
+<div class="foot">
+  <p>方法：两个并行 code-analysis agent 分别深读两个代码库，所有事实性主张均核到 <code>文件:行号</code>（遵循 CLAUDE.md §2 答案验证）。</p>
+  <p><strong>未在无 GPU 下核实的项</strong>（本机无 gfx950）：① 两套实现的实际运行正确性/性能数字（我们的 perf 为旧机实测）；② qianfeng 是否真能编过跑对（其最后 commit 仅"编译修复"）；③ 涉及 gfx950/CDNA4 atomic 吞吐、MFMA warp tile 的硬件行为（按 §3 需查 rocm-ref，本文未臆造具体数值）。</p>
+  <p>生成：Claude Code · html-doc skill（Comparison Board + Decision Matrix 模式）· 2026-07-09</p>
+</div>
+
+</body>
+</html>
