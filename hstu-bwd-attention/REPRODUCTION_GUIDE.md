@@ -4,7 +4,7 @@
 
 ## 0. 前置:硬件 / 环境
 
-- **GPU 必须 gfx950 / MI350X / CDNA4**(本项目 kernel 走 `BUILD_HSTU_FOR_GFX95_ONLY` + `#ifdef __gfx950__`,其它芯片编不出/跑不对)。`rocminfo` 确认。
+- **主目标 GPU gfx950 / MI350X / CDNA4**(当时唯一验证机);**代码为 gfx942+gfx950 双目标**,gfx942 无需改代码即可编——arch 特化下推到 ck_tile warp-gemm 别名层(gfx942 走 `IterateK<K16>` 真实 MFMA,gfx950 用原生 K32 MFMA),`BUILD_HSTU_FOR_GFX95_ONLY` 是死宏(仅配 `-fno-slp-vectorize` 性能标签)、非排他门。真机 gfx942 对拍**已通过**(2026-07-29,MI300X/gfx942):build 0-error + 回归套件 **253/253 PASS**(`-attn_scale=1.0`,含 14 例 determ bit-identical),二进制走 CDNA3 原生 MFMA(646,080× `16x16x16`、零 `16x16x32`/`32x32x16`);gfx950 上按本指南可直接复现。`rocminfo` 确认。
 - ROCm 装在 `/opt/rocm`(hipcc / amdclang++);需 cmake + ninja。
 - 容器内 home 一般是 `/root`(若不同,把下面路径里的 `/root` 替换掉)。
 

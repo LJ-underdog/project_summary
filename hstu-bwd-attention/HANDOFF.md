@@ -28,7 +28,7 @@
   cmake --build build --target tile_example_hstu_attention_bwd -j$(nproc)   # bwd
   cmake --build build --target tile_example_hstu_attention     -j$(nproc)   # fwd(oracle 产 O 用)
   ```
-- gfx950 专属:fwd/bwd 都走 `BUILD_HSTU_FOR_GFX95_ONLY` + `-fno-slp-vectorize` + `#ifdef __gfx950__`(CMake 自动加)。`-DCK_TILE_FLOAT_TO_BFLOAT16_DEFAULT=3`。
+- **arch**:主目标 gfx950(本机),但 **bwd 实为 gfx942+gfx950 双目标**——bwd 源码**零引用** `BUILD_HSTU_FOR_GFX95_ONLY`(该宏是死宏,仅给 fwd 配 `-fno-slp-vectorize` 性能标签、非排他门),arch 特化在 ck_tile warp-gemm 别名层:gfx950 用原生 K32 MFMA、gfx942 走 `IterateK<K16>` 真实 MFMA。CMake 为 gfx950 目标自动加 `-fno-slp-vectorize`;`-DCK_TILE_FLOAT_TO_BFLOAT16_DEFAULT=3`。真机 gfx942 对拍**已通过**(2026-07-29,MI300X/gfx942):build 0-error + 回归套件 **253/253 PASS**(`-attn_scale=1.0`,含 14 例 determ bit-identical),二进制走 CDNA3 原生 MFMA(646,080× `16x16x16`、零 `16x16x32`/`32x32x16`)。[更正 2026-07:原文"gfx950 专属:fwd/bwd 都走 BUILD_HSTU_FOR_GFX95_ONLY"对 bwd 是错的,见静态代码审计裁决②③]
 
 ## 2. 多 pane 团队(tmux session `claudeteam`)
 - pane 0.0 = lead(你);0.1/0.2/0.3 = teammate。

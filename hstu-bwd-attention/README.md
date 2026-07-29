@@ -5,7 +5,7 @@
 ## 背景
 
 - **任务**:为 HSTU(Hierarchical Sequential Transduction Units)attention 的 **backward** 实现 GPU kernel。起始状态:仓库只有 855 行 CPU 参考(`reference_hstu_attention_bwd.hpp`),**无任何 GPU bwd**。
-- **硬件**:AMD MI350X / **gfx950 / CDNA4**(kernel 走 gfx950-only 路径)。
+- **硬件**:主目标 **gfx950 / CDNA4**(AMD MI350X,当时唯一验证机);**代码实为 gfx942+gfx950 双目标**,gfx942 无需改代码即可编——arch 特化在 ck_tile warp-gemm 别名层(gfx942 走 `IterateK<K16>` 真实 MFMA、gfx950 用原生 K32 MFMA),`BUILD_HSTU_FOR_GFX95_ONLY` 是死宏(仅配 `-fno-slp-vectorize` 性能标签)、非排他门。真机 gfx942 对拍**已通过**(2026-07-29,MI300X/gfx942):build 0-error + 回归套件 **253/253 PASS**(`-attn_scale=1.0`,含 14 例 determ bit-identical),二进制走 CDNA3 原生 MFMA(646,080× `16x16x16`、零 `16x16x32`/`32x32x16`)。
 - **基建**:复用 ROCm composable_kernel 的 ck_tile FMHA bwd 流水线 + codegen。
 - **代码所在**:fork `LJ-underdog/composable_kernel`,分支 `hstu_attention_fwd_bwd_v2` @ `a86529dc`(详见 `code_location.md`)。**本 summary 库不含代码,只含上下文/文档/测试/讲义 + 复现指针。**
 
